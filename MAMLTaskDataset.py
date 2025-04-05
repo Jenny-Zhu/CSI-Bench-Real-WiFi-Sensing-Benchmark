@@ -1,25 +1,27 @@
 import torch
 from torch.utils.data import Dataset
-import random
 import numpy as np
+import random
 from collections import defaultdict
 import os
 import scipy.io as sio
 import h5py
 
-# Base CSI Dataset for loading and preprocessing .mat files
+
 class CSIDataset(Dataset):
-    def __init__(self, folder_path, resize_height=64):
+    def __init__(self, folder_path, resize_height=64, label_keywords=None):
         """
+        Dataset class for loading CSI .mat files and generating samples.
         :param folder_path: Directory containing .mat files
-        :param resize_height: The target height (e.g., number of subcarriers) to resize/pad CSI data to
+        :param resize_height: Resize subcarriers to this fixed height
+        :param label_keywords: Dictionary mapping keyword in file path to label, e.g., {"good": 0, "bad": 1}
         """
         self.folder_path = folder_path
         self.resize_height = resize_height
+        self.label_keywords = label_keywords or {'good': 0, 'bad': 1}
         self.data, self.labels = self.load_matlab_CSI()
 
     def find_mat_files(self):
-        """Recursively find all .mat files in the folder."""
         mat_files = []
         for root, _, files in os.walk(self.folder_path):
             for file in files:
@@ -28,13 +30,18 @@ class CSIDataset(Dataset):
         return mat_files
 
     def load_matlab_CSI(self):
-        """Load and preprocess all .mat files in the folder."""
         mat_files = self.find_mat_files()
-
-        data_list = []
-        labels = []
+        data_list, labels = [], []
 
         for file_path in mat_files:
+            label = None
+            for keyword, value in self.label_keywords.items():
+                if keyword.lower() in file_path.lower():
+                    label = value
+                    break
+            if label is None:
+                continue  # Skip files that don't match any keyword
+
             try:
                 mat_data = sio.loadmat(file_path, squeeze_me=False)
             except NotImplementedError:
@@ -43,14 +50,15 @@ class CSIDataset(Dataset):
                     for key in f.keys():
                         mat_data[key] = np.array(f[key])
 
-            csi_content = mat_data['csi_trace']['csi'][0][0]  # shape: (subcarriers, antennas, samples)
-            label = mat_data['label'][0]                      # assuming label is stored like [1] or [0]
+            try:
+                csi_content = mat_data['csi_trace']['csi'][0][0]
+            except Exception:
+                continue
 
-            # Compute amplitude and reshape
             csi_amplitude = abs(csi_content)
-            csi_reshaped = csi_amplitude.reshape(-1, csi_amplitude.shape[-1])  # shape: (subcarriers * antennas, time)
+            csi_reshaped = csi_amplitude.reshape(-1, csi_amplitude.shape[-1])
 
-            # Resize/pad CSI to fixed height
+            # Pad or crop
             current_subca = csi_reshaped.shape[0]
             if current_subca > self.resize_height:
                 csi_resized = csi_reshaped[:self.resize_height, :]
@@ -67,29 +75,26 @@ class CSIDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        """
-        :return: tuple of (sample, label)
-            - sample: np.array of shape (H, W) = (resize_height, time)
-            - label: int class label
-        """
         sample = self.data[idx]
         label = self.labels[idx]
         return sample, label
 
-# Meta-learning Task Sampler for few-shot learning (MAML)
+
 class CSITaskDataset:
-    def __init__(self, folder_path, k_shot=5, q_query=15, resize_height=64):
+    def __init__(self, folder_path, k_shot=5, q_query=15, resize_height=64, label_keywords=None):
         """
-        :param folder_path: Path to folder with .mat files
+        Task sampler for MAML meta-learning from CSI data.
+        :param folder_path: Path to .mat data
         :param k_shot: Number of support samples per class
         :param q_query: Number of query samples per class
-        :param resize_height: Height of CSI input for standardization
+        :param resize_height: Height for CSI subcarriers
+        :param label_keywords: Dictionary like {"good": 0, "bad": 1}
         """
-        self.dataset = CSIDataset(folder_path, resize_height)
+        self.dataset = CSIDataset(folder_path, resize_height, label_keywords)
         self.k_shot = k_shot
         self.q_query = q_query
 
-        # Group dataset indices by class label
+        # Group samples by label
         self.class_to_indices = defaultdict(list)
         for idx, label in enumerate(self.dataset.labels):
             self.class_to_indices[int(label)].append(idx)
@@ -97,10 +102,10 @@ class CSITaskDataset:
         self.classes = list(self.class_to_indices.keys())
         assert len(self.classes) >= 2, "MAML requires at least 2 classes."
 
-    def sample_task(self, num_classes=2):
+    def run_task(self, num_classes=2):
         """
-        Sample a few-shot task with support and query sets.
-        :return: x_s, y_s, x_q, y_q tensors
+        Sample one few-shot task: support and query sets from selected classes.
+        :return: x_s, y_s, x_q, y_q (support and query tensors)
         """
         selected_classes = random.sample(self.classes, num_classes)
         support_x, support_y, query_x, query_y = [], [], [], []
@@ -108,7 +113,7 @@ class CSITaskDataset:
         for class_idx, class_label in enumerate(selected_classes):
             indices = self.class_to_indices[class_label]
             if len(indices) < self.k_shot + self.q_query:
-                continue  # Not enough data for this class
+                continue
 
             chosen = random.sample(indices, self.k_shot + self.q_query)
             support_ids = chosen[:self.k_shot]
@@ -116,7 +121,7 @@ class CSITaskDataset:
 
             for sid in support_ids:
                 x, y = self.dataset[sid]
-                x = torch.tensor(x).unsqueeze(0).float()  # shape: (1, H, W)
+                x = torch.tensor(x).unsqueeze(0).float()  # (1, H, W)
                 support_x.append(x)
                 support_y.append(class_idx)
 
@@ -127,6 +132,6 @@ class CSITaskDataset:
                 query_y.append(class_idx)
 
         return (
-            torch.cat(support_x), torch.tensor(support_y),
-            torch.cat(query_x), torch.tensor(query_y)
+            torch.stack(support_x), torch.tensor(support_y),
+            torch.stack(query_x), torch.tensor(query_y)
         )
