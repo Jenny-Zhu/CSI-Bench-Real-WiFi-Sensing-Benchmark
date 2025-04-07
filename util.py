@@ -7,6 +7,6 @@ def evaluate(fmodel, x, y):
     acc = (preds == y).float().mean().item()
     return acc
 
-def preprocess_csi(raw_signal):
+def preprocess_csi(raw_csi):
     # Placeholder for real preprocessing
-    return raw_signal
+    return raw_csi

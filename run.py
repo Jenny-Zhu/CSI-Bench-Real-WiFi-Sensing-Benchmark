@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 import higher
 import argparse
-from MAMLTaskDataset import CSITaskDataset
+from torch.utils.data import DataLoader, ConcatDataset
+from MAMLTaskDataset import CSITaskDataset, MultiSourceTaskDataset
 from Networks import CSI2DCNN
 from util import evaluate
 
@@ -60,46 +61,62 @@ def maml_train(model, task_dataset, steps=1000, tasks_per_batch=4, inner_lr=0.01
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    # parser = argparse.ArgumentParser()
 
-    # Choose the task: good/bad or motion/empty classification
-    parser.add_argument('--task', type=str, choices=['goodbad', 'motionempty'], default='goodbad',
-                        help="Task type: 'goodbad' or 'motionempty'")
-    parser.add_argument('--folder', type=str, required=True,
-                        help="Path to folder containing .mat CSI files")
-
-    args = parser.parse_args()
+    ## folder
+    ## training
+    train_folderpaths = [
+        r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\old_data',
+        r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\applause',
+        r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\cpd\training'
+    ]
+    test_folderpaths = [
+        r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\old_data',
+        r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\applause',
+        r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\cpd\testing'
+        # r'D:\AnomalyCSIVerification_dataset\data\CSI_verification\empty\simon_test'
+    ]
 
     # Few-shot task config  #
     k_shot = 5           # Number of support samples per class
     q_query = 15         # Number of query samples per class
     resize_height = 64   # Standardized height (e.g., # of subcarriers)
+    resize_width = 100
 
-    # Define label keywords per task #
-    if args.task == 'goodbad':
-        label_keywords = {'good': 0, 'bad': 1}
-    elif args.task == 'motionempty':
-        label_keywords = {'empty': 0, 'motion': 1}
-    else:
-        raise ValueError("Invalid task name. Choose from: goodbad, motionempty")
+    for task in ['goodbad', 'motionempty']:
+        if task == 'goodbad':
+            label_keywords = {'good': 0, 'bad': 1}
+        elif task == 'motionempty':
+            label_keywords = {'empty': 0, 'motion': 1}
+        else:
+            raise ValueError("Invalid task name")
 
-    # Initialize dataset & model #
-    task_dataset = CSITaskDataset(
-        folder_path=args.folder,
-        k_shot=k_shot,
-        q_query=q_query,
-        resize_height=resize_height,
-        label_keywords=label_keywords
-    )
+        print(f"\n--- Training on task: {task} ---")
 
-    # Infer shape (H, W) from one support sample
-    x_s, _, _, _ = task_dataset.run_task()
-    _, _, H, W = x_s.shape
+        train_datasets = []
+        for path in train_folderpaths:
+            try:
+                dataset = CSITaskDataset(
+                    folder_path=path,
+                    k_shot=k_shot,
+                    q_query=q_query,
+                    resize_height=resize_height,
+                    resize_width=resize_width,
+                    label_keywords=label_keywords
+                )
+                train_datasets.append(dataset)
+            except AssertionError as e:
+                print(f"[WARNING] Skipping folder {path}: {e}")
 
-    # Initialize 2D CNN model for CSI classification
-    model = CSI2DCNN(input_size=(H, W))
 
-    # -------------------- #
-    # Start MAML training  #
-    # -------------------- #
-    maml_train(model, task_dataset)
+        task_dataset = MultiSourceTaskDataset(train_datasets)
+
+        # Infer (H, W)
+        x_s, _, _, _ = train_datasets[0].run_task()
+        _, _, H, W = x_s.shape
+        model = CSI2DCNN(input_size=(H, W))
+
+        # Train MAML
+        maml_train(model, task_dataset, steps=1000)
+
+

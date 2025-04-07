@@ -6,10 +6,10 @@ from collections import defaultdict
 import os
 import scipy.io as sio
 import h5py
-
+import random
 
 class CSIDataset(Dataset):
-    def __init__(self, folder_path, resize_height=64, label_keywords=None):
+    def __init__(self, folder_path, resize_height=64, resize_width = 100, label_keywords=None):
         """
         Dataset class for loading CSI .mat files and generating samples.
         :param folder_path: Directory containing .mat files
@@ -18,7 +18,8 @@ class CSIDataset(Dataset):
         """
         self.folder_path = folder_path
         self.resize_height = resize_height
-        self.label_keywords = label_keywords or {'good': 0, 'bad': 1}
+        self.resize_width = resize_width
+        self.label_keywords = label_keywords
         self.data, self.labels = self.load_matlab_CSI()
 
     def find_mat_files(self):
@@ -66,6 +67,13 @@ class CSIDataset(Dataset):
                 pad_rows = self.resize_height - current_subca
                 csi_resized = np.pad(csi_reshaped, ((0, pad_rows), (0, 0)), mode='constant')
 
+            current_width = csi_reshaped.shape[1]
+            if current_width > self.resize_width:
+                csi_resized = csi_resized[:, :self.resize_width]
+            else:
+                pad_cols = self.resize_width - current_width
+                csi_resized = np.pad(csi_resized, ((0, 0), (0, pad_cols)), mode='constant')
+
             data_list.append(csi_resized)
             labels.append(label)
 
@@ -81,7 +89,7 @@ class CSIDataset(Dataset):
 
 
 class CSITaskDataset:
-    def __init__(self, folder_path, k_shot=5, q_query=15, resize_height=64, label_keywords=None):
+    def __init__(self, folder_path, k_shot=5, q_query=15, resize_height=64, resize_width = 100, label_keywords=None):
         """
         Task sampler for MAML meta-learning from CSI data.
         :param folder_path: Path to .mat data
@@ -90,7 +98,7 @@ class CSITaskDataset:
         :param resize_height: Height for CSI subcarriers
         :param label_keywords: Dictionary like {"good": 0, "bad": 1}
         """
-        self.dataset = CSIDataset(folder_path, resize_height, label_keywords)
+        self.dataset = CSIDataset(folder_path, resize_height, resize_width, label_keywords)
         self.k_shot = k_shot
         self.q_query = q_query
 
@@ -135,3 +143,19 @@ class CSITaskDataset:
             torch.stack(support_x), torch.tensor(support_y),
             torch.stack(query_x), torch.tensor(query_y)
         )
+
+
+class MultiSourceTaskDataset:
+    def __init__(self, datasets):
+        """
+        Wrapper to sample few-shot tasks across multiple CSITaskDataset sources.
+        :param datasets: list of CSITaskDataset instances
+        """
+        self.datasets = datasets
+
+    def sample_task(self):
+        """
+        Randomly sample a task from one of the datasets.
+        """
+        dataset = random.choice(self.datasets)
+        return dataset.sample_task()
