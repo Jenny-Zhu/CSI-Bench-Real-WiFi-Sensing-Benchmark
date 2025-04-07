@@ -112,7 +112,7 @@ if __name__ == '__main__':
         task_dataset = MultiSourceTaskDataset(train_datasets)
 
         # Infer (H, W)
-        x_s, _, _, _ = train_datasets[0].run_task()
+        x_s, _, _, _ = train_datasets[0].sample_task()
         _, _, H, W = x_s.shape
         model = CSI2DCNN(input_size=(H, W))
 

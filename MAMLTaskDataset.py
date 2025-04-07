@@ -110,7 +110,7 @@ class CSITaskDataset:
         self.classes = list(self.class_to_indices.keys())
         assert len(self.classes) >= 2, "MAML requires at least 2 classes."
 
-    def run_task(self, num_classes=2):
+    def sample_task(self, num_classes=2): # Randomly selects a small support set and query set from a classification task, using k_shot and q_query examples per class.
         """
         Sample one few-shot task: support and query sets from selected classes.
         :return: x_s, y_s, x_q, y_q (support and query tensors)
