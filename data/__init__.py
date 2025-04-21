@@ -7,3 +7,4 @@ from .task_loading_preprocessed import CSIDatasetOW_HM3_H5
 from .SSL_loading_preprocessed_acf import SSLACFDatasetMAT
 from .task_loading_preprocessed_acf import ACFDatasetOW_HM3_MAT,DatasetNTU_MAT
 from .SSL_loading_preprocessed_csi import SSLCSIDatasetMAT
+from .benchmark_loading_raw_csi import *

@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model import ViT_Parallel, ViT_MultiTask
+from model import ViT_Parallel, ViT_MultiTask, CSI2DCNN, CSITransformer
 from util.checkpoints import load_checkpoint
+
 
 # Constants or default scaling factors for patch sizes
 PATCH_W_SCALE = 10
@@ -225,5 +226,20 @@ def load_model_scratch(
             num_classes=num_classes
         )
         print("Using model: ViT_Parallel")
+
+    return model
+
+# --------------------------------------
+# ------------------------------------- yuqian benchmark model loading
+def load_csi_model_benchmark(H, W, device):
+    """
+    Load CSI2DCNN model for benchmarking.
+    :param H: Height of CSI input
+    :param W: Width of CSI input
+    :param device: torch.device (cuda or cpu)
+    :return: Model moved to device
+    """
+    model = CSI2DCNN(input_size=(H, W))
+    model = model.to(device)
 
     return model

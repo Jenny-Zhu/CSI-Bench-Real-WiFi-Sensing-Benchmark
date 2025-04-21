@@ -1,6 +1,8 @@
 import scipy.io
 import numpy as np
 import json
+import torch
+import torch.nn.functional as F
 
 def load_files_by_type(task,label,set_type):
     with open('dataset/metadata/'+task+'_dataset_metadata_2.json', 'r') as f:
