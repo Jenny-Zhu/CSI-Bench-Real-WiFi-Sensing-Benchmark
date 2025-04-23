@@ -110,7 +110,19 @@ class CSIEmbedding(nn.Module):
             Embedded sequence [B, N, E]
         """
         x = self.embedding(x)  # [B, N, E]
-        x = x + self.pos_embedding
+        
+        # 动态调整位置嵌入大小以匹配序列长度
+        seq_len = x.size(1)
+        if seq_len != self.pos_embedding.size(1):
+            # 使用插值来调整位置嵌入大小
+            pos_embed = self.pos_embedding
+            pos_embed = pos_embed.transpose(1, 2)  # [1, dim, seq_len]
+            pos_embed = F.interpolate(pos_embed, size=seq_len, mode='linear')
+            pos_embed = pos_embed.transpose(1, 2)  # [1, seq_len, dim]
+            x = x + pos_embed
+        else:
+            x = x + self.pos_embedding
+            
         return x
 
 class ACFEmbedding(nn.Module):
@@ -152,5 +164,17 @@ class ACFEmbedding(nn.Module):
             Embedded sequence [B, N, E]
         """
         x = self.embedding(x)  # [B, N, E]
-        x = x + self.pos_embedding
+        
+        # 动态调整位置嵌入大小以匹配序列长度
+        seq_len = x.size(1)
+        if seq_len != self.pos_embedding.size(1):
+            # 使用插值来调整位置嵌入大小
+            pos_embed = self.pos_embedding
+            pos_embed = pos_embed.transpose(1, 2)  # [1, dim, seq_len]
+            pos_embed = F.interpolate(pos_embed, size=seq_len, mode='linear')
+            pos_embed = pos_embed.transpose(1, 2)  # [1, seq_len, dim]
+            x = x + pos_embed
+        else:
+            x = x + self.pos_embedding
+            
         return x

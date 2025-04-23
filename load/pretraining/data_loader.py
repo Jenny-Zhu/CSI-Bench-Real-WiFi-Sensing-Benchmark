@@ -4,7 +4,7 @@ import torch.utils.data
 from data.datasets.csi.pretraining import SSLCSIDatasetMAT, SSLCSIDataset, SSLCSIDatasetHDF5
 from data.datasets.acf.pretraining import SSLACFDatasetMAT
 from torch.utils.data import DataLoader
-from util.bucket_sampler import FeatureBucketBatchSampler
+from util.data.bucket_sampler import FeatureBucketBatchSampler
 from ..base import variable_shape_collate_fn
 
 def load_acf_data_unsupervised(data_dir, BATCH_SIZE):

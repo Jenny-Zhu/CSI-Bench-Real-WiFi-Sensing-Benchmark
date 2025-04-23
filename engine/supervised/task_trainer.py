@@ -131,10 +131,10 @@ class TaskTrainer(BaseTrainer):
         return self.model, results_df
     
     def train_epoch(self):
-        """Train for one epoch.
+        """Train the model for a single epoch.
         
         Returns:
-            A tuple of (epoch_loss, epoch_accuracy, time_per_sample).
+            A tuple of (loss, accuracy, time_per_sample).
         """
         self.model.train()
         epoch_loss = 0.0
@@ -156,12 +156,11 @@ class TaskTrainer(BaseTrainer):
             else:
                 labels_one_hot = labels
             
-            # Measure forward/backward pass time
             start_time = time.time()
             
             # Forward pass
             self.optimizer.zero_grad()
-            outputs = self.model(inputs, flag="supervised")
+            outputs = self.model(inputs)
             loss = self.criterion(outputs, labels_one_hot)
             
             # Backward pass
@@ -224,7 +223,7 @@ class TaskTrainer(BaseTrainer):
                     labels_one_hot = labels
                 
                 # Forward pass
-                outputs = self.model(inputs, flag="supervised")
+                outputs = self.model(inputs)
                 loss = self.criterion(outputs, labels_one_hot)
                 
                 # Accumulate loss
@@ -296,7 +295,7 @@ class TaskTrainer(BaseTrainer):
         with torch.no_grad():
             for inputs, labels in self.val_loader:
                 inputs = inputs.to(self.device)
-                outputs = self.model(inputs, flag="supervised")
+                outputs = self.model(inputs)
                 
                 if outputs.shape[1] > 1:  # Multi-class
                     preds = torch.argmax(outputs, dim=1)

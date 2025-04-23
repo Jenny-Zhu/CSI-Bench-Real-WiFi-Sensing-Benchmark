@@ -37,8 +37,8 @@ from datetime import datetime
 PIPELINE = 'supervised'
 
 # Data and Output Directories
-DATA_DIR = "H:\CSIMAT100"
-OUTPUT_DIR = 'C:\Users\weiha\Desktop\bench_mark_output'
+DATA_DIR = r"C:\Users\weiha\Desktop\demo"
+OUTPUT_DIR = r"C:\Users\weiha\Desktop\bench_mark_output"
 
 # Data Modality
 MODE = 'csi'  # Options: 'csi', 'acf'
@@ -49,6 +49,10 @@ PRETRAINED_MODEL = None  # Path to pretrained model (when PRETRAINED is True)
 FREEZE_BACKBONE = False  # Freeze backbone network for supervised learning
 INTEGRATED_LOADER = True  # Use integrated data loader for supervised learning
 TASK = 'FourClass'  # Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)
+
+# Model Parameters
+WIN_LEN =500  # Window length for CSI data
+FEATURE_SIZE = 232  # Feature size for CSI data
 
 # Common Training Parameters
 SEED = 42
@@ -149,8 +153,8 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
     
     config = {
         # Data parameters
-        'csi_data_dir': os.path.join(data_dir, 'csi'),
-        'acf_data_dir': os.path.join(data_dir, 'acf'),
+        'csi_data_dir': data_dir ,
+        'acf_data_dir': data_dir,
         'output_dir': output_dir,
         'results_subdir': 'supervised',
         'train_ratio': 0.8,
@@ -179,7 +183,9 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'seed': SEED,
         'device': DEVICE,
         'model_name': MODEL_NAME,
-        'unseen_test': False
+        'unseen_test': False,
+        'win_len': WIN_LEN,
+        'feature_size': FEATURE_SIZE
     }
     
     if pretrained and pretrained_model:
@@ -267,9 +273,9 @@ def run_supervised(config):
     for key, value in config.items():
         if isinstance(value, bool):
             if value:
-                cmd += f"--{key} "
+                cmd += f"--{key.replace('_', '-')} "
         else:
-            cmd += f"--{key} {value} "
+            cmd += f"--{key.replace('_', '-')} {value} "
     
     print(f"Running command: {cmd}")
     start_time = time.time()

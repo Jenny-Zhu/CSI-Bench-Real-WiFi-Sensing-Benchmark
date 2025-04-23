@@ -8,7 +8,8 @@ import os
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LambdaLR
 from engine.base_trainer import BaseTrainer
 from engine.pretraining.utils import calculate_mutual_info
-from util.mask_creater import create_mask
+from util.data.mask_creator import create_mask
+from tqdm import tqdm
 
 class SSLJointTrainer(BaseTrainer):
     """Trainer for joint self-supervised learning."""

@@ -18,7 +18,6 @@ from load import (
     load_csi_supervised_integrated,
     load_csi_unseen_integrated
 )
-from tools.visualization import plot_confusion_matrix
 
 
 def parse_args():
@@ -35,6 +34,9 @@ def parse_args():
     # Model parameters
     parser.add_argument('--mode', type=str, default='csi', choices=['csi', 'acf'], help='Training mode: csi or acf')
     parser.add_argument('--num-classes', type=int, default=2, help='Number of classes')
+    parser.add_argument('--win-len', type=int, default=250, help='Window length for CSI data')
+    parser.add_argument('--feature-size', type=int, default=98, help='Feature size for CSI data')
+    parser.add_argument('--in-channels', type=int, default=1, help='Number of input channels')
     parser.add_argument('--freeze-backbone', action='store_true', help='Whether to freeze backbone network')
     parser.add_argument('--pretrained', action='store_true', help='Whether to use pretrained model')
     
@@ -97,11 +99,22 @@ def train_supervised_csi(args):
     
     # Load model
     if args.pretrained and args.pretrained_model:
-        model = load_model_pretrained(args.pretrained_model, num_classes=args.num_classes)
+        model = load_model_pretrained(
+            checkpoint_path=args.pretrained_model, 
+            num_classes=args.num_classes,
+            win_len=args.win_len,
+            feature_size=args.feature_size,
+            in_channels=args.in_channels
+        )
         print(f"Loaded pretrained model: {args.pretrained_model}")
     else:
         from load import load_model_scratch
-        model = load_model_scratch(num_classes=args.num_classes)
+        model = load_model_scratch(
+            num_classes=args.num_classes, 
+            win_len=args.win_len, 
+            feature_size=args.feature_size,
+            in_channels=args.in_channels
+        )
         print("Using randomly initialized model")
     
     # Freeze backbone network (if needed)
@@ -128,6 +141,9 @@ def train_supervised_csi(args):
     config.warmup_epochs = args.warmup_epochs
     config.save_path = save_path
     config.num_classes = args.num_classes
+    config.output_dir = args.output_dir
+    config.results_subdir = args.results_subdir
+    config.model_name = args.model_name
     
     # Set loss function
     criterion = nn.CrossEntropyLoss()
@@ -189,11 +205,22 @@ def train_supervised_acf(args):
     
     # Load model
     if args.pretrained and args.pretrained_model:
-        model = load_model_pretrained(args.pretrained_model, num_classes=args.num_classes)
+        model = load_model_pretrained(
+            checkpoint_path=args.pretrained_model, 
+            num_classes=args.num_classes,
+            win_len=args.win_len,
+            feature_size=args.feature_size,
+            in_channels=args.in_channels
+        )
         print(f"Loaded pretrained model: {args.pretrained_model}")
     else:
         from load import load_model_scratch
-        model = load_model_scratch(num_classes=args.num_classes)
+        model = load_model_scratch(
+            num_classes=args.num_classes, 
+            win_len=args.win_len, 
+            feature_size=args.feature_size,
+            in_channels=args.in_channels
+        )
         print("Using randomly initialized model")
     
     # Freeze backbone network (if needed)
@@ -221,6 +248,9 @@ def train_supervised_acf(args):
     config.warmup_epochs = args.warmup_epochs
     config.save_path = save_path
     config.num_classes = args.num_classes
+    config.output_dir = args.output_dir
+    config.results_subdir = args.results_subdir
+    config.model_name = args.model_name
     
     # Set loss function
     criterion = nn.CrossEntropyLoss()
@@ -256,6 +286,24 @@ def main():
     
     # Set random seed
     set_seed(args.seed)
+    
+    # 根据任务自动设置正确的类别数
+    task_to_classes = {
+        'HumanNonhuman': 2,
+        'FourClass': 4,
+        'HumanID': 4,
+        'HumanMotion': 3,
+        'ThreeClass': 3,
+        'DetectionandClassification': 5,
+        'Detection': 2,
+        'NTUHumanID': 15,
+        'NTUHAR': 6,
+        'Widar': 22
+    }
+    
+    if args.task in task_to_classes and args.num_classes != task_to_classes[args.task]:
+        print(f"Automatically updating num_classes from {args.num_classes} to {task_to_classes[args.task]} based on task '{args.task}'")
+        args.num_classes = task_to_classes[args.task]
     
     # Set device
     if args.device is None:

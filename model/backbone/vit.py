@@ -24,6 +24,7 @@ class ViTBackbone(nn.Module):
         super().__init__()
         
         self.data_type = data_type
+        self.emb_dim = emb_dim
         
         # Choose embedding based on data type
         if data_type == 'csi':
@@ -40,6 +41,10 @@ class ViTBackbone(nn.Module):
                 emb_dim=emb_dim,
                 in_channels=in_channels
             )
+        
+        # Class token
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, emb_dim))
+        nn.init.normal_(self.cls_token, std=0.02)
             
         # Transformer encoder backbone
         self.encoder = TransformerEncoder(
@@ -72,8 +77,16 @@ class ViTBackbone(nn.Module):
         # Embedding
         x = self.input_embed(x)
         
+        # 添加class token
+        batch_size = x.shape[0]
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        
         # Transformer encoding
         x = self.encoder(x)
+        
+        # 应用最终的Layer Normalization
+        x = self.norm(x)
         
         if return_all_tokens:
             return x

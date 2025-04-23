@@ -1,20 +1,34 @@
-from .checkpoint.checkpoint import save_checkpoint, load_checkpoint, checkpoint, warmup_schedule
-from .data.bucket_sampler import FeatureBucketBatchSampler
-from .data.mask_creator import create_mask
-from .losses.contrastive import NtXentLoss
-from .losses.classification import FocalLoss
+"""
+Utilities for WiFiSSL
 
-# 为了向后兼容，确保可以从旧路径导入
-from .losses.contrastive import NtXentLoss as NtXentLoss_old
+This module contains utilities for the WiFiSSL project.
+"""
 
-# 所有允许直接从util导入的类和函数
+# Import checkpoint utilities
+from util.checkpoint.checkpoint import (
+    checkpoint, 
+    resume, 
+    warmup_schedule,
+    save_checkpoint,
+    load_checkpoint
+)
+
+# Import data utilities
+from util.data.mask_creator import create_mask, create_block_mask
+from util.data.bucket_sampler import FeatureBucketBatchSampler, SimilarLengthBatchSampler
+
+# Add all exported symbols here
 __all__ = [
-    # 检查点功能
-    'save_checkpoint', 'load_checkpoint', 'checkpoint', 'warmup_schedule',
+    # Checkpoint utilities
+    'checkpoint',
+    'resume',
+    'warmup_schedule',
+    'save_checkpoint',
+    'load_checkpoint',
     
-    # 数据处理功能
-    'FeatureBucketBatchSampler', 'create_mask',
-    
-    # 损失函数
-    'NtXentLoss', 'FocalLoss'
+    # Data utilities
+    'create_mask',
+    'create_block_mask',
+    'FeatureBucketBatchSampler',
+    'SimilarLengthBatchSampler'
 ]

@@ -256,9 +256,19 @@ class ViT_Parallel(nn.Module):
         super().__init__()
         # Map to new implementation
         self.model = SSLModel(backbone_type='vit', **kwargs)
+        self.num_classes = kwargs.get('num_classes', 2)
+        self.classifier = nn.Linear(kwargs.get('emb_dim', 128), self.num_classes)
         
     def forward(self, x1, x2=None):
-        return self.model(x1, x2)
+        # 如果只有一个输入，视为监督学习模式
+        if x2 is None:
+            # 获取特征表示
+            features = self.model.get_representation(x1)
+            # 应用分类器
+            return self.classifier(features)
+        # 否则，传递给SSL模型
+        else:
+            return self.model(x1, x2)
 
 
 class ViT_MultiTask(nn.Module):
@@ -268,6 +278,16 @@ class ViT_MultiTask(nn.Module):
         super().__init__()
         # Map to new implementation
         self.model = JointSSLModel(backbone_type='vit', **kwargs)
+        self.num_classes = kwargs.get('num_classes', 2)
+        self.classifier = nn.Linear(kwargs.get('emb_dim', 128), self.num_classes)
         
     def forward(self, x1, x2=None, mask=None):
-        return self.model(x1, x2, mask)
+        # 如果没有第二个输入和mask，视为监督学习模式
+        if x2 is None and mask is None:
+            # 获取特征表示
+            features = self.model.get_representation(x1)
+            # 应用分类器
+            return self.classifier(features)
+        # 否则，传递给SSL模型
+        else:
+            return self.model(x1, x2, mask)

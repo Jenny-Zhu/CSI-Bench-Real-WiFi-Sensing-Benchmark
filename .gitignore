@@ -5,3 +5,8 @@ dataset/
 experiments/
 /*/__pycache__
 .ipynb_checkpoints/
+
+
+__pycache__/
+*.py[cod]
+*$py.class

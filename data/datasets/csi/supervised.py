@@ -290,9 +290,9 @@ class CSIDatasetMAT(BaseDataset):
             elif 'irobot' in file_name:
                 print('IRobot labeled (3)')
                 return 3
-            elif 'fan' in file_name:
-                print('Fan labeled (4)')
-                return 4
+            elif 'fan' in file_name or 'empty' in file_name or 'nomotion' in file_name:
+                print('Empty/Fan labeled (0)')
+                return 0
             else:
                 print(f'Unrecognized class type for {file_name}')
         
