@@ -3,3 +3,4 @@ dataset/
 
 # Logs
 experiments/
+/data/__pycache__
