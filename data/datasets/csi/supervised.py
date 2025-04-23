@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import h5py
 import scipy.io as sio
+import mat73
 from torch.utils.data import random_split
 from data.datasets.base_dataset import BaseDataset
 from data.preprocessing.csi_preprocessing import normalize_csi
@@ -176,3 +177,186 @@ class CSIDatasetOW_HM3_H5(BaseDataset):
                                     
                 except Exception as e:
                     print(f"Error loading HDF5 file {file_path}: {e}")
+
+class CSIDatasetMAT(BaseDataset):
+    """Dataset for supervised learning with CSI data from MAT files.
+    Integrated from legacy implementation, works for both CSI and ACF data."""
+    
+    def __init__(self, data_dir, task='ThreeClass', transform=None):
+        """Initialize the dataset.
+        
+        Args:
+            data_dir: Directory containing CSI/ACF data.
+            task: Task type ('ThreeClass', 'HumanNonhuman', etc.).
+            transform: Transform to apply to the data.
+        """
+        super().__init__(data_dir, transform)
+        
+        self.task = task
+        self.samples = []
+        self.labels = []
+        
+        # Task to class mapping
+        self.class_mappings = {
+            'HumanNonhuman': {'human': 1, 'nonhuman': 0},
+            'FourClass': {'empty': 0, 'human': 1, 'animal': 2, 'object': 3},
+            'HumanID': {'person1': 0, 'person2': 1, 'person3': 2, 'person4': 3},
+            'HumanMotion': {'static': 0, 'walking': 1, 'running': 2},
+            'ThreeClass': {'empty': 0, 'human': 1, 'nonhuman': 2},
+            'DetectionandClassification': {'empty': 0, 'human': 1, 'animal': 2, 'object': 3, 'multiple': 4},
+            'Detection': {'empty': 0, 'nonempty': 1},
+            'NTUHumanID': {f'person{i}': i for i in range(15)},
+            'NTUHAR': {'walking': 0, 'sitting': 1, 'standing': 2, 'jumping': 3, 'falling': 4, 'lying': 5},
+            'Widar': {f'activity{i}': i for i in range(22)}
+        }
+        
+        # Load data
+        self.load_data()
+    
+    def load_data(self):
+        """Load data from MAT files."""
+        # Collect all MAT files from the directories
+        all_mat_files = []
+        for dir_path in self.data_dir:
+            for root, _, files in os.walk(dir_path):
+                for file in files:
+                    if file.endswith('.mat'):
+                        all_mat_files.append(os.path.join(root, file))
+        
+        # Process each MAT file
+        for file_path in all_mat_files:
+            try:
+                print(f"Loading file: {file_path}")
+                samples = mat73.loadmat(file_path)['X']
+                samples_tensor = torch.from_numpy(samples).float()
+                
+                # Handle different tensor shapes
+                if samples_tensor.shape[0] == 250:  # Single sample case
+                    samples_tensor = samples_tensor.unsqueeze(0)
+                
+                # Get label for this file
+                label = self.generate_label(file_path)
+                
+                # If valid label is found, add samples and labels
+                if label is not None:
+                    self.samples.append(samples_tensor)
+                    # Add same label for all samples in this file
+                    for i in range(samples_tensor.shape[0]):
+                        self.labels.append(label)
+                else:
+                    print(f"Skipping file {file_path} - no valid label determined")
+                
+            except Exception as e:
+                print(f"Error loading MAT file {file_path}: {e}")
+        
+        # Combine all sample tensors and add channel dimension if needed
+        if len(self.samples) > 0:
+            self.samples = torch.unsqueeze(torch.cat(self.samples, dim=0), dim=-3)
+            print(f"Dataset loaded: {len(self.labels)} samples with shape {self.samples.shape}")
+        else:
+            print("No valid samples found!")
+    
+    def generate_label(self, file_path):
+        """Generate label based on file name and task.
+        
+        Args:
+            file_path: Path to the data file.
+            
+        Returns:
+            Label as an integer.
+        """
+        file_name = os.path.basename(file_path).lower()
+        
+        # Get mapping for the current task
+        mapping = self.class_mappings.get(self.task, {})
+        
+        # Human/Nonhuman classification
+        if self.task == 'HumanNonhuman':
+            if 'human' in file_name:
+                print('Human labeled (1)')
+                return 1
+            else:
+                print('Nonhuman labeled (0)')
+                return 0
+        
+        # Four-class classification
+        elif self.task == 'FourClass':
+            if 'human' in file_name:
+                print('Human labeled (1)')
+                return 1
+            elif 'pet' in file_name:
+                print('Pet labeled (2)')
+                return 2
+            elif 'irobot' in file_name:
+                print('IRobot labeled (3)')
+                return 3
+            elif 'fan' in file_name:
+                print('Fan labeled (4)')
+                return 4
+            else:
+                print(f'Unrecognized class type for {file_name}')
+        
+        # Three-class classification
+        elif self.task == 'ThreeClass':
+            if 'human' in file_name:
+                print('Human labeled (1)')
+                return 1
+            elif 'pet' in file_name:
+                print('Pet labeled (2)')
+                return 2
+            elif 'irobot' in file_name:
+                print('IRobot labeled (2)')
+                return 2
+            elif 'nomotion' in file_name or 'empty' in file_name:
+                print('Empty labeled (0)')
+                return 0
+            else:
+                print(f'Unrecognized class type for {file_name}')
+        
+        # Detection task (binary)
+        elif self.task == 'Detection':
+            if 'nomotion' in file_name or 'empty' in file_name:
+                print('NoMotion labeled (0)')
+                return 0
+            elif any(x in file_name for x in ['human', 'fan', 'pet', 'irobot']):
+                print('Motion labeled (1)')
+                return 1
+            else:
+                print(f'Unrecognized class type for {file_name}')
+        
+        # Try to find a match in the mapping by checking each key in the file name
+        for class_name, class_label in mapping.items():
+            if class_name.lower() in file_name:
+                print(f'{class_name} labeled ({class_label})')
+                return class_label
+        
+        # Try parent directory name if file name doesn't match
+        parent_dir = os.path.basename(os.path.dirname(file_path)).lower()
+        for class_name, class_label in mapping.items():
+            if class_name.lower() in parent_dir:
+                print(f'{class_name} labeled from directory ({class_label})')
+                return class_label
+        
+        print(f'No label determined for {file_path}')
+        return None
+    
+    def __len__(self):
+        """Get the length of the dataset."""
+        return len(self.labels)
+    
+    def __getitem__(self, index):
+        """Get a sample from the dataset.
+        
+        Args:
+            index: Index of the sample.
+            
+        Returns:
+            A tuple of (sample, label).
+        """
+        sample = self.samples[index]
+        label = self.labels[index]
+        
+        if self.transform:
+            sample = self.transform(sample)
+        
+        return sample, label

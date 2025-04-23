@@ -14,7 +14,9 @@ from load import (
     load_model_pretrained,
     save_data_supervised,
     load_acf_supervised,
-    load_acf_unseen_environ
+    load_acf_unseen_environ,
+    load_csi_supervised_integrated,
+    load_csi_unseen_integrated
 )
 from tools.visualization import plot_confusion_matrix
 
@@ -41,6 +43,8 @@ def parse_args():
     parser.add_argument('--val-ratio', type=float, default=0.1, help='Validation set ratio')
     parser.add_argument('--test-ratio', type=float, default=0.1, help='Test set ratio')
     parser.add_argument('--unseen-test', action='store_true', help='Whether to test on unseen environments')
+    parser.add_argument('--integrated-loader', action='store_true', help='Whether to use integrated data loader')
+    parser.add_argument('--task', type=str, default='ThreeClass', help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
     
     # Path configuration
     parser.add_argument('--csi-data-dir', type=str, default='/opt/ml/input/data/csi', help='CSI data directory')
@@ -70,13 +74,24 @@ def train_supervised_csi(args):
     print(f"Starting CSI modality supervised training...")
     
     # Prepare data
-    data_loaders = load_data_supervised(
-        args.csi_data_dir, 
-        batch_size=args.batch_size,
-        train_ratio=args.train_ratio,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio
-    )
+    if args.integrated_loader:
+        print(f"Using integrated data loader with task: {args.task}")
+        data_loaders = load_csi_supervised_integrated(
+            args.csi_data_dir,
+            task=args.task,
+            batch_size=args.batch_size,
+            train_ratio=args.train_ratio,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio
+        )
+    else:
+        data_loaders = load_data_supervised(
+            args.csi_data_dir, 
+            batch_size=args.batch_size,
+            train_ratio=args.train_ratio,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio
+        )
     
     train_loader, val_loader, test_loader = data_loaders
     
@@ -99,8 +114,9 @@ def train_supervised_csi(args):
     # Set save path
     model_type = "pretrained" if args.pretrained else "scratch"
     freeze_status = "frozen" if args.freeze_backbone else "unfrozen"
+    loader_type = "integrated" if args.integrated_loader else "standard"
     save_path = os.path.join(args.output_dir, args.results_subdir, 
-                            f"{args.model_name}_csi_{model_type}_{freeze_status}")
+                            f"{args.model_name}_csi_{model_type}_{freeze_status}_{loader_type}")
     os.makedirs(save_path, exist_ok=True)
     
     # Set training configuration
@@ -147,11 +163,19 @@ def train_supervised_acf(args):
     
     # Prepare data
     if args.unseen_test:
-        data_loaders = load_acf_unseen_environ(
-            args.acf_data_dir,
-            batch_size=args.batch_size
-        )
-        print("Using test set with unseen environments...")
+        if args.integrated_loader:
+            data_loaders = load_csi_unseen_integrated(
+                args.acf_data_dir,
+                task=args.task,
+                batch_size=args.batch_size
+            )
+            print(f"Using integrated loader for unseen environments with task: {args.task}")
+        else:
+            data_loaders = load_acf_unseen_environ(
+                args.acf_data_dir,
+                batch_size=args.batch_size
+            )
+            print("Using test set with unseen environments...")
     else:
         data_loaders = load_acf_supervised(
             args.acf_data_dir,
@@ -183,8 +207,9 @@ def train_supervised_acf(args):
     model_type = "pretrained" if args.pretrained else "scratch"
     freeze_status = "frozen" if args.freeze_backbone else "unfrozen"
     test_type = "unseen" if args.unseen_test else "seen"
+    loader_type = "integrated" if args.integrated_loader else "standard"
     save_path = os.path.join(args.output_dir, args.results_subdir, 
-                            f"{args.model_name}_acf_{model_type}_{freeze_status}_{test_type}")
+                            f"{args.model_name}_acf_{model_type}_{freeze_status}_{test_type}_{loader_type}")
     os.makedirs(save_path, exist_ok=True)
     
     # Set training configuration

@@ -1,7 +1,7 @@
 import os
 import torch
 import torch.utils.data
-from data.datasets.csi.supervised import CSIDatasetOW_HM3, CSIDatasetOW_HM3_H5
+from data.datasets.csi.supervised import CSIDatasetOW_HM3, CSIDatasetOW_HM3_H5, CSIDatasetMAT
 from data.datasets.acf.supervised import ACFDatasetOW_HM3_MAT, DatasetNTU_MAT
 from torch.utils.data import random_split
 
@@ -234,3 +234,98 @@ def load_acf_unseen_environ_NTU(data_dir, task):
     test_set = DatasetNTU_MAT(data_dir, task)
     unseen_test_loader = torch.utils.data.DataLoader(test_set, batch_size=32, shuffle=False)
     return unseen_test_loader
+
+
+def load_csi_supervised_integrated(data_dir, task='ThreeClass', batch_size=32, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
+    """
+    Load CSI data using the integrated CSIDatasetMAT class.
+    
+    Args:
+        data_dir (str): Directory containing CSI data
+        task (str): Task type, default to 'ThreeClass'
+        batch_size (int): Batch size for data loaders
+        train_ratio (float): Ratio of data to use for training
+        val_ratio (float): Ratio of data to use for validation
+        test_ratio (float): Ratio of data to use for testing
+        
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
+    """
+    print(f"Loading CSI data using integrated CSIDatasetMAT from: {data_dir}")
+    print(f"Task: {task}, Batch size: {batch_size}")
+    
+    # Create dataset
+    dataset = CSIDatasetMAT(data_dir, task)
+    
+    # Print dataset info
+    print(f"Dataset loaded: {len(dataset)} samples")
+    if hasattr(dataset, 'samples') and dataset.samples is not None:
+        print(f"Sample shape: {dataset.samples.shape}")
+    
+    # Split dataset into train, validation, and test sets
+    total_size = len(dataset)
+    train_size = int(train_ratio * total_size)
+    val_size = int(val_ratio * total_size)
+    test_size = total_size - train_size - val_size
+    
+    # Check if split sizes are valid
+    if train_size <= 0 or val_size <= 0 or test_size <= 0:
+        raise ValueError(f"Invalid data split ratios. Got train_size={train_size}, val_size={val_size}, test_size={test_size}")
+    
+    print(f"Splitting dataset: train={train_size}, val={val_size}, test={test_size}")
+    
+    # Perform splits
+    train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size])
+    
+    # Create data loaders
+    train_loader = torch.utils.data.DataLoader(
+        train_set, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        drop_last=True
+    )
+    
+    val_loader = torch.utils.data.DataLoader(
+        val_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    return train_loader, val_loader, test_loader
+
+
+def load_csi_unseen_integrated(data_dir, task='ThreeClass', batch_size=32):
+    """
+    Load CSI data for unseen environment testing using the integrated CSIDatasetMAT class.
+    
+    Args:
+        data_dir (str): Directory containing test CSI data
+        task (str): Task type, default to 'ThreeClass'
+        batch_size (int): Batch size for data loader
+        
+    Returns:
+        Test DataLoader
+    """
+    print(f"Loading unseen environment CSI data using integrated loader from: {data_dir}")
+    
+    # Create dataset
+    test_set = CSIDatasetMAT(data_dir, task)
+    print(f"Test set loaded: {len(test_set)} samples")
+    
+    # Create test data loader
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    return test_loader
