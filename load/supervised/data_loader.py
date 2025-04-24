@@ -31,10 +31,22 @@ def load_data_supervised(task, BATCH_SIZE, win_len, sample_rate, data_dir=None):
         print(f"[Info] Loading training data from {data_dir}...")
         try:
             support_set = CSIDatasetOW_HM3_H5(data_dir, win_len, sample_rate, if_test=0)
+            
+            # Check if the dataset is empty
+            if len(support_set) == 0:
+                print(f"[Error] Training dataset is empty. No data was loaded from {data_dir}")
+                return None, None
+                
             print(f"[Success] Training dataset loaded successfully with {len(support_set)} samples")
             
             print(f"[Info] Loading testing data from {data_dir}...")
             test_set = CSIDatasetOW_HM3_H5(data_dir, win_len, sample_rate, if_test=1)
+            
+            # Check if the test dataset is empty
+            if len(test_set) == 0:
+                print(f"[Error] Test dataset is empty. No data was loaded from {data_dir}")
+                return None, None
+                
             print(f"[Success] Testing dataset loaded successfully with {len(test_set)} samples")
         except Exception as e:
             print(f"[Error] Data loading failed: {str(e)}")
@@ -257,125 +269,108 @@ def load_acf_unseen_environ_NTU(data_dir, task):
 
 def load_csi_supervised_integrated(data_dir, task='ThreeClass', batch_size=16, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, max_samples=5000):
     """
-    Load CSI data using the integrated CSIDatasetMAT class.
+    Load CSI data with integrated loader for supervised learning.
     
     Args:
-        data_dir (str): Directory containing CSI data
-        task (str): Task type, default to 'ThreeClass'
-        batch_size (int): Batch size for data loaders, defaults to 16 (decreased from 32)
-        train_ratio (float): Ratio of data to use for training
-        val_ratio (float): Ratio of data to use for validation
-        test_ratio (float): Ratio of data to use for testing
-        max_samples (int): Maximum number of samples to load, defaults to 5000
+        data_dir: Directory containing the dataset
+        task: Task type (e.g., ThreeClass, HumanNonhuman)
+        batch_size: Batch size for dataloaders
+        train_ratio: Ratio of training set (will include validation data)
+        test_ratio: Ratio of test set
+        max_samples: Maximum number of samples to load
         
     Returns:
-        Tuple of (train_loader, val_loader, test_loader)
+        Tuple of (train_loader, test_loader) - Changed to match old implementation
     """
-    print(f"Loading CSI data using integrated CSIDatasetMAT from: {data_dir}")
-    print(f"Task: {task}, Batch size: {batch_size}, Max samples: {max_samples}")
-    
     try:
-        # Create dataset
-        dataset = CSIDatasetMAT(data_dir, task)
+        print(f"[Info] Loading CSI data with integrated loader from {data_dir}")
+        dataset = CSIDatasetMAT(data_dir, task, max_samples=max_samples)
         
-        # Print dataset info
-        print(f"Dataset loaded: {len(dataset)} samples")
-        if hasattr(dataset, 'samples') and dataset.samples is not None:
-            print(f"Sample shape: {dataset.samples.shape}")
-            
-            # 限制样本数量以防止内存问题
-            if max_samples and len(dataset) > max_samples:
-                print(f"Limiting dataset to {max_samples} samples to avoid memory issues")
-                # 创建随机索引，选择max_samples个样本
-                indices = torch.randperm(len(dataset))[:max_samples]
-                dataset.samples = dataset.samples[indices]
-                dataset.labels = [dataset.labels[i] for i in indices]
-                print(f"Dataset reduced to {len(dataset.labels)} samples with shape {dataset.samples.shape}")
+        # Check if the dataset is empty
+        if len(dataset) == 0:
+            print(f"[Error] Integrated dataset is empty. No data was loaded from {data_dir}")
+            raise ValueError(f"No data found in {data_dir} for task {task}")
         
-        # Split dataset into train, validation, and test sets
-        total_size = len(dataset)
-        train_size = int(train_ratio * total_size)
-        val_size = int(val_ratio * total_size)
-        test_size = total_size - train_size - val_size
+        print(f"[Success] Loaded {len(dataset)} samples for task {task}")
         
-        # Check if split sizes are valid
-        if train_size <= 0 or val_size <= 0 or test_size <= 0:
-            raise ValueError(f"Invalid data split ratios. Got train_size={train_size}, val_size={val_size}, test_size={test_size}")
+        # Calculate split sizes - combine train and validation
+        dataset_size = len(dataset)
+        train_size = int((train_ratio + val_ratio) * dataset_size)  # Combined train and validation
+        test_size = dataset_size - train_size
         
-        print(f"Splitting dataset: train={train_size}, val={val_size}, test={test_size}")
+        print(f"[Info] Splitting dataset: train={train_size}, test={test_size}")
         
-        # Perform splits
-        train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size])
+        # Split the dataset
+        train_dataset, test_dataset = random_split(
+            dataset, [train_size, test_size]
+        )
         
-        # Create data loaders with num_workers=0 to avoid potential issues with multiprocessing
+        # Create data loaders
         train_loader = torch.utils.data.DataLoader(
-            train_set, 
-            batch_size=batch_size, 
-            shuffle=True, 
-            drop_last=True,
-            num_workers=0  # 使用单线程加载数据
+            train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
         )
-        
-        val_loader = torch.utils.data.DataLoader(
-            val_set, 
-            batch_size=batch_size, 
-            shuffle=False, 
-            drop_last=False,
-            num_workers=0  # 使用单线程加载数据
-        )
-        
         test_loader = torch.utils.data.DataLoader(
-            test_set, 
-            batch_size=batch_size, 
-            shuffle=False, 
-            drop_last=False,
-            num_workers=0  # 使用单线程加载数据
+            test_dataset, batch_size=batch_size, shuffle=False
         )
         
-        return train_loader, val_loader, test_loader
+        print(f"[Success] Data loaders created successfully")
+        return train_loader, test_loader
     
     except Exception as e:
-        print(f"Error loading CSI data: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise e
+        print(f"[Error] Error loading integrated CSI data: {str(e)}")
+        raise
 
 
-def load_csi_unseen_integrated(data_dir, task='ThreeClass', batch_size=16):
+def load_csi_unseen_integrated(data_dir, task='ThreeClass', batch_size=16, max_samples=None):
     """
-    Load CSI data for unseen environment testing using the integrated CSIDatasetMAT class.
+    Load CSI data for unseen environments using integrated loader.
     
     Args:
-        data_dir (str): Directory containing test CSI data
-        task (str): Task type, default to 'ThreeClass'
-        batch_size (int): Batch size for data loader, defaults to 16
+        data_dir: Directory containing test data
+        task: Task type (e.g., ThreeClass, HumanNonhuman)
+        batch_size: Batch size for dataloaders
+        max_samples: Maximum number of samples to load per dataset
         
     Returns:
-        Test DataLoader
+        Tuple of (train_loader, test_loader) - Changed to match old implementation
     """
-    print(f"Loading unseen environment CSI data using integrated loader from: {data_dir}")
-    
     try:
-        # Create dataset
-        test_set = CSIDatasetMAT(data_dir, task)
-        print(f"Test set loaded: {len(test_set)} samples")
+        print(f"[Info] Loading unseen environment CSI data from {data_dir}")
+        # Load training data
+        train_path = os.path.join(data_dir, 'train')
+        print(f"[Info] Loading training data from {train_path}")
+        train_dataset = CSIDatasetMAT(train_path, task, max_samples=max_samples)
         
-        if hasattr(test_set, 'samples') and test_set.samples is not None:
-            print(f"Sample shape: {test_set.samples.shape}")
+        # Check if the training dataset is empty
+        if len(train_dataset) == 0:
+            print(f"[Error] Training dataset is empty. No data was loaded from {train_path}")
+            raise ValueError(f"No training data found in {train_path} for task {task}")
         
-        # Create test data loader
+        print(f"[Success] Loaded {len(train_dataset)} training samples")
+        
+        # Load test data
+        test_path = os.path.join(data_dir, 'test')
+        print(f"[Info] Loading test data from {test_path}")
+        test_dataset = CSIDatasetMAT(test_path, task, max_samples=max_samples)
+        
+        # Check if the test dataset is empty
+        if len(test_dataset) == 0:
+            print(f"[Error] Test dataset is empty. No data was loaded from {test_path}")
+            raise ValueError(f"No test data found in {test_path} for task {task}")
+        
+        print(f"[Success] Loaded {len(test_dataset)} test samples")
+        
+        # Create data loaders
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
+        )
         test_loader = torch.utils.data.DataLoader(
-            test_set, 
-            batch_size=batch_size, 
-            shuffle=False, 
-            drop_last=False,
-            num_workers=0  # 使用单线程加载数据
+            test_dataset, batch_size=batch_size, shuffle=False
         )
         
-        return test_loader
+        print(f"[Success] Data loaders created successfully")
+        return train_loader, test_loader
     
     except Exception as e:
-        print(f"Error loading unseen CSI data: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise e
+        print(f"[Error] Error loading unseen CSI data: {str(e)}")
+        raise

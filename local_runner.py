@@ -58,6 +58,7 @@ FEATURE_SIZE = 232  # Feature size for CSI data
 SEED = 42
 BATCH_SIZE = 16
 MODEL_NAME = 'WiT'
+MAX_SAMPLES = 200  # Maximum number of samples to load (to prevent memory issues)
 
 # Advanced Configuration
 CONFIG_FILE = None  # Path to JSON configuration file to override defaults
@@ -143,13 +144,15 @@ def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
     }
 
 # Configure supervised learning pipeline
-def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained=False, pretrained_model=None):
+def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained=False, pretrained_model=None, max_samples=None):
     """Get configuration for supervised learning pipeline."""
     # Set default paths if not provided
     if data_dir is None:
         data_dir = DATA_DIR
     if output_dir is None:
         output_dir = OUTPUT_DIR
+    if max_samples is None:
+        max_samples = MAX_SAMPLES
     
     config = {
         # Data parameters
@@ -160,7 +163,7 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'train_ratio': 0.8,
         'val_ratio': 0.1,
         'test_ratio': 0.1,
-        'max_samples': 5000,  # Limit maximum samples to avoid memory issues
+        'max_samples': max_samples,
         
         # Training parameters
         'batch_size': 16,  # Reduced batch size to avoid memory issues
@@ -362,7 +365,7 @@ def main():
     integrated_loader = args.integrated_loader if args.integrated_loader else INTEGRATED_LOADER
     task = args.task if args.task else TASK
     config_file = args.config_file if args.config_file else CONFIG_FILE
-    max_samples = args.max_samples if args.max_samples else 5000
+    max_samples = args.max_samples if args.max_samples else MAX_SAMPLES
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -376,7 +379,8 @@ def main():
             output_dir,
             mode,
             pretrained,
-            pretrained_model
+            pretrained_model,
+            max_samples
         )
         if freeze_backbone:
             config['freeze_backbone'] = True

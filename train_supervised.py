@@ -81,14 +81,14 @@ def train_supervised_csi(args):
     if args.integrated_loader:
         print(f"Using integrated data loader with task: {args.task}")
         try:
-            data_loaders = load_csi_supervised_integrated(
+            train_loader, test_loader = load_csi_supervised_integrated(
                 args.csi_data_dir,
                 task=args.task,
                 batch_size=args.batch_size,
                 train_ratio=args.train_ratio,
                 val_ratio=args.val_ratio,
                 test_ratio=args.test_ratio,
-                max_samples=getattr(args, 'max_samples', 5000)  # 使用max_samples参数限制样本数量
+                max_samples=getattr(args, 'max_samples', 5000)
             )
             print(f"Integrated data loader successfully loaded data")
         except Exception as e:
@@ -100,7 +100,7 @@ def train_supervised_csi(args):
         print(f"Using standard data loader")
         try:
             # Pass data directory parameter
-            data_loaders = load_data_supervised(
+            train_loader, test_loader = load_data_supervised(
                 'OW_HM3', 
                 args.batch_size,
                 args.win_len,
@@ -110,20 +110,38 @@ def train_supervised_csi(args):
             print(f"Standard data loader successfully loaded data")
         except Exception as e:
             print(f"Data loading failed: {str(e)}")
+            print(f"Please check if directory '{args.csi_data_dir}' contains valid data files")
             return None, None
     
-    train_loader, val_loader, test_loader = data_loaders
+    # Check if data loading was successful
+    if train_loader is None or test_loader is None:
+        print("Data loading returned None loaders. Training cannot proceed.")
+        return None, None
+    
+    # Unpack data loaders - using test_loader for validation
+    val_loader = test_loader
     
     # Load model
     if args.pretrained and args.pretrained_model:
-        model = load_model_pretrained(
-            checkpoint_path=args.pretrained_model, 
-            num_classes=args.num_classes,
-            win_len=args.win_len,
-            feature_size=args.feature_size,
-            in_channels=args.in_channels
-        )
-        print(f"Loaded pretrained model: {args.pretrained_model}")
+        try:
+            model = load_model_pretrained(
+                checkpoint_path=args.pretrained_model, 
+                num_classes=args.num_classes,
+                win_len=args.win_len,
+                feature_size=args.feature_size,
+                in_channels=args.in_channels
+            )
+            print(f"Loaded pretrained model: {args.pretrained_model}")
+        except Exception as e:
+            print(f"Failed to load pretrained model: {str(e)}")
+            print("Falling back to randomly initialized model...")
+            from load import load_model_scratch
+            model = load_model_scratch(
+                num_classes=args.num_classes, 
+                win_len=args.win_len, 
+                feature_size=args.feature_size,
+                in_channels=args.in_channels
+            )
     else:
         from load import load_model_scratch
         model = load_model_scratch(
@@ -197,20 +215,22 @@ def train_supervised_acf(args):
     # Prepare data
     if args.unseen_test:
         if args.integrated_loader:
-            data_loaders = load_csi_unseen_integrated(
+            # Modified to handle two loaders and max_samples
+            train_loader, test_loader = load_csi_unseen_integrated(
                 args.acf_data_dir,
                 task=args.task,
-                batch_size=args.batch_size
+                batch_size=args.batch_size,
+                max_samples=getattr(args, 'max_samples', 5000)
             )
             print(f"Using integrated loader for unseen environments with task: {args.task}")
         else:
-            data_loaders = load_acf_unseen_environ(
+            train_loader, test_loader = load_acf_unseen_environ(
                 args.acf_data_dir,
                 batch_size=args.batch_size
             )
             print("Using test set with unseen environments...")
     else:
-        data_loaders = load_acf_supervised(
+        train_loader, test_loader = load_acf_supervised(
             args.acf_data_dir,
             batch_size=args.batch_size,
             train_ratio=args.train_ratio,
@@ -218,7 +238,8 @@ def train_supervised_acf(args):
             test_ratio=args.test_ratio
         )
     
-    train_loader, val_loader, test_loader = data_loaders
+    # Using test_loader for validation as well
+    val_loader = test_loader
     
     # Load model
     if args.pretrained and args.pretrained_model:
@@ -299,42 +320,64 @@ def train_supervised_acf(args):
 
 
 def main():
-    args = parse_args()
+    try:
+        args = parse_args()
+        
+        # Set random seed
+        set_seed(args.seed)
+        
+        # 根据任务自动设置正确的类别数
+        task_to_classes = {
+            'HumanNonhuman': 2,
+            'FourClass': 4,
+            'HumanID': 4,
+            'HumanMotion': 3,
+            'ThreeClass': 3,
+            'DetectionandClassification': 5,
+            'Detection': 2,
+            'NTUHumanID': 15,
+            'NTUHAR': 6,
+            'Widar': 22
+        }
+        
+        if args.task in task_to_classes and args.num_classes != task_to_classes[args.task]:
+            print(f"Automatically updating num_classes from {args.num_classes} to {task_to_classes[args.task]} based on task '{args.task}'")
+            args.num_classes = task_to_classes[args.task]
+        
+        # Set device
+        if args.device is None:
+            args.device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = torch.device(args.device)
+        print(f"Using device: {device}")
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(os.path.join(args.output_dir, args.results_subdir), exist_ok=True)
+        
+        # Choose training function based on mode
+        if args.mode.lower() == 'csi':
+            result = train_supervised_csi(args)
+            if result is None or result[0] is None:
+                print("CSI training failed. Please check logs for errors.")
+            else:
+                print("CSI training completed successfully.")
+        elif args.mode.lower() == 'acf':
+            result = train_supervised_acf(args)
+            if result is None or result[0] is None:
+                print("ACF training failed. Please check logs for errors.")
+            else:
+                print("ACF training completed successfully.")
+        else:
+            raise ValueError(f"Unknown mode: {args.mode}. Please choose 'csi' or 'acf'")
     
-    # Set random seed
-    set_seed(args.seed)
+    except Exception as e:
+        import traceback
+        print(f"Error during training: {str(e)}")
+        traceback.print_exc()
+        print("\nTraining failed. Please check the error messages above.")
+        return 1
     
-    # 根据任务自动设置正确的类别数
-    task_to_classes = {
-        'HumanNonhuman': 2,
-        'FourClass': 4,
-        'HumanID': 4,
-        'HumanMotion': 3,
-        'ThreeClass': 3,
-        'DetectionandClassification': 5,
-        'Detection': 2,
-        'NTUHumanID': 15,
-        'NTUHAR': 6,
-        'Widar': 22
-    }
-    
-    if args.task in task_to_classes and args.num_classes != task_to_classes[args.task]:
-        print(f"Automatically updating num_classes from {args.num_classes} to {task_to_classes[args.task]} based on task '{args.task}'")
-        args.num_classes = task_to_classes[args.task]
-    
-    # Set device
-    if args.device is None:
-        args.device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = torch.device(args.device)
-    print(f"Using device: {device}")
-    
-    # Choose training function based on mode
-    if args.mode.lower() == 'csi':
-        train_supervised_csi(args)
-    elif args.mode.lower() == 'acf':
-        train_supervised_acf(args)
-    else:
-        raise ValueError(f"Unknown mode: {args.mode}. Please choose 'csi' or 'acf'")
+    print("\nTraining process completed.")
+    return 0
 
 
 if __name__ == "__main__":

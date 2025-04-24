@@ -277,29 +277,31 @@ class CSIDatasetMAT(BaseDataset):
     """Dataset for supervised learning with CSI data from MAT files.
     Integrated from legacy implementation, works for both CSI and ACF data."""
     
-    def __init__(self, data_dir, task='ThreeClass', transform=None):
+    def __init__(self, data_dir, task='ThreeClass', transform=None, max_samples=None):
         """Initialize the dataset.
         
         Args:
             data_dir: Directory containing CSI/ACF data.
             task: Task type ('ThreeClass', 'HumanNonhuman', etc.).
             transform: Transform to apply to the data.
+            max_samples: Maximum number of samples to load (to prevent memory issues).
         """
         super().__init__(data_dir, transform)
         
         self.task = task
         self.samples = []
         self.labels = []
+        self.max_samples = max_samples
         
         # Task to class mapping
         self.class_mappings = {
             'HumanNonhuman': {'human': 1, 'nonhuman': 0},
-            'FourClass': {'empty': 0, 'human': 1, 'animal': 2, 'object': 3},
+            'FourClass': {'human': 0, 'pet': 1, 'irobot': 2, 'fan': 3},
             'HumanID': {'person1': 0, 'person2': 1, 'person3': 2, 'person4': 3},
             'HumanMotion': {'static': 0, 'walking': 1, 'running': 2},
-            'ThreeClass': {'empty': 0, 'human': 1, 'nonhuman': 2},
-            'DetectionandClassification': {'empty': 0, 'human': 1, 'animal': 2, 'object': 3, 'multiple': 4},
-            'Detection': {'empty': 0, 'nonempty': 1},
+            'ThreeClass': {'human': 0, 'pet': 1, 'irobot': 2},
+            'DetectionandClassification': {'nomotion': 0, 'human': 1, 'pet': 2, 'irobot': 3, 'fan': 4},
+            'Detection': {'nomotion': 0, 'motion': 1},
             'NTUHumanID': {f'person{i}': i for i in range(15)},
             'NTUHAR': {'walking': 0, 'sitting': 1, 'standing': 2, 'jumping': 3, 'falling': 4, 'lying': 5},
             'Widar': {f'activity{i}': i for i in range(22)}
@@ -313,13 +315,27 @@ class CSIDatasetMAT(BaseDataset):
         # Collect all MAT files from the directories
         all_mat_files = []
         for dir_path in self.data_dir:
-            for root, _, files in os.walk(dir_path):
-                for file in files:
-                    if file.endswith('.mat'):
-                        all_mat_files.append(os.path.join(root, file))
+            if os.path.exists(dir_path):
+                for root, _, files in os.walk(dir_path):
+                    for file in files:
+                        if file.endswith('.mat'):
+                            all_mat_files.append(os.path.join(root, file))
+            else:
+                print(f"Warning: Directory {dir_path} does not exist")
+        
+        if not all_mat_files:
+            print(f"Warning: No .mat files found in any of the provided directories")
+            return
+            
+        print(f"Found {len(all_mat_files)} .mat files")
         
         # Process each MAT file
         for file_path in all_mat_files:
+            # 如果已经达到最大样本数，停止加载
+            if self.max_samples and len(self.labels) >= self.max_samples:
+                print(f"Reached maximum sample limit ({self.max_samples}), stopping data loading")
+                break
+                
             try:
                 print(f"Loading file: {file_path}")
                 samples = mat73.loadmat(file_path)['X']
@@ -334,10 +350,25 @@ class CSIDatasetMAT(BaseDataset):
                 
                 # If valid label is found, add samples and labels
                 if label is not None:
-                    self.samples.append(samples_tensor)
-                    # Add same label for all samples in this file
-                    for i in range(samples_tensor.shape[0]):
-                        self.labels.append(label)
+                    # 检查是否会超过最大样本数
+                    if self.max_samples and len(self.labels) + samples_tensor.shape[0] > self.max_samples:
+                        # 计算还可以加载多少个样本
+                        remaining = self.max_samples - len(self.labels)
+                        if remaining > 0:
+                            # 只取部分样本
+                            self.samples.append(samples_tensor[:remaining])
+                            # 添加相应的标签
+                            for i in range(remaining):
+                                self.labels.append(label)
+                            print(f"Added {remaining} samples from {file_path} (limited by max_samples)")
+                        break
+                    else:
+                        # 添加所有样本
+                        self.samples.append(samples_tensor)
+                        # 添加相应的标签
+                        for i in range(samples_tensor.shape[0]):
+                            self.labels.append(label)
+                        print(f"Added {samples_tensor.shape[0]} samples from {file_path}")
                 else:
                     print(f"Skipping file {file_path} - no valid label determined")
                 
@@ -421,48 +452,65 @@ class CSIDatasetMAT(BaseDataset):
                 print('Nonhuman labeled (0)')
                 return 0
         
-        # Four-class classification
+        # Four-class classification - Updated to match old implementation
         elif self.task == 'FourClass':
             if 'human' in file_name:
-                print('Human labeled (1)')
-                return 1
-            elif 'pet' in file_name:
-                print('Pet labeled (2)')
-                return 2
-            elif 'irobot' in file_name:
-                print('IRobot labeled (3)')
-                return 3
-            elif 'fan' in file_name or 'empty' in file_name or 'nomotion' in file_name:
-                print('Empty/Fan labeled (0)')
+                print('Human labeled (0)')
                 return 0
-            else:
-                print(f'Unrecognized class type for {file_name}')
-        
-        # Three-class classification
-        elif self.task == 'ThreeClass':
-            if 'human' in file_name:
-                print('Human labeled (1)')
-                return 1
             elif 'pet' in file_name:
-                print('Pet labeled (2)')
-                return 2
+                print('Pet labeled (1)')
+                return 1
             elif 'irobot' in file_name:
                 print('IRobot labeled (2)')
                 return 2
-            elif 'nomotion' in file_name or 'empty' in file_name:
-                print('Empty labeled (0)')
-                return 0
+            elif 'fan' in file_name:
+                print('Fan labeled (3)')
+                return 3
             else:
                 print(f'Unrecognized class type for {file_name}')
         
-        # Detection task (binary)
+        # Three-class classification - Updated to match old implementation
+        elif self.task == 'ThreeClass':
+            if 'human' in file_name:
+                print('Human labeled (0)')
+                return 0
+            elif 'pet' in file_name:
+                print('Pet labeled (1)')
+                return 1
+            elif 'irobot' in file_name:
+                print('IRobot labeled (2)')
+                return 2
+            else:
+                print(f'Unrecognized class type for {file_name}')
+        
+        # Detection task (binary) - Updated to match old implementation
         elif self.task == 'Detection':
             if 'nomotion' in file_name or 'empty' in file_name:
                 print('NoMotion labeled (0)')
                 return 0
-            elif any(x in file_name for x in ['human', 'fan', 'pet', 'irobot']):
+            elif any(x in file_name for x in ['human', 'pet', 'irobot', 'fan']):
                 print('Motion labeled (1)')
                 return 1
+            else:
+                print(f'Unrecognized class type for {file_name}')
+        
+        # DetectionandClassification - Updated to match old implementation
+        elif self.task == 'DetectionandClassification':
+            if 'nomotion' in file_name or 'empty' in file_name:
+                print('NoMotion labeled (0)')
+                return 0
+            elif 'human' in file_name:
+                print('HumanMotion labeled (1)')
+                return 1
+            elif 'pet' in file_name:
+                print('PetMotion labeled (2)')
+                return 2
+            elif 'irobot' in file_name:
+                print('IRobotMotion labeled (3)')
+                return 3
+            elif 'fan' in file_name:
+                print('FanMotion labeled (4)')
+                return 4
             else:
                 print(f'Unrecognized class type for {file_name}')
         
