@@ -312,22 +312,36 @@ class CSIDatasetMAT(BaseDataset):
     
     def load_data(self):
         """Load data from MAT files."""
-        # Collect all MAT files from the directories
+        # Collect all MAT files from the directories, following old implementation logic
         all_mat_files = []
         for dir_path in self.data_dir:
             if os.path.exists(dir_path):
-                for root, _, files in os.walk(dir_path):
-                    for file in files:
-                        if file.endswith('.mat'):
-                            all_mat_files.append(os.path.join(root, file))
+                # Only list files in the root directory, don't walk recursively
+                try:
+                    file_list = os.listdir(dir_path)
+                    
+                    # Filter to only include specific .mat files (like old implementation)
+                    file_list = [f for f in file_list if f.endswith('5_half.mat')]
+                    
+                    # Special handling for ThreeClass task
+                    if self.task == 'ThreeClass':
+                        file_list = [f for f in file_list if "Fan" not in f]
+                    
+                    # Create full file paths
+                    for file_name in file_list:
+                        all_mat_files.append(os.path.join(dir_path, file_name))
+                        
+                    print(f"Found {len(file_list)} relevant .mat files in {dir_path}")
+                except Exception as e:
+                    print(f"Error listing files in {dir_path}: {e}")
             else:
                 print(f"Warning: Directory {dir_path} does not exist")
         
         if not all_mat_files:
-            print(f"Warning: No .mat files found in any of the provided directories")
+            print(f"Warning: No matching .mat files found in any of the provided directories")
             return
             
-        print(f"Found {len(all_mat_files)} .mat files")
+        print(f"Found {len(all_mat_files)} total .mat files to process")
         
         # Process each MAT file
         for file_path in all_mat_files:
@@ -338,6 +352,7 @@ class CSIDatasetMAT(BaseDataset):
                 
             try:
                 print(f"Loading file: {file_path}")
+                # Directly use the key 'X' as in old implementation
                 samples = mat73.loadmat(file_path)['X']
                 samples_tensor = torch.from_numpy(samples).float()
                 
@@ -345,7 +360,7 @@ class CSIDatasetMAT(BaseDataset):
                 if samples_tensor.shape[0] == 250:  # Single sample case
                     samples_tensor = samples_tensor.unsqueeze(0)
                 
-                # Get label for this file
+                # Get label based on just the filename (not full path)
                 label = self.generate_label(file_path)
                 
                 # If valid label is found, add samples and labels
@@ -365,7 +380,7 @@ class CSIDatasetMAT(BaseDataset):
                     else:
                         # 添加所有样本
                         self.samples.append(samples_tensor)
-                        # 添加相应的标签
+                        # 添加相应的标签 - same technique as old implementation
                         for i in range(samples_tensor.shape[0]):
                             self.labels.append(label)
                         print(f"Added {samples_tensor.shape[0]} samples from {file_path}")
@@ -378,54 +393,22 @@ class CSIDatasetMAT(BaseDataset):
         # Combine all sample tensors and add channel dimension if needed
         if len(self.samples) > 0:
             try:
-                # 合并前检查样本总数和标签总数是否匹配
-                total_samples = sum(s.shape[0] for s in self.samples)
-                if total_samples != len(self.labels):
-                    print(f"WARNING: Mismatch between total samples ({total_samples}) and labels ({len(self.labels)})")
-                    # 根据情况调整
-                    if total_samples > len(self.labels):
-                        print("Truncating samples to match label count")
-                        # 截取样本到标签数量
-                        temp_samples = []
-                        sample_count = 0
-                        for s in self.samples:
-                            sample_batch_size = s.shape[0]
-                            if sample_count + sample_batch_size <= len(self.labels):
-                                temp_samples.append(s)
-                                sample_count += sample_batch_size
-                            else:
-                                # 只取部分样本
-                                remaining = len(self.labels) - sample_count
-                                if remaining > 0:
-                                    temp_samples.append(s[:remaining])
-                                    sample_count += remaining
-                                break
-                        self.samples = temp_samples
-                    else:
-                        print("Truncating labels to match sample count")
-                        self.labels = self.labels[:total_samples]
-                
+                # Like old implementation, directly concatenate and add dimension
                 self.samples = torch.unsqueeze(torch.cat(self.samples, dim=0), dim=-3)
                 
-                # 最后安全检查
+                # Safety check (additional in new implementation)
                 if self.samples.shape[0] != len(self.labels):
-                    print(f"CRITICAL: After processing, sample count ({self.samples.shape[0]}) still doesn't match label count ({len(self.labels)})")
+                    print(f"WARNING: Mismatch between sample count ({self.samples.shape[0]}) and label count ({len(self.labels)})")
                     min_size = min(self.samples.shape[0], len(self.labels))
                     self.samples = self.samples[:min_size]
                     self.labels = self.labels[:min_size]
-                    print(f"Final adjustment: truncated to {min_size} samples and labels")
                 
                 print(f"Dataset loaded: {len(self.labels)} samples with shape {self.samples.shape}")
             except Exception as e:
                 print(f"Error combining samples: {e}")
                 import traceback
                 traceback.print_exc()
-                # 失败时采用简单回退方案
-                if len(self.samples) > 0:
-                    first_batch = self.samples[0]
-                    self.samples = torch.unsqueeze(first_batch, dim=-3)
-                    self.labels = self.labels[:first_batch.shape[0]]
-                    print(f"Fallback to using only first batch: {self.samples.shape[0]} samples")
+                print("Failed to process dataset properly")
         else:
             print("No valid samples found!")
     
