@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument('--in-channels', type=int, default=1, help='Number of input channels')
     parser.add_argument('--freeze-backbone', action='store_true', help='Whether to freeze backbone network')
     parser.add_argument('--pretrained', action='store_true', help='Whether to use pretrained model')
+    parser.add_argument('--sample-rate', type=int, default=100, help='Sample rate for CSI data')
     
     # Data parameters
     parser.add_argument('--train-ratio', type=float, default=0.8, help='Training set ratio')
@@ -47,6 +48,7 @@ def parse_args():
     parser.add_argument('--unseen-test', action='store_true', help='Whether to test on unseen environments')
     parser.add_argument('--integrated-loader', action='store_true', help='Whether to use integrated data loader')
     parser.add_argument('--task', type=str, default='ThreeClass', help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
+    parser.add_argument('--max-samples', type=int, default=5000, help='Maximum number of samples to load (to prevent memory issues)')
     
     # Path configuration
     parser.add_argument('--csi-data-dir', type=str, default='/opt/ml/input/data/csi', help='CSI data directory')
@@ -78,22 +80,37 @@ def train_supervised_csi(args):
     # Prepare data
     if args.integrated_loader:
         print(f"Using integrated data loader with task: {args.task}")
-        data_loaders = load_csi_supervised_integrated(
-            args.csi_data_dir,
-            task=args.task,
-            batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio
-        )
-    else:
-        data_loaders = load_data_supervised(
-            args.csi_data_dir, 
-            batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio
-        )
+        try:
+            data_loaders = load_csi_supervised_integrated(
+                args.csi_data_dir,
+                task=args.task,
+                batch_size=args.batch_size,
+                train_ratio=args.train_ratio,
+                val_ratio=args.val_ratio,
+                test_ratio=args.test_ratio,
+                max_samples=getattr(args, 'max_samples', 5000)  # 使用max_samples参数限制样本数量
+            )
+            print(f"Integrated data loader successfully loaded data")
+        except Exception as e:
+            print(f"Integrated data loader failed: {str(e)}")
+            print("Falling back to standard data loader...")
+            args.integrated_loader = False
+    
+    if not args.integrated_loader:
+        print(f"Using standard data loader")
+        try:
+            # Pass data directory parameter
+            data_loaders = load_data_supervised(
+                'OW_HM3', 
+                args.batch_size,
+                args.win_len,
+                args.sample_rate,
+                data_dir=args.csi_data_dir  # Pass data directory
+            )
+            print(f"Standard data loader successfully loaded data")
+        except Exception as e:
+            print(f"Data loading failed: {str(e)}")
+            return None, None
     
     train_loader, val_loader, test_loader = data_loaders
     

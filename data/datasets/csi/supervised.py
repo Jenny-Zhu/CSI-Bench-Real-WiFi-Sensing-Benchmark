@@ -141,42 +141,137 @@ class CSIDatasetOW_HM3_H5(BaseDataset):
         self.sample_rate = sample_rate
         self.if_test = if_test
         
+        # 添加数据跟踪信息
+        self.files_processed = 0
+        self.files_skipped = 0
+        self.samples_loaded = 0
+        
         # Load data
+        self.data = []
+        self.labels = []
         self.load_data()
+        
+        print(f"CSIDatasetOW_HM3_H5 initialization completed: Processed {self.files_processed} files, skipped {self.files_skipped} files, loaded {self.samples_loaded} samples")
     
     def load_data(self):
         """Load CSI data from HDF5 files."""
         for dir_path in self.data_dir:
+            if not os.path.exists(dir_path):
+                print(f"Warning: Directory {dir_path} does not exist")
+                continue
+                
             h5_files = [os.path.join(dir_path, f) for f in os.listdir(dir_path) if f.endswith('.h5')]
+            
+            if not h5_files:
+                print(f"Warning: No .h5 files found in directory {dir_path}")
+                continue
+                
+            print(f"Found {len(h5_files)} .h5 files in directory {dir_path}")
             
             for file_path in h5_files:
                 try:
+                    print(f"Processing file: {file_path}")
                     with h5py.File(file_path, 'r') as f:
                         # Determine if this is a test or train file based on naming convention
                         is_test_file = 'test' in os.path.basename(file_path).lower()
                         
                         # Only process files matching the requested split
                         if (self.if_test == 1 and is_test_file) or (self.if_test == 0 and not is_test_file):
-                            # Extract data and labels - customize based on actual structure
-                            csi_data = np.array(f.get('csi_data', None))
-                            labels = np.array(f.get('labels', None))
+                            # Check keys in file
+                            print(f"File {os.path.basename(file_path)} contains keys: {list(f.keys())}")
                             
-                            if csi_data is not None and labels is not None:
-                                # Process and add each example
-                                for i in range(len(labels)):
+                            # Extract data and labels - customize based on actual structure
+                            csi_data = None
+                            labels = None
+                            
+                            # Try different key names to accommodate different data formats
+                            for key in ['csi_data', 'csi', 'data']:
+                                if key in f:
+                                    csi_data = np.array(f[key])
+                                    print(f"Loaded CSI data from key '{key}', shape: {csi_data.shape}")
+                                    break
+                                    
+                            for key in ['labels', 'label', 'y']:
+                                if key in f:
+                                    labels = np.array(f[key])
+                                    print(f"Loaded labels from key '{key}', shape: {labels.shape}")
+                                    break
+                            
+                            if csi_data is None:
+                                print(f"Warning: No CSI data found in file {file_path}")
+                                self.files_skipped += 1
+                                continue
+                                
+                            if labels is None:
+                                print(f"Warning: No labels found in file {file_path}")
+                                self.files_skipped += 1
+                                continue
+                            
+                            # Process and add each example
+                            samples_in_file = 0
+                            for i in range(len(labels)):
+                                try:
                                     sample = csi_data[i]
                                     label = labels[i]
                                     
+                                    # Check validity and display warnings
+                                    if np.isnan(sample).any():
+                                        print(f"Warning: Sample {i} contains NaN values, will attempt to clean")
+                                        sample = np.nan_to_num(sample)
+                                        
                                     # Normalize and convert to tensor
-                                    sample = normalize_csi(sample)
-                                    sample_tensor = torch.from_numpy(sample).float()
-                                    label_tensor = torch.tensor(label).long()
-                                    
-                                    self.data.append(sample_tensor)
-                                    self.labels.append(label_tensor)
-                                    
+                                    try:
+                                        sample = normalize_csi(sample)
+                                        sample_tensor = torch.from_numpy(sample).float()
+                                        label_tensor = torch.tensor(label).long()
+                                        
+                                        self.data.append(sample_tensor)
+                                        self.labels.append(label_tensor)
+                                        samples_in_file += 1
+                                        self.samples_loaded += 1
+                                    except Exception as e:
+                                        print(f"Error processing sample {i}: {e}")
+                                except Exception as e:
+                                    print(f"Error accessing sample {i}: {e}")
+                            
+                            print(f"Loaded {samples_in_file} samples from file {os.path.basename(file_path)}")
+                            self.files_processed += 1
+                        else:
+                            print(f"Skipping file {os.path.basename(file_path)}: Does not match current dataset split")
+                            self.files_skipped += 1
                 except Exception as e:
-                    print(f"Error loading HDF5 file {file_path}: {e}")
+                    print(f"Error processing file {file_path}: {e}")
+                    self.files_skipped += 1
+        
+        if not self.data:
+            print(f"Warning: No data loaded! Check data directory and file format.")
+        else:
+            print(f"Successfully loaded dataset: {len(self.data)} samples")
+            
+    def __len__(self):
+        """Get the length of the dataset."""
+        return len(self.labels)
+    
+    def __getitem__(self, index):
+        """Get a sample from the dataset.
+        
+        Args:
+            index: Index of the sample.
+            
+        Returns:
+            A tuple of (sample, label).
+        """
+        # 添加索引边界检查
+        if index >= len(self.labels) or index >= len(self.data):
+            raise IndexError(f"Index {index} out of bounds for dataset with {len(self.labels)} labels and {len(self.data)} samples")
+            
+        sample = self.data[index]
+        label = self.labels[index]
+        
+        if self.transform:
+            sample = self.transform(sample)
+        
+        return sample, label
 
 class CSIDatasetMAT(BaseDataset):
     """Dataset for supervised learning with CSI data from MAT files.
@@ -251,8 +346,55 @@ class CSIDatasetMAT(BaseDataset):
         
         # Combine all sample tensors and add channel dimension if needed
         if len(self.samples) > 0:
-            self.samples = torch.unsqueeze(torch.cat(self.samples, dim=0), dim=-3)
-            print(f"Dataset loaded: {len(self.labels)} samples with shape {self.samples.shape}")
+            try:
+                # 合并前检查样本总数和标签总数是否匹配
+                total_samples = sum(s.shape[0] for s in self.samples)
+                if total_samples != len(self.labels):
+                    print(f"WARNING: Mismatch between total samples ({total_samples}) and labels ({len(self.labels)})")
+                    # 根据情况调整
+                    if total_samples > len(self.labels):
+                        print("Truncating samples to match label count")
+                        # 截取样本到标签数量
+                        temp_samples = []
+                        sample_count = 0
+                        for s in self.samples:
+                            sample_batch_size = s.shape[0]
+                            if sample_count + sample_batch_size <= len(self.labels):
+                                temp_samples.append(s)
+                                sample_count += sample_batch_size
+                            else:
+                                # 只取部分样本
+                                remaining = len(self.labels) - sample_count
+                                if remaining > 0:
+                                    temp_samples.append(s[:remaining])
+                                    sample_count += remaining
+                                break
+                        self.samples = temp_samples
+                    else:
+                        print("Truncating labels to match sample count")
+                        self.labels = self.labels[:total_samples]
+                
+                self.samples = torch.unsqueeze(torch.cat(self.samples, dim=0), dim=-3)
+                
+                # 最后安全检查
+                if self.samples.shape[0] != len(self.labels):
+                    print(f"CRITICAL: After processing, sample count ({self.samples.shape[0]}) still doesn't match label count ({len(self.labels)})")
+                    min_size = min(self.samples.shape[0], len(self.labels))
+                    self.samples = self.samples[:min_size]
+                    self.labels = self.labels[:min_size]
+                    print(f"Final adjustment: truncated to {min_size} samples and labels")
+                
+                print(f"Dataset loaded: {len(self.labels)} samples with shape {self.samples.shape}")
+            except Exception as e:
+                print(f"Error combining samples: {e}")
+                import traceback
+                traceback.print_exc()
+                # 失败时采用简单回退方案
+                if len(self.samples) > 0:
+                    first_batch = self.samples[0]
+                    self.samples = torch.unsqueeze(first_batch, dim=-3)
+                    self.labels = self.labels[:first_batch.shape[0]]
+                    print(f"Fallback to using only first batch: {self.samples.shape[0]} samples")
         else:
             print("No valid samples found!")
     
@@ -353,6 +495,10 @@ class CSIDatasetMAT(BaseDataset):
         Returns:
             A tuple of (sample, label).
         """
+        # 添加索引边界检查
+        if index >= len(self.labels) or (hasattr(self, 'samples') and self.samples is not None and index >= self.samples.shape[0]):
+            raise IndexError(f"Index {index} out of bounds for dataset with {len(self.labels)} labels and {self.samples.shape[0] if hasattr(self, 'samples') and self.samples is not None else 0} samples")
+            
         sample = self.samples[index]
         label = self.labels[index]
         

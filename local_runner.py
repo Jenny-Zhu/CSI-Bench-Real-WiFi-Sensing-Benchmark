@@ -37,7 +37,7 @@ from datetime import datetime
 PIPELINE = 'supervised'
 
 # Data and Output Directories
-DATA_DIR = r"C:\Users\weiha\Desktop\demo"
+DATA_DIR = r"H:\CSIMAT100"
 OUTPUT_DIR = r"C:\Users\weiha\Desktop\bench_mark_output"
 
 # Data Modality
@@ -160,9 +160,10 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'train_ratio': 0.8,
         'val_ratio': 0.1,
         'test_ratio': 0.1,
+        'max_samples': 5000,  # Limit maximum samples to avoid memory issues
         
         # Training parameters
-        'batch_size': 32,
+        'batch_size': 16,  # Reduced batch size to avoid memory issues
         'learning_rate': 1e-4,
         'weight_decay': 1e-5,
         'num_epochs': 100,
@@ -174,6 +175,7 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'num_classes': 2,
         'freeze_backbone': False,
         'pretrained': pretrained,
+        'sample_rate': 100,  # Add sample_rate parameter
         
         # Integrated loader options
         'integrated_loader': INTEGRATED_LOADER,
@@ -344,6 +346,8 @@ def main():
                         help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
     parser.add_argument('--config_file', type=str,
                         help='JSON configuration file to override defaults')
+    parser.add_argument('--max_samples', type=int,
+                        help='Maximum number of samples to load (to prevent memory issues)')
     
     args = parser.parse_args()
     
@@ -358,6 +362,7 @@ def main():
     integrated_loader = args.integrated_loader if args.integrated_loader else INTEGRATED_LOADER
     task = args.task if args.task else TASK
     config_file = args.config_file if args.config_file else CONFIG_FILE
+    max_samples = args.max_samples if args.max_samples else 5000
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
