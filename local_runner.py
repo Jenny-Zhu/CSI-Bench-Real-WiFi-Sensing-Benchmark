@@ -37,7 +37,10 @@ from datetime import datetime
 PIPELINE = 'supervised'
 
 # Data and Output Directories
-DATA_DIR = r"C:\Users\weiha\Desktop\demo"
+# For supervised learning with integrated loader, DATA_DIR should point directly 
+# to the folder containing .mat files or to the parent folder containing these files
+# Do not use subdirectories like 'csi' or 'acf' in the path unless your files are organized this way
+DATA_DIR = r"H:\CSIMAT100"
 OUTPUT_DIR = r"C:\Users\weiha\Desktop\bench_mark_output"
 
 # Data Modality
@@ -56,7 +59,7 @@ FEATURE_SIZE = 232  # Feature size for CSI data
 
 # Common Training Parameters
 SEED = 42
-BATCH_SIZE = 16
+BATCH_SIZE = 4
 MODEL_NAME = 'WiT'
 
 # Advanced Configuration
@@ -82,28 +85,85 @@ print(f"PyTorch version: {torch.__version__}")
 # Set device string for command line arguments
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def run_command(cmd, display_output=True):
-    """Run a command and stream the output."""
-    process = subprocess.Popen(
-        cmd, 
-        stdout=subprocess.PIPE, 
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        shell=True
-    )
+def run_command(cmd, display_output=True, timeout=1800):
+    """
+    Run command and display output in real-time with timeout handling.
     
-    # Stream the output
-    output = []
-    for line in iter(process.stdout.readline, ''):
-        if not line:
-            break
+    Args:
+        cmd: Command to execute
+        display_output: Whether to display command output
+        timeout: Command execution timeout in seconds, default 30 minutes
+        
+    Returns:
+        Tuple of (return_code, output_string)
+    """
+    try:
+        # Start process
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+            shell=True
+        )
+        
+        # For storing output
+        output = []
+        start_time = time.time()
+        
+        # Main loop
+        while process.poll() is None:
+            # Check for timeout
+            if timeout and time.time() - start_time > timeout:
+                if display_output:
+                    print(f"\nError: Command execution timed out ({timeout} seconds), terminating...")
+                process.kill()
+                return -1, '\n'.join(output + [f"Error: Command execution timed out ({timeout} seconds)"])
+            
+            # Read output line by line without blocking
+            try:
+                line = process.stdout.readline()
+                if line:
+                    line = line.rstrip()
+                    if display_output:
+                        print(line)
+                    output.append(line)
+                else:
+                    # Small sleep to reduce CPU usage
+                    time.sleep(0.1)
+            except Exception as e:
+                print(f"Error reading output: {str(e)}")
+                time.sleep(0.1)
+        
+        # Ensure all remaining output is read
+        remaining_output, _ = process.communicate()
+        if remaining_output:
+            for line in remaining_output.splitlines():
+                if display_output:
+                    print(line)
+                output.append(line)
+                
+        return process.returncode, '\n'.join(output)
+        
+    except KeyboardInterrupt:
+        # User interruption
+        if 'process' in locals() and process.poll() is None:
+            print("\nUser interrupted, terminating process...")
+            process.kill()
+        return -2, "User interrupted execution"
+        
+    except Exception as e:
+        # Other exceptions
+        error_msg = f"Error executing command: {str(e)}"
         if display_output:
-            print(line.rstrip())
-        output.append(line.rstrip())
-    
-    process.wait()
-    return process.returncode, '\n'.join(output)
+            print(f"\nError: {error_msg}")
+        
+        # Kill process if still running
+        if 'process' in locals() and process.poll() is None:
+            process.kill()
+        
+        return -1, error_msg
 
 # Configure pretraining pipeline
 def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
@@ -153,8 +213,8 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
     
     config = {
         # Data parameters
-        'csi_data_dir': data_dir ,
-        'acf_data_dir': data_dir,
+        'csi_data_dir': data_dir,  # Direct use of data_dir without joining
+        'acf_data_dir': data_dir,  # Direct use of data_dir without joining
         'output_dir': output_dir,
         'results_subdir': 'supervised',
         'train_ratio': 0.8,
@@ -162,7 +222,7 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'test_ratio': 0.1,
         
         # Training parameters
-        'batch_size': 32,
+        'batch_size': BATCH_SIZE,  # Use global BATCH_SIZE instead of hardcoded value
         'learning_rate': 1e-4,
         'weight_decay': 1e-5,
         'num_epochs': 100,
@@ -172,7 +232,7 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         # Model parameters
         'mode': mode,  # Options: 'csi', 'acf'
         'num_classes': 2,
-        'freeze_backbone': False,
+        'freeze_backbone': FREEZE_BACKBONE,  # Use global setting
         'pretrained': pretrained,
         
         # Integrated loader options

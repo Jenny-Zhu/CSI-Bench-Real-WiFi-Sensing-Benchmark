@@ -21,8 +21,37 @@ from load import (
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Supervised learning for WiFi signals')
-
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description='Train supervised learning model')
+    
+    # Data directories
+    parser.add_argument('--csi-data-dir', type=str, default=None,
+                      help='Directory containing CSI data')
+    parser.add_argument('--acf-data-dir', type=str, default=None,
+                      help='Directory containing ACF data')
+    parser.add_argument('--train-data-dir', type=str, default=None,
+                      help='Directory containing training data (used with unseen_test)')
+    parser.add_argument('--output-dir', type=str, default='experiments',
+                      help='Directory to save output results')
+    parser.add_argument('--results-subdir', type=str, default='supervised',
+                      help='Subdirectory under output_dir to save results')
+    
+    # Data parameters
+    parser.add_argument('--mode', type=str, choices=['csi', 'acf'], default='csi',
+                      help='Data modality to use (csi or acf)')
+    parser.add_argument('--train-ratio', type=float, default=0.8,
+                      help='Ratio of data to use for training')
+    parser.add_argument('--val-ratio', type=float, default=0.1,
+                      help='Ratio of data to use for validation')
+    parser.add_argument('--test-ratio', type=float, default=0.1,
+                      help='Ratio of data to use for testing')
+    parser.add_argument('--win-len', type=int, default=250,
+                      help='Window length for CSI data')
+    parser.add_argument('--feature-size', type=int, default=90,
+                      help='Feature size for CSI data')
+    parser.add_argument('--sample-rate', type=int, default=100,
+                      help='Sampling rate of the data')
+    
     # Training parameters
     parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
     parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate')
@@ -32,29 +61,19 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
     
     # Model parameters
-    parser.add_argument('--mode', type=str, default='csi', choices=['csi', 'acf'], help='Training mode: csi or acf')
     parser.add_argument('--num-classes', type=int, default=2, help='Number of classes')
-    parser.add_argument('--win-len', type=int, default=250, help='Window length for CSI data')
-    parser.add_argument('--feature-size', type=int, default=98, help='Feature size for CSI data')
     parser.add_argument('--in-channels', type=int, default=1, help='Number of input channels')
     parser.add_argument('--freeze-backbone', action='store_true', help='Whether to freeze backbone network')
     parser.add_argument('--pretrained', action='store_true', help='Whether to use pretrained model')
     
     # Data parameters
-    parser.add_argument('--train-ratio', type=float, default=0.8, help='Training set ratio')
-    parser.add_argument('--val-ratio', type=float, default=0.1, help='Validation set ratio')
-    parser.add_argument('--test-ratio', type=float, default=0.1, help='Test set ratio')
     parser.add_argument('--unseen-test', action='store_true', help='Whether to test on unseen environments')
     parser.add_argument('--integrated-loader', action='store_true', help='Whether to use integrated data loader')
     parser.add_argument('--task', type=str, default='ThreeClass', help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
     
     # Path configuration
-    parser.add_argument('--csi-data-dir', type=str, default='/opt/ml/input/data/csi', help='CSI data directory')
-    parser.add_argument('--acf-data-dir', type=str, default='/opt/ml/input/data/acf', help='ACF data directory')
     parser.add_argument('--pretrained-model', type=str, default=None, help='Pretrained model path')
-    parser.add_argument('--output-dir', type=str, default='./results', help='Output directory')
     parser.add_argument('--model-name', type=str, default='WiT', help='Model name')
-    parser.add_argument('--results-subdir', type=str, default='supervised', help='Results subdirectory')
     
     # Other parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -73,32 +92,77 @@ def set_seed(seed):
 
 
 def train_supervised_csi(args):
+    """Train a model for CSI modality."""
     print(f"Starting CSI modality supervised training...")
     
     # Prepare data
-    if args.integrated_loader:
-        print(f"Using integrated data loader with task: {args.task}")
-        data_loaders = load_csi_supervised_integrated(
-            args.csi_data_dir,
-            task=args.task,
-            batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio
-        )
+    if args.unseen_test:
+        # For unseen test environment
+        if args.integrated_loader:
+            # Test loader only
+            test_loader = load_csi_unseen_integrated(
+                args.csi_data_dir,
+                task=args.task,
+                batch_size=args.batch_size
+            )
+            print(f"Using integrated loader for unseen environments with task: {args.task}")
+            
+            # Need to create train and val loaders from a different directory
+            # Assume train data is in the parent directory or provided separately
+            if hasattr(args, 'train_data_dir') and args.train_data_dir:
+                train_dir = args.train_data_dir
+            else:
+                # Try to use parent directory
+                train_dir = os.path.dirname(args.csi_data_dir.rstrip('/\\'))
+                if not train_dir or train_dir == args.csi_data_dir:
+                    train_dir = args.csi_data_dir
+            
+            # Load training data
+            print(f"Loading training data from: {train_dir}")
+            train_loader, val_loader, _ = load_csi_supervised_integrated(
+                train_dir,
+                task=args.task,
+                batch_size=args.batch_size,
+                train_ratio=args.train_ratio,
+                val_ratio=args.val_ratio,
+                test_ratio=args.test_ratio
+            )
+        else:
+            # Legacy mode
+            train_loader, val_loader, test_loader = load_data_supervised(
+                'OW_HM3', 
+                args.batch_size, 
+                args.win_len, 
+                args.sample_rate
+            )
     else:
-        data_loaders = load_data_supervised(
-            args.csi_data_dir, 
-            batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio
-        )
-    
-    train_loader, val_loader, test_loader = data_loaders
+        # Normal training mode
+        if args.integrated_loader:
+            # Get all three loaders from the same function
+            train_loader, val_loader, test_loader = load_csi_supervised_integrated(
+                args.csi_data_dir,
+                task=args.task,
+                batch_size=args.batch_size,
+                train_ratio=args.train_ratio,
+                val_ratio=args.val_ratio,
+                test_ratio=args.test_ratio
+            )
+            print(f"Using integrated loader with task: {args.task}")
+        else:
+            # Legacy mode
+            train_loader, test_loader = load_data_supervised(
+                'OW_HM3', 
+                args.batch_size, 
+                args.win_len, 
+                args.sample_rate
+            )
+            # Create a validation loader by splitting the test loader
+            # This is a legacy behavior and might not be optimal
+            val_loader = test_loader  # Use test loader as validation in legacy mode
     
     # Load model
     if args.pretrained and args.pretrained_model:
+        # Load pretrained model
         model = load_model_pretrained(
             checkpoint_path=args.pretrained_model, 
             num_classes=args.num_classes,
@@ -108,6 +172,7 @@ def train_supervised_csi(args):
         )
         print(f"Loaded pretrained model: {args.pretrained_model}")
     else:
+        # Create new model from scratch
         from load import load_model_scratch
         model = load_model_scratch(
             num_classes=args.num_classes, 
@@ -175,36 +240,74 @@ def train_supervised_csi(args):
 
 
 def train_supervised_acf(args):
+    """Train a model for ACF modality."""
     print(f"Starting ACF modality supervised training...")
     
     # Prepare data
     if args.unseen_test:
+        # For unseen test environment
         if args.integrated_loader:
-            data_loaders = load_csi_unseen_integrated(
+            # Test loader only
+            test_loader = load_csi_unseen_integrated(
                 args.acf_data_dir,
                 task=args.task,
                 batch_size=args.batch_size
             )
             print(f"Using integrated loader for unseen environments with task: {args.task}")
-        else:
-            data_loaders = load_acf_unseen_environ(
-                args.acf_data_dir,
+            
+            # Need to create train and val loaders from a different directory
+            # Assume train data is in the parent directory or provided separately
+            if hasattr(args, 'train_data_dir') and args.train_data_dir:
+                train_dir = args.train_data_dir
+            else:
+                # Try to use parent directory
+                train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
+                if not train_dir or train_dir == args.acf_data_dir:
+                    train_dir = args.acf_data_dir
+            
+            # Load training data
+            print(f"Loading training data from: {train_dir}")
+            train_loader, val_loader, _ = load_acf_supervised(
+                train_dir,
+                task=args.task,
                 batch_size=args.batch_size
             )
+        else:
+            # Legacy unseen test mode
+            test_loader = load_acf_unseen_environ(
+                args.acf_data_dir,
+                task=args.task
+            )
             print("Using test set with unseen environments...")
+            
+            # Need to create train and val loaders from a different directory
+            if hasattr(args, 'train_data_dir') and args.train_data_dir:
+                train_dir = args.train_data_dir
+            else:
+                # Try to use parent directory
+                train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
+                if not train_dir or train_dir == args.acf_data_dir:
+                    train_dir = args.acf_data_dir
+            
+            # Load training data
+            print(f"Loading training data from: {train_dir}")
+            train_loader, val_loader, _ = load_acf_supervised(
+                train_dir,
+                task=args.task,
+                batch_size=args.batch_size
+            )
     else:
-        data_loaders = load_acf_supervised(
+        # Normal training mode
+        train_loader, val_loader, test_loader = load_acf_supervised(
             args.acf_data_dir,
-            batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio
+            task=args.task,
+            batch_size=args.batch_size
         )
-    
-    train_loader, val_loader, test_loader = data_loaders
+        print(f"Using ACF data loader with task: {args.task}")
     
     # Load model
     if args.pretrained and args.pretrained_model:
+        # Load pretrained model
         model = load_model_pretrained(
             checkpoint_path=args.pretrained_model, 
             num_classes=args.num_classes,
@@ -214,6 +317,7 @@ def train_supervised_acf(args):
         )
         print(f"Loaded pretrained model: {args.pretrained_model}")
     else:
+        # Create new model from scratch
         from load import load_model_scratch
         model = load_model_scratch(
             num_classes=args.num_classes, 
@@ -234,9 +338,8 @@ def train_supervised_acf(args):
     model_type = "pretrained" if args.pretrained else "scratch"
     freeze_status = "frozen" if args.freeze_backbone else "unfrozen"
     test_type = "unseen" if args.unseen_test else "seen"
-    loader_type = "integrated" if args.integrated_loader else "standard"
     save_path = os.path.join(args.output_dir, args.results_subdir, 
-                            f"{args.model_name}_acf_{model_type}_{freeze_status}_{test_type}_{loader_type}")
+                            f"{args.model_name}_acf_{model_type}_{freeze_status}_{test_type}")
     os.makedirs(save_path, exist_ok=True)
     
     # Set training configuration
