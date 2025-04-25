@@ -40,8 +40,8 @@ PIPELINE = 'supervised'
 # For supervised learning with integrated loader, DATA_DIR should point directly 
 # to the folder containing .mat files or to the parent folder containing these files
 # Do not use subdirectories like 'csi' or 'acf' in the path unless your files are organized this way
-DATA_DIR = "C:\\Users\\weiha\\Desktop\\demo"
-OUTPUT_DIR = "C:\\Users\\weiha\\Desktop\\bench_mark_output"
+DATA_DIR = "C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100"
+OUTPUT_DIR = "C:\\Guozhen\\Code\\Github\\temp"
 
 # Data Modality
 MODE = 'csi'  # Options: 'csi', 'acf'
