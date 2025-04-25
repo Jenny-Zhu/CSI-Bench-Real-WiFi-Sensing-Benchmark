@@ -1,57 +1,10 @@
 import torch
 import torch.nn as nn
-from model import ViT_Parallel, ViT_MultiTask
+from model import ViT_Parallel
 
 # Constants or default scaling factors for patch sizes
 PATCH_W_SCALE = 10
 PATCH_H_SCALE = 2
-
-
-def load_model_pretrained(checkpoint_path, num_classes, win_len=250, feature_size=98, emb_size=None, depth=6, in_channels=2):
-    """
-    Loads a ViT_Parallel and partially updates from a checkpoint
-    where only 'encoder' weights are used strictly.
-
-    Args:
-        checkpoint_path (str): Path to the checkpoint file
-        num_classes (int): Number of output classes
-        win_len (int, optional): Window length. Defaults to 250.
-        feature_size (int, optional): Feature size. Defaults to 98.
-        emb_size (int, optional): Embedding size. If None, will be calculated based on win_len and feature_size.
-        depth (int, optional): Number of Transformer layers. Defaults to 6.
-        in_channels (int, optional): Input channels. Defaults to 2.
-
-    Returns:
-        model (nn.Module): Updated model with encoder weights from checkpoint
-    """
-    # 计算embedding size如果没有提供
-    if emb_size is None:
-        emb_size = int((win_len / PATCH_W_SCALE) * (feature_size / PATCH_H_SCALE))
-    
-    # 创建新版本的ViT_Parallel
-    model = ViT_Parallel(
-        win_len=win_len,
-        feature_size=feature_size,
-        emb_dim=emb_size,
-        in_channels=in_channels,
-        proj_dim=emb_size,
-        num_classes=num_classes
-    )
-    
-    # 加载预训练权重
-    state_dict = torch.load(checkpoint_path)
-    
-    # 检查状态字典中的键，以确定是否为旧版本或新版本的模型
-    if any('encoder' in k for k in state_dict.keys()):
-        # 旧版本的模型
-        encoder_state = {k: v for k, v in state_dict.items() if 'encoder' in k}
-        model.load_state_dict(encoder_state, strict=False)
-    else:
-        # 新版本的模型
-        model.load_state_dict(state_dict, strict=False)
-    
-    return model
-
 
 def fine_tune_model(model, freeze_up_to_layer=2):
     """
@@ -66,89 +19,104 @@ def fine_tune_model(model, freeze_up_to_layer=2):
     Returns:
         model (nn.Module): Model with frozen layers
     """
-    # 检查是否为新版本的模型结构
+    # 检查模型类型并执行相应的冻结操作
     if hasattr(model, 'model') and hasattr(model.model, 'backbone'):
         # 新版本的ViT_Parallel
         for i, block in enumerate(model.model.backbone.layers):
             if i < freeze_up_to_layer:
                 for param in block.parameters():
                     param.requires_grad = False
-    else:
-        # 旧版本的模型
+    elif hasattr(model, 'encoder') and hasattr(model.encoder, 'layers'):
+        # 标准Transformer模型
         for i, block in enumerate(model.encoder.layers):
             if i < freeze_up_to_layer:
                 for param in block.parameters():
                     param.requires_grad = False
+    # 可以添加其他模型类型的冻结逻辑
     return model
 
-
-def load_model_trained(checkpoint_path, num_classes, win_len=250, feature_size=98, emb_size=None, depth=6, in_channels=2):
+def load_model_trained(checkpoint_path, model_name, task, win_len=250, feature_size=98, in_channels=1):
     """
-    Loads the entire model state from a checkpoint.
-    Great for fully trained models (not partial).
+    Loads a trained model from a checkpoint.
     
     Args:
-        checkpoint_path (str): Path to the checkpoint file
-        num_classes (int): Number of output classes
-        win_len (int, optional): Window length. Defaults to 250.
-        feature_size (int, optional): Feature size. Defaults to 98.
-        emb_size (int, optional): Embedding size. If None, will be calculated based on win_len and feature_size.
-        depth (int, optional): Number of Transformer layers. Defaults to 6.
-        in_channels (int, optional): Input channels. Defaults to 2.
+        checkpoint_path (str): Path to checkpoint file
+        model_name (str): Name of the model architecture
+        task (str): Name of the task
+        win_len (int): Window length
+        feature_size (int): Feature size
+        in_channels (int): Number of input channels
         
     Returns:
-        model (nn.Module): Model with weights from checkpoint
+        Model with loaded weights
     """
-    # 计算embedding size如果没有提供
-    if emb_size is None:
-        emb_size = int((win_len / PATCH_W_SCALE) * (feature_size / PATCH_H_SCALE))
+    # 获取类别数量
+    classes = {
+        'HumanNonhuman': 2, 
+        'FourClass': 4, 
+        'NTUHumanID': 15, 
+        'NTUHAR': 6, 
+        'HumanID': 4, 
+        'Widar': 22,
+        'HumanMotion': 3, 
+        'ThreeClass': 3, 
+        'DetectionandClassification': 5, 
+        'Detection': 2
+    }
     
-    # 创建新版本的ViT_Parallel
-    model = ViT_Parallel(
-        win_len=win_len,
-        feature_size=feature_size,
-        emb_dim=emb_size,
-        in_channels=in_channels,
-        proj_dim=emb_size,
-        num_classes=num_classes
-    )
+    # 确保任务在支持列表中
+    if task not in classes:
+        raise ValueError(f"Task {task} not in supported task list: {list(classes.keys())}")
     
-    # 加载预训练权重
-    state_dict = torch.load(checkpoint_path)
-    model.load_state_dict(state_dict, strict=False)
+    # 创建模型
+    model = load_model_scratch(model_name=model_name, task=task, win_len=win_len, feature_size=feature_size, in_channels=in_channels)
+    
+    # 加载权重
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint)
     
     return model
 
-
-def load_model_scratch(num_classes=3, win_len=250, feature_size=98, depth=6, in_channels=2, flag='supervised'):
+def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature_size=98, in_channels=1):
     """
-    Creates a new model from scratch (ViT_MultiTask if flag='joint', or ViT_Parallel otherwise).
+    Creates a new model from scratch based on the specified model name.
     
     Args:
-        num_classes (int): Number of output classes
-        win_len (int): Window length (defaults to 250 for CSI data)
-        feature_size (int): Feature size (defaults to 98 for CSI data)
-        depth (int): Number of Transformer layers
-        in_channels (int): Input channels
-        flag (str): Whether to use ViT_MultiTask ('joint') or ViT_Parallel
+        model_name (str): Name of the model architecture ('ViT' or other models that will be implemented)
+        task (str): Name of the task
+        win_len (int): Window length
+        feature_size (int): Feature size
+        in_channels (int): Number of input channels
         
     Returns:
-        model (nn.Module): New model instance
+        New model instance
     """
+    # 支持的类别映射
+    classes = {
+        'HumanNonhuman': 2, 
+        'FourClass': 4, 
+        'NTUHumanID': 15, 
+        'NTUHAR': 6, 
+        'HumanID': 4, 
+        'Widar': 22,
+        'HumanMotion': 3, 
+        'ThreeClass': 3, 
+        'DetectionandClassification': 5, 
+        'Detection': 2
+    }
+    
+    # 确保任务在支持列表中
+    if task not in classes:
+        raise ValueError(f"Task {task} not in supported task list: {list(classes.keys())}")
+    
+    num_classes = classes[task]
+    
+    # 计算ViT的embedding size
     emb_size = int((win_len / PATCH_W_SCALE) * (feature_size / PATCH_H_SCALE))
-    print(f"[load_model_scratch] emb_size={emb_size}, flag={flag}, win_len={win_len}, feature_size={feature_size}")
     
-    if flag == 'joint':
-        model = ViT_MultiTask(
-            win_len=win_len,
-            feature_size=feature_size,
-            emb_dim=emb_size,
-            in_channels=in_channels,
-            proj_dim=emb_size,
-            pretext_tasks=['contrastive', 'reconstruction'],
-            num_classes=num_classes
-        )
-    else:
+    # 根据指定的模型名称创建相应的模型
+    if model_name == 'ViT':
+        print(f"Using model: ViT with emb_size={emb_size}, win_len={win_len}, feature_size={feature_size}")
         model = ViT_Parallel(
             win_len=win_len,
             feature_size=feature_size,
@@ -157,5 +125,44 @@ def load_model_scratch(num_classes=3, win_len=250, feature_size=98, depth=6, in_
             proj_dim=emb_size,
             num_classes=num_classes
         )
+    # 预留其他模型的导入和实例化，这些模型将在model/文件夹中逐步实现
+    elif model_name == 'MLP':
+        print(f"Using model: MLP (not implemented yet)")
+        # 以后将导入和实现MLP模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    elif model_name == 'LeNet':
+        print(f"Using model: LeNet (not implemented yet)")
+        # 以后将导入和实现LeNet模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    elif model_name == 'ResNet18':
+        print(f"Using model: ResNet18 (not implemented yet)")
+        # 以后将导入和实现ResNet18模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    elif model_name == 'LSTM':
+        print(f"Using model: LSTM (not implemented yet)")
+        # 以后将导入和实现LSTM模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    elif model_name == 'BiLSTM':
+        print(f"Using model: BiLSTM (not implemented yet)")
+        # 以后将导入和实现BiLSTM模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    elif model_name == 'GRUNet':
+        print(f"Using model: GRUNet (not implemented yet)")
+        # 以后将导入和实现GRUNet模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    elif model_name == 'Transformer':
+        print(f"Using model: Transformer (not implemented yet)")
+        # 以后将导入和实现自定义Transformer模型
+        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    
+    else:
+        supported_models = ['ViT', 'MLP', 'LeNet', 'ResNet18', 'LSTM', 'BiLSTM', 'GRUNet', 'Transformer']
+        raise ValueError(f"Model {model_name} not in supported model list: {supported_models}")
     
     return model
