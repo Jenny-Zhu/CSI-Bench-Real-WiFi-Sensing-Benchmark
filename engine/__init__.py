@@ -1,7 +1,6 @@
 # Export trainers
-from engine.pretraining import SSLTrainer, SSLJointTrainer
 from engine.supervised import TaskTrainer, TaskTrainerACF 
-from engine.meta_learning import MetaTrainer, maml_train, lstm_meta_train, LSTMOptimizer
+from engine.meta_learning import MetaTrainer
 
 # Factory function to get the appropriate trainer
 def get_trainer(model, data_loader, config):
@@ -15,15 +14,7 @@ def get_trainer(model, data_loader, config):
     Returns:
         trainer: An instance of the appropriate trainer class
     """
-    if config.mode == "pretraining":
-        if hasattr(config, 'joint') and config.joint:
-            from engine.pretraining import SSLJointTrainer
-            return SSLJointTrainer(model, data_loader, config)
-        else:
-            from engine.pretraining import SSLTrainer
-            return SSLTrainer(model, data_loader, config)
-    
-    elif config.mode == "supervised":
+    if config.mode == "supervised":
         if config.data_type == "csi":
             from engine.supervised import TaskTrainer
             return TaskTrainer(model, data_loader, config)

@@ -1,83 +1,72 @@
-import argparse
 import os
 import torch
 import torch.nn as nn
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sn
 from tqdm import tqdm
+import argparse
 
-# Import the new module structure
+# Import training engines
 from engine.supervised.task_trainer import TaskTrainer
+from engine.supervised.task_trainer_acf import TaskTrainerACF
+
+# Import data loaders
 from load import (
-    load_data_supervised,
-    load_model_pretrained,
-    save_data_supervised,
+    load_csi_supervised,
     load_acf_supervised,
-    load_acf_unseen_environ,
-    load_csi_supervised_integrated,
-    load_csi_unseen_integrated
+    load_model_scratch
 )
 
-
 def parse_args():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Train supervised learning model')
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Train supervised learning models')
     
     # Data directories
-    parser.add_argument('--csi-data-dir', type=str, default=None,
-                      help='Directory containing CSI data')
-    parser.add_argument('--acf-data-dir', type=str, default=None,
-                      help='Directory containing ACF data')
-    parser.add_argument('--train-data-dir', type=str, default=None,
-                      help='Directory containing training data (used with unseen_test)')
+    parser.add_argument('--training-dir', type=str, default=None,
+                      help='Directory containing training data')
+    parser.add_argument('--test-dirs', type=str, nargs='+', default=None,
+                      help='List of directories containing test data. Can specify multiple paths')
     parser.add_argument('--output-dir', type=str, default='experiments',
                       help='Directory to save output results')
     parser.add_argument('--results-subdir', type=str, default='supervised',
-                      help='Subdirectory under output_dir to save results')
+                      help='Subdirectory under output directory to save results')
     
     # Data parameters
     parser.add_argument('--mode', type=str, choices=['csi', 'acf'], default='csi',
                       help='Data modality to use (csi or acf)')
     parser.add_argument('--train-ratio', type=float, default=0.8,
-                      help='Ratio of data to use for training')
-    parser.add_argument('--val-ratio', type=float, default=0.1,
-                      help='Ratio of data to use for validation')
-    parser.add_argument('--test-ratio', type=float, default=0.1,
-                      help='Ratio of data to use for testing')
+                      help='Ratio of data to use for training (from training dir)')
+    parser.add_argument('--val-ratio', type=float, default=0.2,
+                      help='Ratio of data to use for validation (from training dir)')
     parser.add_argument('--win-len', type=int, default=250,
                       help='Window length for CSI data')
     parser.add_argument('--feature-size', type=int, default=90,
                       help='Feature size for CSI data')
-    parser.add_argument('--sample-rate', type=int, default=100,
-                      help='Sampling rate of the data')
     
     # Training parameters
     parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
     parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=1e-5, help='Weight decay')
-    parser.add_argument('--num-epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--warmup-epochs', type=int, default=5, help='Warmup epochs')
-    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
+    parser.add_argument('--num-epochs', type=int, default=100, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=15, help='Patience for early stopping')
     
     # Model parameters
     parser.add_argument('--num-classes', type=int, default=2, help='Number of classes')
     parser.add_argument('--in-channels', type=int, default=1, help='Number of input channels')
-    parser.add_argument('--freeze-backbone', action='store_true', help='Whether to freeze backbone network')
-    parser.add_argument('--pretrained', action='store_true', help='Whether to use pretrained model')
+    parser.add_argument('--freeze-backbone', action='store_true', help='Whether to freeze the backbone network')
     
     # Data parameters
-    parser.add_argument('--unseen-test', action='store_true', help='Whether to test on unseen environments')
-    parser.add_argument('--integrated-loader', action='store_true', help='Whether to use integrated data loader')
-    parser.add_argument('--task', type=str, default='ThreeClass', help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
-    
-    # Path configuration
-    parser.add_argument('--pretrained-model', type=str, default=None, help='Pretrained model path')
-    parser.add_argument('--model-name', type=str, default='WiT', help='Model name')
+    parser.add_argument('--integrated-loader', action='store_true', help='Whether to use the integrated data loader')
+    parser.add_argument('--task', type=str, default='ThreeClass', 
+                      help='Task type for integrated loader (e.g. ThreeClass, HumanNonhuman)')
     
     # Other parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', type=str, default=None, help='Training device')
+    parser.add_argument('--model-name', type=str, default='WiT', help='Model name')
 
     return parser.parse_args()
 
@@ -92,54 +81,60 @@ def set_seed(seed):
 
 
 def train_supervised_csi(args):
-    """Train a model for CSI modality."""
-    print(f"Starting CSI modality supervised training...")
+    """Train a model on CSI data"""
+    print(f"Starting supervised learning training on CSI modality...")
 
-    # load data
+    # 确保训练目录和验证目录存在
+    train_dir = os.path.join(args.training_dir, 'train')
+    val_dir = os.path.join(args.training_dir, 'validation')
+    
+    # 检查训练和验证目录是否存在
+    if not os.path.exists(train_dir):
+        raise ValueError(f"Training directory {train_dir} does not exist")
+    if not os.path.exists(val_dir):
+        raise ValueError(f"Validation directory {val_dir} does not exist")
 
-    train_loader, val_loader, test_loader = load_csi_supervised_integrated(
-        args.csi_data_dir,
-        task=args.task,
+    # 使用更新后的load_csi_supervised加载数据
+    train_loader, val_loader, test_loaders_dict = load_csi_supervised(
+        train_dir=train_dir,
+        val_dir=val_dir,
         batch_size=args.batch_size,
-        train_ratio=args.train_ratio,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio
+        task=args.task,
+        test_dirs=args.test_dirs
     )
-    print(f"CSI loaded for task: {args.task}")
-
+    
+    # 检查测试集是否存在
+    has_multiple_test_sets = len(test_loaders_dict) > 0
 
     # Load model
-
-    from load import load_model_scratch
     model = load_model_scratch(
-        num_classes=args.num_classes,
+        model_name=args.model_name,
+        task=args.task,
         win_len=args.win_len,
         feature_size=args.feature_size,
-        in_channels=args.in_channels
+        in_channels=getattr(args, 'in_channels', 1)  # Default to 1 if not provided
     )
     print("Using randomly initialized model")
-
     
-    # Set save path
+    # Setup save path
     save_path = os.path.join(args.output_dir, args.results_subdir, 
                             f"{args.task}_{args.model_name}_csi")
     os.makedirs(save_path, exist_ok=True)
     
-    # Set training configuration
+    # Setup loss function
+    criterion = nn.CrossEntropyLoss()
+    
+    # Create config object for trainer
     config = argparse.Namespace()
-    config.num_epochs = args.num_epochs
-    config.patience = args.patience
     config.learning_rate = args.learning_rate
     config.weight_decay = args.weight_decay
-    config.warmup_epochs = args.warmup_epochs
-    config.save_path = save_path
+    config.num_epochs = args.num_epochs
+    config.patience = args.patience
     config.num_classes = args.num_classes
     config.output_dir = args.output_dir
     config.results_subdir = args.results_subdir
-    config.model_name = args.model_name
-    
-    # Set loss function
-    criterion = nn.CrossEntropyLoss()
+    config.model_name = f"{args.task}_{args.model_name}_csi"
+    config.device = args.device
     
     # Create trainer and start training
     trainer = TaskTrainer(
@@ -154,13 +149,52 @@ def train_supervised_csi(args):
     # Save training results
     results_df.to_csv(os.path.join(save_path, 'training_history.csv'), index=False)
     
-    # Test model
-    print("Evaluating model on test set...")
-    test_loss, test_acc = trainer.evaluate(test_loader)
-    print(f"Test results - Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+    # Plot training results
+    plot_results(results_df, save_path)
     
-    # Plot confusion matrix
-    trainer.plot_confusion_matrix(test_loader)
+    # Test on all test sets
+    test_results_all = []
+    
+    # Create a summary DataFrame for all test results
+    test_summary = pd.DataFrame(columns=['Test Set', 'Loss', 'Accuracy'])
+    
+    # 如果没有测试集，则直接返回
+    if not has_multiple_test_sets:
+        print("No test sets available. Skipping evaluation.")
+        return model, results_df
+    
+    print("\nEvaluating model on test sets:")
+    for test_name, test_loader in test_loaders_dict.items():
+        print(f"\nEvaluating on test set: {test_name}")
+        test_loss, test_acc = trainer.evaluate(test_loader)
+        
+        # Create test results DataFrame
+        test_results = pd.DataFrame({
+            'Test Loss': [test_loss],
+            'Test Accuracy': [test_acc]
+        })
+        
+        # Add to summary
+        test_summary = pd.concat([
+            test_summary, 
+            pd.DataFrame({'Test Set': [test_name], 'Loss': [test_loss], 'Accuracy': [test_acc]})
+        ])
+        
+        # Save individual test results
+        test_set_dir = os.path.join(save_path, f'test_{test_name}')
+        os.makedirs(test_set_dir, exist_ok=True)
+        test_results.to_csv(os.path.join(test_set_dir, 'test_results.csv'), index=False)
+        
+        print(f"Test set: {test_name}, Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+        
+        test_results_all.append((test_name, test_loss, test_acc))
+    
+    # Save summary of all test results
+    test_summary.to_csv(os.path.join(save_path, 'test_summary.csv'), index=False)
+    
+    # Plot test results comparison
+    if len(test_results_all) > 1:
+        plot_test_comparison(test_results_all, save_path)
     
     print(f"CSI supervised training completed! Model and results saved to {save_path}")
     
@@ -168,126 +202,64 @@ def train_supervised_csi(args):
 
 
 def train_supervised_acf(args):
-    """Train a model for ACF modality."""
-    print(f"Starting ACF modality supervised training...")
+    """Train a model on ACF data"""
+    print(f"Starting supervised learning training on ACF modality...")
     
-    # Prepare data
-    if args.unseen_test:
-        # For unseen test environment
-        if args.integrated_loader:
-            # Test loader only
-            test_loader = load_csi_unseen_integrated(
-                args.acf_data_dir,
-                task=args.task,
-                batch_size=args.batch_size
-            )
-            print(f"Using integrated loader for unseen environments with task: {args.task}")
-            
-            # Need to create train and val loaders from a different directory
-            # Assume train data is in the parent directory or provided separately
-            if hasattr(args, 'train_data_dir') and args.train_data_dir:
-                train_dir = args.train_data_dir
-            else:
-                # Try to use parent directory
-                train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
-                if not train_dir or train_dir == args.acf_data_dir:
-                    train_dir = args.acf_data_dir
-            
-            # Load training data
-            print(f"Loading training data from: {train_dir}")
-            train_loader, val_loader, _ = load_acf_supervised(
-                train_dir,
-                task=args.task,
-                batch_size=args.batch_size
-            )
-        else:
-            # Legacy unseen test mode
-            test_loader = load_acf_unseen_environ(
-                args.acf_data_dir,
-                task=args.task
-            )
-            print("Using test set with unseen environments...")
-            
-            # Need to create train and val loaders from a different directory
-            if hasattr(args, 'train_data_dir') and args.train_data_dir:
-                train_dir = args.train_data_dir
-            else:
-                # Try to use parent directory
-                train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
-                if not train_dir or train_dir == args.acf_data_dir:
-                    train_dir = args.acf_data_dir
-            
-            # Load training data
-            print(f"Loading training data from: {train_dir}")
-            train_loader, val_loader, _ = load_acf_supervised(
-                train_dir,
-                task=args.task,
-                batch_size=args.batch_size
-            )
-    else:
-        # Normal training mode
-        train_loader, val_loader, test_loader = load_acf_supervised(
-            args.acf_data_dir,
-            task=args.task,
-            batch_size=args.batch_size
-        )
-        print(f"Using ACF data loader with task: {args.task}")
+    # 确保训练目录和验证目录存在
+    train_dir = os.path.join(args.training_dir, 'train')
+    val_dir = os.path.join(args.training_dir, 'validation')
+    
+    # 检查训练和验证目录是否存在
+    if not os.path.exists(train_dir):
+        raise ValueError(f"Training directory {train_dir} does not exist")
+    if not os.path.exists(val_dir):
+        raise ValueError(f"Validation directory {val_dir} does not exist")
+    
+    # 使用更新后的load_acf_supervised加载数据
+    train_loader, val_loader, test_loaders_dict = load_acf_supervised(
+        train_dir=train_dir,
+        val_dir=val_dir,
+        batch_size=args.batch_size,
+        task=args.task,
+        test_dirs=args.test_dirs
+    )
+    
+    # 检查测试集是否存在
+    has_multiple_test_sets = len(test_loaders_dict) > 0
     
     # Load model
-    if args.pretrained and args.pretrained_model:
-        # Load pretrained model
-        model = load_model_pretrained(
-            checkpoint_path=args.pretrained_model, 
-            num_classes=args.num_classes,
-            win_len=args.win_len,
-            feature_size=args.feature_size,
-            in_channels=args.in_channels
-        )
-        print(f"Loaded pretrained model: {args.pretrained_model}")
-    else:
-        # Create new model from scratch
-        from load import load_model_scratch
-        model = load_model_scratch(
-            num_classes=args.num_classes, 
-            win_len=args.win_len, 
-            feature_size=args.feature_size,
-            in_channels=args.in_channels
-        )
-        print("Using randomly initialized model")
+    model = load_model_scratch(
+        model_name=args.model_name,
+        task=args.task,
+        win_len=args.win_len,
+        feature_size=args.feature_size,
+        in_channels=getattr(args, 'in_channels', 1)  # Default to 1 if not provided
+    )
+    print("Using randomly initialized model")
     
-    # Freeze backbone network (if needed)
-    if args.freeze_backbone:
-        print("Freezing backbone network...")
-        for name, param in model.named_parameters():
-            if 'fc' not in name and 'classifier' not in name:
-                param.requires_grad = False
-    
-    # Set save path
-    model_type = "pretrained" if args.pretrained else "scratch"
-    freeze_status = "frozen" if args.freeze_backbone else "unfrozen"
-    test_type = "unseen" if args.unseen_test else "seen"
+    # Setup save path
     save_path = os.path.join(args.output_dir, args.results_subdir, 
-                            f"{args.model_name}_acf_{model_type}_{freeze_status}_{test_type}")
+                           f"{args.task}_{args.model_name}_acf")
     os.makedirs(save_path, exist_ok=True)
     
-    # Set training configuration
+    # Setup loss function
+    criterion = nn.CrossEntropyLoss()
+    
+    # Create config object for trainer
     config = argparse.Namespace()
-    config.num_epochs = args.num_epochs
-    config.patience = args.patience
     config.learning_rate = args.learning_rate
     config.weight_decay = args.weight_decay
-    config.warmup_epochs = args.warmup_epochs
-    config.save_path = save_path
+    config.num_epochs = args.num_epochs
+    config.patience = args.patience
     config.num_classes = args.num_classes
     config.output_dir = args.output_dir
     config.results_subdir = args.results_subdir
-    config.model_name = args.model_name
-    
-    # Set loss function
-    criterion = nn.CrossEntropyLoss()
+    config.model_name = f"{args.task}_{args.model_name}_acf"
+    config.freeze_backbone = args.freeze_backbone
+    config.device = args.device
     
     # Create trainer and start training
-    trainer = TaskTrainer(
+    trainer = TaskTrainerACF(
         model=model,
         data_loader=(train_loader, val_loader),
         config=config,
@@ -299,42 +271,145 @@ def train_supervised_acf(args):
     # Save training results
     results_df.to_csv(os.path.join(save_path, 'training_history.csv'), index=False)
     
-    # Test model
-    print("Evaluating model on test set...")
-    test_loss, test_acc = trainer.evaluate(test_loader)
-    print(f"Test results - Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+    # Plot training results
+    plot_results(results_df, save_path)
     
-    # Plot confusion matrix
-    trainer.plot_confusion_matrix(test_loader)
+    # Test on all test sets
+    test_results_all = []
+    
+    # Create a summary DataFrame for all test results
+    test_summary = pd.DataFrame(columns=['Test Set', 'Loss', 'Accuracy'])
+    
+    # 如果没有测试集，则直接返回
+    if not has_multiple_test_sets:
+        print("No test sets available. Skipping evaluation.")
+        return model, results_df
+    
+    print("\nEvaluating model on test sets:")
+    for test_name, test_loader in test_loaders_dict.items():
+        print(f"\nEvaluating on test set: {test_name}")
+        test_loss, test_acc = trainer.evaluate(test_loader)
+        
+        # Create test results DataFrame
+        test_results = pd.DataFrame({
+            'Test Loss': [test_loss],
+            'Test Accuracy': [test_acc]
+        })
+        
+        # Add to summary
+        test_summary = pd.concat([
+            test_summary, 
+            pd.DataFrame({'Test Set': [test_name], 'Loss': [test_loss], 'Accuracy': [test_acc]})
+        ])
+        
+        # Save individual test results
+        test_set_dir = os.path.join(save_path, f'test_{test_name}')
+        os.makedirs(test_set_dir, exist_ok=True)
+        test_results.to_csv(os.path.join(test_set_dir, 'test_results.csv'), index=False)
+        
+        print(f"Test set: {test_name}, Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+        
+        test_results_all.append((test_name, test_loss, test_acc))
+    
+    # Save summary of all test results
+    test_summary.to_csv(os.path.join(save_path, 'test_summary.csv'), index=False)
+    
+    # Plot test results comparison
+    if len(test_results_all) > 1:
+        plot_test_comparison(test_results_all, save_path)
     
     print(f"ACF supervised training completed! Model and results saved to {save_path}")
     
     return model, results_df
 
 
-def main():
-    args = parse_args()
+def plot_results(results, save_path):
+    """Plot training and validation curves"""
+    # Plot validation accuracy
+    fig_val_acc = plt.figure(figsize=(7, 7))
+    sn.lineplot(x=results['Epoch'], y=results['Val Accuracy'])
+    plt.title('Validation Accuracy')
+    plt.savefig(os.path.join(save_path, "val_acc.png"))
+    plt.close()
+    
+    # Plot validation loss
+    fig_val_loss = plt.figure(figsize=(7, 7))
+    sn.lineplot(x=results['Epoch'], y=results['Val Loss'])
+    plt.title('Validation Loss')
+    plt.savefig(os.path.join(save_path, "val_loss.png"))
+    plt.close()
+    
+    # Plot training accuracy
+    fig_train_acc = plt.figure(figsize=(7, 7))
+    sn.lineplot(x=results['Epoch'], y=results['Train Accuracy'])
+    plt.title('Training Accuracy')
+    plt.savefig(os.path.join(save_path, "train_acc.png"))
+    plt.close()
+    
+    # Plot training loss
+    fig_train_loss = plt.figure(figsize=(7, 7))
+    sn.lineplot(x=results['Epoch'], y=results['Train Loss'])
+    plt.title('Training Loss')
+    plt.savefig(os.path.join(save_path, "train_loss.png"))
+    plt.close()
+
+
+def plot_test_comparison(test_results, save_path):
+    """Plot comparison of test results across multiple test sets
+    
+    Args:
+        test_results: List of tuples (test_name, test_loss, test_acc)
+        save_path: Directory to save the plots
+    """
+    # Extract data
+    test_names = [result[0] for result in test_results]
+    test_loss = [result[1] for result in test_results]
+    test_acc = [result[2] for result in test_results]
+    
+    # Plot accuracy comparison
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(test_names, test_acc, color='skyblue')
+    plt.title('Test Accuracy Comparison')
+    plt.ylabel('Accuracy')
+    plt.ylim(0, 1.0)
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{height:.4f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "test_accuracy_comparison.png"))
+    plt.close()
+    
+    # Plot loss comparison
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(test_names, test_loss, color='salmon')
+    plt.title('Test Loss Comparison')
+    plt.ylabel('Loss')
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{height:.4f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "test_loss_comparison.png"))
+    plt.close()
+
+
+def main(args=None):
+    """Main function"""
+    # If arguments not provided, parse command line arguments
+    if args is None:
+        args = parse_args()
     
     # Set random seed
     set_seed(args.seed)
-    
-    # 根据任务自动设置正确的类别数
-    task_to_classes = {
-        'HumanNonhuman': 2,
-        'FourClass': 4,
-        'HumanID': 4,
-        'HumanMotion': 3,
-        'ThreeClass': 3,
-        'DetectionandClassification': 5,
-        'Detection': 2,
-        'NTUHumanID': 15,
-        'NTUHAR': 6,
-        'Widar': 22
-    }
-    
-    if args.task in task_to_classes and args.num_classes != task_to_classes[args.task]:
-        print(f"Automatically updating num_classes from {args.num_classes} to {task_to_classes[args.task]} based on task '{args.task}'")
-        args.num_classes = task_to_classes[args.task]
     
     # Set device
     if args.device is None:
@@ -342,13 +417,22 @@ def main():
     device = torch.device(args.device)
     print(f"Using device: {device}")
     
-    # Choose training function based on mode
+    # For backwards compatibility, set training_dir to csi/acf_data_dir if specified
+    if not args.training_dir:
+        if args.mode.lower() == 'csi' and hasattr(args, 'csi_data_dir'):
+            args.training_dir = args.csi_data_dir
+        elif args.mode.lower() == 'acf' and hasattr(args, 'acf_data_dir'):
+            args.training_dir = args.acf_data_dir
+        else:
+            raise ValueError("No training directory specified. Use --training-dir.")
+    
+    # Choose training function based on data modality
     if args.mode.lower() == 'csi':
         train_supervised_csi(args)
     elif args.mode.lower() == 'acf':
         train_supervised_acf(args)
     else:
-        raise ValueError(f"Unknown mode: {args.mode}. Please choose 'csi' or 'acf'")
+        raise ValueError(f"Unknown modality: {args.mode}. Please choose 'csi' or 'acf'")
 
 
 if __name__ == "__main__":

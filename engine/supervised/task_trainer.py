@@ -9,7 +9,7 @@ import os
 import time
 import copy
 from sklearn.metrics import confusion_matrix, classification_report
-from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import LambdaLR
 from engine.base_trainer import BaseTrainer
 from engine.supervised.utils import warmup_schedule
 
@@ -46,7 +46,6 @@ class TaskTrainer(BaseTrainer):
         self.train_accuracies = []
         self.val_accuracies = []
         self.best_val_accuracy = 0.0
-        self.epochs_no_improve = 0
         
         # Number of classes
         self.num_classes = getattr(config, 'num_classes', 2)
@@ -282,9 +281,8 @@ class TaskTrainer(BaseTrainer):
         plt.savefig(os.path.join(self.save_path, 'training_results.png'))
         plt.close()
         
-        # Also plot confusion matrix if validation loader is available
-        if hasattr(self, 'val_loader'):
-            self.plot_confusion_matrix()
+        # Also plot confusion matrix
+        self.plot_confusion_matrix()
     
     def plot_confusion_matrix(self):
         """Plot confusion matrix for validation data."""
@@ -319,4 +317,4 @@ class TaskTrainer(BaseTrainer):
         
         # Also save classification report
         report = classification_report(all_labels, all_preds, output_dict=True)
-        pd.DataFrame(report).to_csv(os.path.join(self.save_path, 'classification_report.csv'), index=False)
+        pd.DataFrame(report).transpose().to_csv(os.path.join(self.save_path, 'classification_report.csv'))
