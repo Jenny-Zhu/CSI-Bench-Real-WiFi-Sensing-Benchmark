@@ -52,8 +52,8 @@ INTEGRATED_LOADER = True  # Use integrated data loader for supervised learning
 TASK = 'FourClass'  # Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)
 
 # Model Parameters
-WIN_LEN = 500  # Window length for CSI data
-FEATURE_SIZE = 232  # Feature size for CSI data
+WIN_LEN = 250  # Window length for CSI data
+FEATURE_SIZE = 98  # Feature size for CSI data
 
 # Common Training Parameters
 SEED = 42

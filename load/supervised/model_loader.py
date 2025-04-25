@@ -112,7 +112,8 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
     num_classes = classes[task]
     
     # 计算ViT的embedding size
-    emb_size = int((win_len / PATCH_W_SCALE) * (feature_size / PATCH_H_SCALE))
+    # emb_size = int((win_len / PATCH_W_SCALE) * (feature_size / PATCH_H_SCALE))
+    emb_size = 128
     
     # 根据指定的模型名称创建相应的模型
     if model_name == 'ViT':
