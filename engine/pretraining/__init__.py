@@ -1,2 +1,0 @@
-from engine.pretraining.ssl_trainer import SSLTrainer
-from engine.pretraining.ssl_trainer_joint import SSLJointTrainer

@@ -3,13 +3,11 @@
 """
 WiFi Sensing Pipeline Runner - Local Environment
 
-This script allows you to run any of the three pipelines:
-1. Pretraining (Self-supervised learning)
-2. Supervised learning
-3. Meta-learning
+This script allows you to run any of the two pipelines:
+1. Supervised learning
+2. Meta-learning
 
 Usage:
-    python local_runner.py --pipeline pretraining
     python local_runner.py --pipeline supervised
     python local_runner.py --pipeline meta
     
@@ -33,7 +31,7 @@ from datetime import datetime
 # CONFIGURATION SECTION - MODIFY PARAMETERS HERE
 #==============================================================================
 
-# Pipeline to run: 'pretraining', 'supervised', or 'meta'
+# Pipeline to run: 'supervised', or 'meta'
 PIPELINE = 'supervised'
 
 # Data and Output Directories
@@ -166,43 +164,6 @@ def run_command(cmd, display_output=True, timeout=1800):
         
         return -1, error_msg
 
-# Configure pretraining pipeline
-def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
-    """Get configuration for pretraining pipeline."""
-    # Set default paths if not provided
-    if data_dir is None:
-        data_dir = DATA_DIR
-    if output_dir is None:
-        output_dir = OUTPUT_DIR
-    
-    return {
-        # Data parameters
-        'csi_data_dir': os.path.join(data_dir, 'csi'),
-        'acf_data_dir': os.path.join(data_dir, 'acf'),
-        'output_dir': output_dir,
-        'results_subdir': 'ssl_pretrain',
-        
-        # Training parameters
-        'batch_size': BATCH_SIZE,
-        'learning_rate': 1e-5,
-        'weight_decay': 0.001,
-        'num_epochs': EPOCH_NUMBER,
-        'warmup_epochs': 5,
-        'patience': 20,
-        
-        # Model parameters
-        'mode': mode,  # Options: 'csi', 'acf'
-        'depth': 6,
-        'in_channels': 1,
-        'emb_size': 128,
-        'freq_out': 10,
-        
-        # Other parameters
-        'seed': SEED,
-        'device': DEVICE,
-        'model_name': MODEL_NAME
-    }
-
 # Configure supervised learning pipeline
 def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained=False, pretrained_model=None):
     """Get configuration for supervised learning pipeline."""
@@ -249,12 +210,13 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'feature_size': FEATURE_SIZE
     }
     
+    # Override with pretrained model path if provided
     if pretrained and pretrained_model:
         config['pretrained_model'] = pretrained_model
     
     return config
 
-# Configure meta-learning pipeline
+
 def get_meta_config(data_dir=None, output_dir=None):
     """Get configuration for meta-learning pipeline."""
     # Set default paths if not provided
@@ -265,231 +227,233 @@ def get_meta_config(data_dir=None, output_dir=None):
     
     return {
         # Data parameters
-        'data_dir': os.path.join(data_dir, 'benchmark'),
+        'csi_data_dir': data_dir,
         'output_dir': output_dir,
-        'results_subdir': 'meta_learning',
-        'resize_height': 64,
-        'resize_width': 64,
+        'results_subdir': 'meta',
+        
+        # Training parameters
+        'batch_size': BATCH_SIZE,
+        'learning_rate': 1e-4,
+        'meta_lr': 0.01,
+        'weight_decay': 1e-5,
+        'num_epochs': EPOCH_NUMBER,
+        'patience': 15,
         
         # Meta-learning parameters
-        'meta_method': 'maml',  # Options: 'maml', 'lstm'
-        'meta_batch_size': 4,
-        'inner_lr': 0.01,
-        'meta_lr': 0.001,
-        'num_iterations': 10000,
-        'meta_validation_interval': 1000,
-        
-        # Task parameters
-        'n_way': 2,
-        'k_shot': 5,
-        'q_query': 15,
+        'n_way': 3,  # Number of classes per task
+        'k_shot': 5,  # Number of examples per class
+        'q_query': 5,  # Number of query examples
+        'meta_batch_size': 4,  # Number of tasks per meta-batch
         
         # Model parameters
-        'model_type': 'csi',
-        'emb_size': 128,
-        'depth': 6,
-        'in_channels': 1,
+        'mode': MODE,  # Only 'csi' mode is currently supported for meta-learning
         
         # Other parameters
         'seed': SEED,
         'device': DEVICE,
-        'model_name': f"{MODEL_NAME}_Meta"
+        'model_name': MODEL_NAME
     }
 
-def run_pretraining(config):
-    """Run pretraining pipeline."""
-    print("\n========== Running Pretraining Pipeline ==========\n")
-    
-    # Build command
-    cmd = "python pretrain.py "
-    
-    # Add all arguments
-    for key, value in config.items():
-        if isinstance(value, bool):
-            if value:
-                cmd += f"--{key} "
-        else:
-            # Add quotes for path-like arguments to handle spaces and special characters
-            if key in ['csi_data_dir', 'acf_data_dir', 'output_dir', 'pretrained_model', 'results_subdir']:
-                cmd += f"--{key} \"{value}\" "
-            else:
-                cmd += f"--{key} {value} "
-    
-    print(f"Running command: {cmd}")
-    start_time = time.time()
-    returncode, output = run_command(cmd)
-    end_time = time.time()
-    
-    if returncode == 0:
-        print(f"\nPretraining completed successfully in {(end_time - start_time)/60:.2f} minutes")
-    else:
-        print(f"\nPretraining failed with return code {returncode}")
-    
-    return returncode == 0
 
 def run_supervised_direct(config):
-    """直接导入并运行train_supervised模块"""
-    print("\n========== 运行监督学习管道 ==========\n")
+    """Run supervised learning pipeline directly without subprocess."""
+    print(f"\n===== Running supervised learning pipeline directly =====")
+    print(f"Data directory: {config.get('csi_data_dir', 'N/A') if config.get('mode') == 'csi' else config.get('acf_data_dir', 'N/A')}")
+    print(f"Output directory: {config.get('output_dir', 'N/A')}")
+    print(f"Mode: {config.get('mode', 'N/A')}")
+    print(f"Task: {config.get('task', 'N/A')}")
+    print(f"Batch size: {config.get('batch_size', 'N/A')}")
+    print(f"Epochs: {config.get('num_epochs', 'N/A')}")
+    print(f"Device: {config.get('device', 'N/A')}")
     
-    # 保存原始参数
-    old_argv = sys.argv.copy()
-    
-    # 构建新参数列表
-    sys.argv = ["train_supervised.py"]
-    for key, value in config.items():
-        if isinstance(value, bool):
-            if value:
-                sys.argv.append(f"--{key.replace('_', '-')}")
-        else:
-            sys.argv.append(f"--{key.replace('_', '-')}")
-            sys.argv.append(f"{value}")
-    
-    print(f"运行命令: {' '.join(sys.argv)}")
-    
-    # 直接导入并运行
     try:
-        start_time = time.time()
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("train_supervised", "./train_supervised.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # Import train_supervised module
+        from train_supervised import main as train_supervised_main
         
-        # 假设train_supervised.py中有main函数
-        if hasattr(module, 'main'):
-            module.main()
+        # Create argparse Namespace from config dictionary
+        args = argparse.Namespace(**config)
         
-        end_time = time.time()
-        print(f"\n监督学习完成，耗时 {(end_time - start_time)/60:.2f} 分钟")
-        success = True
+        # Run the pipeline
+        train_supervised_main(args)
+        print(f"Supervised training completed successfully.")
+        return 0
+        
     except Exception as e:
-        print(f"\n监督学习失败: {str(e)}")
-        success = False
-    finally:
-        # 恢复原始参数
-        sys.argv = old_argv
-    
-    return success
+        print(f"Error running supervised pipeline: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
 
 def run_meta_learning(config):
-    """Run meta-learning pipeline."""
-    print("\n========== Running Meta-Learning Pipeline ==========\n")
+    """Run meta-learning pipeline directly without subprocess."""
+    print(f"\n===== Running meta-learning pipeline directly =====")
+    print(f"Data directory: {config.get('csi_data_dir', 'N/A')}")
+    print(f"Output directory: {config.get('output_dir', 'N/A')}")
+    print(f"Mode: {config.get('mode', 'N/A')}")
+    print(f"Batch size: {config.get('batch_size', 'N/A')}")
+    print(f"Meta batch size: {config.get('meta_batch_size', 'N/A')}")
+    print(f"Epochs: {config.get('num_epochs', 'N/A')}")
+    print(f"Device: {config.get('device', 'N/A')}")
     
-    # Build command
-    cmd = "python meta_learning.py "
-    
-    # Add all arguments
-    for key, value in config.items():
-        if isinstance(value, bool):
-            if value:
-                cmd += f"--{key} "
-        else:
-            # Add quotes for path-like arguments to handle spaces and special characters
-            if key in ['data_dir', 'output_dir', 'results_subdir']:
-                cmd += f"--{key} \"{value}\" "
-            else:
-                cmd += f"--{key} {value} "
-    
-    print(f"Running command: {cmd}")
-    start_time = time.time()
-    returncode, output = run_command(cmd)
-    end_time = time.time()
-    
-    if returncode == 0:
-        print(f"\nMeta-learning completed successfully in {(end_time - start_time)/60:.2f} minutes")
-    else:
-        print(f"\nMeta-learning failed with return code {returncode}")
-    
-    return returncode == 0
+    try:
+        # Import meta_learning module
+        from meta_learning import main as meta_learning_main
+        
+        # Create argparse Namespace from config dictionary
+        args = argparse.Namespace(**config)
+        
+        # Run the pipeline
+        meta_learning_main(args)
+        print(f"Meta-learning completed successfully.")
+        return 0
+        
+    except Exception as e:
+        print(f"Error running meta-learning pipeline: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
 
 def main():
-    """Parse arguments and run the specified pipeline."""
-    parser = argparse.ArgumentParser(description='Run WiFi Sensing Pipelines')
-    parser.add_argument('--pipeline', type=str, 
-                        choices=['pretraining', 'supervised', 'meta'],
-                        help='Which pipeline to run')
+    parser = argparse.ArgumentParser(description='WiFi Sensing Pipeline Runner')
     
-    # Data and output directories
-    parser.add_argument('--data_dir', type=str,
-                        help='Directory containing the input data')
-    parser.add_argument('--output_dir', type=str,
-                        help='Directory to save output results')
+    # Required arguments
+    parser.add_argument('--pipeline', type=str, choices=['supervised', 'meta'], 
+                       default=PIPELINE, help='Pipeline to run')
     
-    # Optional configuration overrides
-    parser.add_argument('--mode', type=str, choices=['csi', 'acf'],
-                        help='Data modality to use (csi or acf)')
-    parser.add_argument('--pretrained', action='store_true',
-                        help='Use pretrained model for supervised learning')
-    parser.add_argument('--pretrained_model', type=str,
-                        help='Path to pretrained model for supervised learning')
-    parser.add_argument('--freeze_backbone', action='store_true',
-                        help='Freeze backbone network for supervised learning')
-    parser.add_argument('--integrated_loader', action='store_true',
-                        help='Use integrated data loader for supervised learning')
-    parser.add_argument('--task', type=str,
-                        help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
-    parser.add_argument('--config_file', type=str,
-                        help='JSON configuration file to override defaults')
-    parser.add_argument('--epochs', type=int,
-                        help='Number of training epochs')
+    # Data directories
+    parser.add_argument('--data_dir', type=str, default=DATA_DIR,
+                       help='Directory containing the input data')
+    parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR,
+                       help='Directory to save output results')
     
+    # Mode configuration
+    parser.add_argument('--mode', type=str, choices=['csi', 'acf'], default=MODE,
+                       help='Data modality to use')
+    
+    # Supervised learning options
+    parser.add_argument('--pretrained', action='store_true', default=PRETRAINED,
+                       help='Use pretrained model for supervised learning')
+    parser.add_argument('--pretrained_model', type=str, default=PRETRAINED_MODEL,
+                       help='Path to pretrained model')
+    parser.add_argument('--freeze_backbone', action='store_true', default=FREEZE_BACKBONE,
+                       help='Freeze backbone network for supervised learning')
+    parser.add_argument('--integrated_loader', action='store_true', default=INTEGRATED_LOADER,
+                       help='Use integrated data loader for supervised learning')
+    parser.add_argument('--task', type=str, default=TASK,
+                       help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
+    
+    # Meta-learning options
+    parser.add_argument('--n_way', type=int, default=3,
+                       help='Number of classes per task for meta-learning')
+    parser.add_argument('--k_shot', type=int, default=5,
+                       help='Number of examples per class for meta-learning')
+    parser.add_argument('--q_query', type=int, default=5,
+                       help='Number of query examples for meta-learning')
+    parser.add_argument('--meta_batch_size', type=int, default=4,
+                       help='Number of tasks per meta-batch for meta-learning')
+    
+    # Common parameters
+    parser.add_argument('--batch_size', type=int, default=BATCH_SIZE,
+                       help='Batch size for training')
+    parser.add_argument('--epochs', type=int, default=EPOCH_NUMBER,
+                       help='Number of epochs to train')
+    parser.add_argument('--learning_rate', type=float, default=1e-4,
+                       help='Learning rate for training')
+    parser.add_argument('--seed', type=int, default=SEED,
+                       help='Random seed for reproducibility')
+    parser.add_argument('--win_len', type=int, default=WIN_LEN,
+                       help='Window length for CSI data')
+    parser.add_argument('--feature_size', type=int, default=FEATURE_SIZE,
+                       help='Feature size for CSI data')
+    
+    # Advanced configuration
+    parser.add_argument('--config_file', type=str, default=CONFIG_FILE,
+                       help='JSON configuration file to override defaults')
+    parser.add_argument('--subprocess', action='store_true', default=False,
+                       help='Run in subprocess mode')
+    
+    # Parse arguments
     args = parser.parse_args()
     
-    # Use command line arguments if provided, otherwise use defaults from configuration section
-    pipeline = args.pipeline if args.pipeline else PIPELINE
-    data_dir = args.data_dir if args.data_dir else DATA_DIR
-    output_dir = args.output_dir if args.output_dir else OUTPUT_DIR
-    mode = args.mode if args.mode else MODE
-    pretrained = args.pretrained if args.pretrained else PRETRAINED
-    pretrained_model = args.pretrained_model if args.pretrained_model else PRETRAINED_MODEL
-    freeze_backbone = args.freeze_backbone if args.freeze_backbone else FREEZE_BACKBONE
-    integrated_loader = args.integrated_loader if args.integrated_loader else INTEGRATED_LOADER
-    task = args.task if args.task else TASK
-    config_file = args.config_file if args.config_file else CONFIG_FILE
-    epochs = args.epochs if args.epochs else EPOCH_NUMBER
+    # Load configuration from file if provided
+    config = {}
+    if args.config_file and os.path.exists(args.config_file):
+        with open(args.config_file, 'r') as f:
+            config = json.load(f)
+            print(f"Loaded configuration from {args.config_file}")
     
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    # Get configuration for the selected pipeline
+    if args.pipeline == 'supervised':
+        # Configure supervised learning
+        config.update(get_supervised_config(
+            data_dir=args.data_dir,
+            output_dir=args.output_dir,
+            mode=args.mode,
+            pretrained=args.pretrained,
+            pretrained_model=args.pretrained_model
+        ))
+        
+        # Update with command line arguments
+        config.update({
+            'mode': args.mode,
+            'freeze_backbone': args.freeze_backbone,
+            'integrated_loader': args.integrated_loader,
+            'task': args.task,
+            'batch_size': args.batch_size,
+            'num_epochs': args.epochs,
+            'learning_rate': args.learning_rate,
+            'seed': args.seed,
+            'win_len': args.win_len,
+            'feature_size': args.feature_size
+        })
+        
+        # Run supervised learning
+        return run_supervised_direct(config)
     
-    # Get the appropriate configuration based on the pipeline
-    if pipeline == 'pretraining':
-        config = get_pretrain_config(data_dir, output_dir, mode)
-    elif pipeline == 'supervised':
-        config = get_supervised_config(
-            data_dir, 
-            output_dir,
-            mode,
-            pretrained,
-            pretrained_model
-        )
-        if freeze_backbone:
-            config['freeze_backbone'] = True
-        if integrated_loader:
-            config['integrated_loader'] = True
-            config['task'] = task
-    elif pipeline == 'meta':
-        config = get_meta_config(data_dir, output_dir)
+    elif args.pipeline == 'meta':
+        # Configure meta-learning
+        config.update(get_meta_config(
+            data_dir=args.data_dir,
+            output_dir=args.output_dir
+        ))
+        
+        # Update with command line arguments
+        config.update({
+            'mode': args.mode,
+            'n_way': args.n_way,
+            'k_shot': args.k_shot,
+            'q_query': args.q_query,
+            'meta_batch_size': args.meta_batch_size,
+            'batch_size': args.batch_size,
+            'num_epochs': args.epochs,
+            'learning_rate': args.learning_rate,
+            'seed': args.seed
+        })
+        
+        # Run meta-learning
+        return run_meta_learning(config)
+    
     else:
-        print(f"Error: Unknown pipeline '{pipeline}'. Please choose from 'pretraining', 'supervised', or 'meta'.")
-        return
-    
-    # 更新epochs参数
-    if args.epochs:
-        config['num_epochs'] = epochs
-        print(f"Using custom epoch number: {epochs}")
-    
-    # Load configuration from file if specified
-    if config_file and os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            config_overrides = json.load(f)
-            config.update(config_overrides)
-    
-    # Run the specified pipeline
-    if pipeline == 'pretraining':
-        run_pretraining(config)
-    elif pipeline == 'supervised':
-        run_supervised_direct(config)
-    elif pipeline == 'meta':
-        run_meta_learning(config)
+        print(f"Unknown pipeline: {args.pipeline}")
+        return 1
+
 
 if __name__ == "__main__":
-    main()
+    # Capture start time
+    start_time = time.time()
+    
+    # Run main function
+    exit_code = main()
+    
+    # Calculate and display execution time
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    hours, remainder = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    print(f"\nTotal execution time: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
+    
+    # Exit with appropriate code
+    sys.exit(exit_code)

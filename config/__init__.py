@@ -1,5 +1,4 @@
 from config.base_config import BaseConfig
-from config.pretraining_config import PretrainingConfig
 from config.supervised_config import SupervisedConfig
 from config.meta_learning_config import MetaLearningConfig
 
@@ -12,9 +11,7 @@ def get_config(args):
     Returns:
         config: The appropriate configuration object instance
     """
-    if args.mode == "pretraining":
-        return PretrainingConfig(args)
-    elif args.mode == "supervised":
+    if args.mode == "supervised":
         return SupervisedConfig(args)
     elif args.mode == "meta":
         return MetaLearningConfig(args)
