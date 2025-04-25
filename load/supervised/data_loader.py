@@ -5,7 +5,7 @@ from data.datasets.csi.supervised import CSIDatasetOW_HM3, CSIDatasetOW_HM3_H5, 
 from data.datasets.acf.supervised import ACFDatasetOW_HM3_MAT, DatasetNTU_MAT
 from torch.utils.data import random_split
 
-def load_data_supervised(task, BATCH_SIZE, win_len, sample_rate, data_dir=None):
+def load_data_supervised(task, BATCH_SIZE, win_len, sample_rate):
     """
     Load CSI data for supervised learning tasks.
     
@@ -14,51 +14,20 @@ def load_data_supervised(task, BATCH_SIZE, win_len, sample_rate, data_dir=None):
         BATCH_SIZE (int): Batch size
         win_len (int): Window length
         sample_rate (int): Sample rate
-        data_dir (str): Directory containing data (optional)
         
     Returns:
         Tuple of (train_loader, test_loader)
     """
-    # Print start loading data information
-    print(f"[Info] Starting to load CSI data, task: {task}, batch size: {BATCH_SIZE}, window length: {win_len}, sample rate: {sample_rate}")
-    
     if task == 'OW_HM3':
-        # Use provided data_dir instead of hardcoded path
-        if data_dir is None:
-            data_dir = 'C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\metadata\\HM3_sr100_wl200'
-            print(f"[Warning] No data directory provided, using default path: {data_dir}")
-        
-        print(f"[Info] Loading training data from {data_dir}...")
-        try:
-            support_set = CSIDatasetOW_HM3_H5(data_dir, win_len, sample_rate, if_test=0)
-            
-            # Check if the dataset is empty
-            if len(support_set) == 0:
-                print(f"[Error] Training dataset is empty. No data was loaded from {data_dir}")
-                return None, None
-                
-            print(f"[Success] Training dataset loaded successfully with {len(support_set)} samples")
-            
-            print(f"[Info] Loading testing data from {data_dir}...")
-            test_set = CSIDatasetOW_HM3_H5(data_dir, win_len, sample_rate, if_test=1)
-            
-            # Check if the test dataset is empty
-            if len(test_set) == 0:
-                print(f"[Error] Test dataset is empty. No data was loaded from {data_dir}")
-                return None, None
-                
-            print(f"[Success] Testing dataset loaded successfully with {len(test_set)} samples")
-        except Exception as e:
-            print(f"[Error] Data loading failed: {str(e)}")
-            return None, None
+        data_dir = 'C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\metadata\\HM3_sr100_wl200'
+        support_set = CSIDatasetOW_HM3_H5(data_dir, win_len, sample_rate, if_test=0)
+        test_set = CSIDatasetOW_HM3_H5(data_dir, win_len, sample_rate, if_test=1)
     else:
-        print(f"[Error] Unknown task: {task}")
+        print(f"Task unknown: {task}")
         return None, None
     
-    print(f"[Info] Creating data loaders...")
     support_loader = torch.utils.data.DataLoader(support_set, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False)
-    print(f"[Success] Data loaders created successfully")
     
     return support_loader, test_loader
 
@@ -87,82 +56,95 @@ def save_data_supervised(task, BATCH_SIZE, win_len, sample_rate):
 
 def load_acf_supervised(data_dir, task, batch_size):
     """
-    Load ACF data for supervised learning tasks.
+    Load ACF data for supervised learning.
+    Supports both direct data directory and directory with train/test subdirectories.
     
     Args:
-        data_dir (str): Directory containing ACF data
+        data_dir (str): Directory containing ACF data or parent directory with train/test subdirs
         task (str): Task name
         batch_size (int): Batch size
         
     Returns:
-        Tuple of (train_loader, test_loader)
+        Tuple of (train_loader, val_loader, test_loader)
     """
-    # Get the class number of different tasks
-    classes = {
-        'HumanNonhuman': 2, 
-        'FourClass': 4, 
-        'NTUHumanID': 15, 
-        'HumanID': 4, 
-        'HumanMotion': 3, 
-        'ThreeClass': 3, 
-        'DetectionandClassification': 5, 
-        'Detection': 2
-    }
+    # Check if data_dir has train/test subdirectories
+    train_dir = os.path.join(data_dir, 'train')
+    test_dir = os.path.join(data_dir, 'test')
     
-    # Retrieve the data
-    train_set = ACFDatasetOW_HM3_MAT(data_dir, task)
-    num_human = train_set.labels.count(1)
-    print(f"Labels count: {len(train_set.labels)}")
-    print(f"Sample shape: {train_set.samples.shape}")
+    # Create datasets based on directory structure
+    if os.path.exists(train_dir) and os.path.exists(test_dir):
+        # Legacy mode with separate directories
+        train_dataset = ACFDatasetOW_HM3_MAT(train_dir, task)
+        test_dataset = ACFDatasetOW_HM3_MAT(test_dir, task)
+        
+        # Split train dataset for train and validation (using 80/20 split)
+        train_size = int(0.8 * len(train_dataset))
+        val_size = len(train_dataset) - train_size
+        train_set, val_set = random_split(train_dataset, [train_size, val_size])
+        test_set = test_dataset
+    # else:
+    #     # Standard mode - single directory
+    #     dataset = ACFDatasetOW_HM3_MAT(data_dir, task)
+        
+    #     # Split into train, validation, and test sets
+    #     total_size = len(dataset)
+    #     train_size = int(0.8 * total_size)
+    #     val_size = int(0.1 * total_size)
+    #     test_size = total_size - train_size - val_size
+        
+    #     train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size])
     
-    # Split dataset into train and validation sets
-    train_size = int(0.8 * len(train_set))
-    valid_size = len(train_set) - train_size
-    train_set, valid_set = random_split(train_set, [train_size, valid_size])
-    
-    # Create data loaders for train and validation sets
+    # Create data loaders
     train_loader = torch.utils.data.DataLoader(
         train_set, 
         batch_size=batch_size, 
         shuffle=True, 
         drop_last=True
     )
-    test_loader = torch.utils.data.DataLoader(
-        valid_set, 
+    
+    val_loader = torch.utils.data.DataLoader(
+        val_set, 
         batch_size=batch_size, 
-        shuffle=False, 
-        drop_last=False
+        shuffle=False
     )
     
-    return train_loader, test_loader
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False
+    )
+    
+    return train_loader, val_loader, test_loader
 
 
 def load_acf_unseen_environ(data_dir, task):
     """
     Load ACF data for testing on unseen environments.
+    Supports both direct data directory and directory with test subdirectory.
     
     Args:
-        data_dir (str): Directory containing ACF test data
+        data_dir (str): Directory containing ACF test data or parent directory with test subdir
         task (str): Task name
         
     Returns:
         DataLoader for test data
     """
-    # Get the class number of different tasks
-    classes = {
-        'HumanNonhuman': 2, 
-        'FourClass': 4, 
-        'NTUHumanID': 15, 
-        'HumanID': 4, 
-        'HumanMotion': 3, 
-        'ThreeClass': 3, 
-        'DetectionandClassification': 5, 
-        'Detection': 2
-    }
+    # Check if test subdirectory exists
+    test_dir = os.path.join(data_dir, 'test')
+    if os.path.exists(test_dir):
+        test_path = test_dir
+    else:
+        test_path = data_dir
     
-    test_set = ACFDatasetOW_HM3_MAT(data_dir, task)
-    unseen_test_loader = torch.utils.data.DataLoader(test_set, batch_size=32, shuffle=False)
-    return unseen_test_loader
+    # Create dataset and loader
+    test_set = ACFDatasetOW_HM3_MAT(test_path, task)
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=32, 
+        shuffle=False
+    )
+    
+    return test_loader
 
 
 def load_acf_supervised_NTUHumanID(data_dir, task, batch_size):
@@ -267,110 +249,264 @@ def load_acf_unseen_environ_NTU(data_dir, task):
     return unseen_test_loader
 
 
-def load_csi_supervised_integrated(data_dir, task='ThreeClass', batch_size=16, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, max_samples=5000):
+def load_csi_supervised_integrated(data_dir, task='ThreeClass', batch_size=32, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
     """
-    Load CSI data with integrated loader for supervised learning.
+    Load CSI data using the integrated CSIDatasetMAT class.
+    Supports both direct data directory and directory with train/test subdirectories.
     
     Args:
-        data_dir: Directory containing the dataset
-        task: Task type (e.g., ThreeClass, HumanNonhuman)
-        batch_size: Batch size for dataloaders
-        train_ratio: Ratio of training set (will include validation data)
-        test_ratio: Ratio of test set
-        max_samples: Maximum number of samples to load
+        data_dir (str): Directory containing CSI data or parent directory with train/test subdirs
+        task (str): Task type, default to 'ThreeClass'
+        batch_size (int): Batch size for data loaders
+        train_ratio (float): Ratio of data to use for training (used only if no train/test subdirs)
+        val_ratio (float): Ratio of data to use for validation (used only if no train/test subdirs)
+        test_ratio (float): Ratio of data to use for testing (used only if no train/test subdirs)
         
     Returns:
-        Tuple of (train_loader, test_loader) - Changed to match old implementation
+        Tuple of (train_loader, val_loader, test_loader)
     """
-    try:
-        print(f"[Info] Loading CSI data with integrated loader from {data_dir}")
-        dataset = CSIDatasetMAT(data_dir, task, max_samples=max_samples)
-        
-        # Check if the dataset is empty
-        if len(dataset) == 0:
-            print(f"[Error] Integrated dataset is empty. No data was loaded from {data_dir}")
-            raise ValueError(f"No data found in {data_dir} for task {task}")
-        
-        print(f"[Success] Loaded {len(dataset)} samples for task {task}")
-        
-        # Calculate split sizes - combine train and validation
-        dataset_size = len(dataset)
-        train_size = int((train_ratio + val_ratio) * dataset_size)  # Combined train and validation
-        test_size = dataset_size - train_size
-        
-        print(f"[Info] Splitting dataset: train={train_size}, test={test_size}")
-        
-        # Split the dataset
-        train_dataset, test_dataset = random_split(
-            dataset, [train_size, test_size]
-        )
-        
-        # Create data loaders
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
-        )
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=batch_size, shuffle=False
-        )
-        
-        print(f"[Success] Data loaders created successfully")
-        return train_loader, test_loader
+    # Check if data_dir has train/test subdirectories
+    train_dir = os.path.join(data_dir, 'train')
+    test_dir = os.path.join(data_dir, 'test')
     
-    except Exception as e:
-        print(f"[Error] Error loading integrated CSI data: {str(e)}")
-        raise
+    # Create datasets based on directory structure
+    if os.path.exists(train_dir) and os.path.exists(test_dir):
+        # Legacy mode with separate directories
+        train_dataset = CSIDatasetMAT([train_dir], task)
+        test_dataset = CSIDatasetMAT([test_dir], task)
+        
+        # Split train dataset for train and validation (using 80/20 split)
+        train_size = int(0.8 * len(train_dataset))
+        val_size = len(train_dataset) - train_size
+        train_set, val_set = random_split(train_dataset, [train_size, val_size])
+        test_set = test_dataset
+    else:
+        # Standard mode - single directory
+        dataset = CSIDatasetMAT(data_dir, task)
+        
+        # Split into train, validation, and test sets
+        total_size = len(dataset)
+        train_size = int(train_ratio * total_size)
+        val_size = int(val_ratio * total_size)
+        test_size = total_size - train_size - val_size
+        
+        train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size])
+    
+    # Create data loaders
+    train_loader = torch.utils.data.DataLoader(
+        train_set, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        drop_last=True
+    )
+    
+    val_loader = torch.utils.data.DataLoader(
+        val_set, 
+        batch_size=batch_size, 
+        shuffle=False
+    )
+    
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False
+    )
+    
+    return train_loader, val_loader, test_loader
 
 
-def load_csi_unseen_integrated(data_dir, task='ThreeClass', batch_size=16, max_samples=None):
+def load_csi_unseen_integrated(data_dir, task='ThreeClass', batch_size=32):
     """
-    Load CSI data for unseen environments using integrated loader.
+    Load CSI data for unseen environment testing.
+    Supports both direct data directory and directory with test subdirectory.
     
     Args:
-        data_dir: Directory containing test data
-        task: Task type (e.g., ThreeClass, HumanNonhuman)
-        batch_size: Batch size for dataloaders
-        max_samples: Maximum number of samples to load per dataset
+        data_dir (str): Directory containing test CSI data or parent directory with test subdir
+        task (str): Task type, default to 'ThreeClass'
+        batch_size (int): Batch size for data loader
         
     Returns:
-        Tuple of (train_loader, test_loader) - Changed to match old implementation
+        Test DataLoader
     """
-    try:
-        print(f"[Info] Loading unseen environment CSI data from {data_dir}")
-        # Load training data
-        train_path = os.path.join(data_dir, 'train')
-        print(f"[Info] Loading training data from {train_path}")
-        train_dataset = CSIDatasetMAT(train_path, task, max_samples=max_samples)
-        
-        # Check if the training dataset is empty
-        if len(train_dataset) == 0:
-            print(f"[Error] Training dataset is empty. No data was loaded from {train_path}")
-            raise ValueError(f"No training data found in {train_path} for task {task}")
-        
-        print(f"[Success] Loaded {len(train_dataset)} training samples")
-        
-        # Load test data
-        test_path = os.path.join(data_dir, 'test')
-        print(f"[Info] Loading test data from {test_path}")
-        test_dataset = CSIDatasetMAT(test_path, task, max_samples=max_samples)
-        
-        # Check if the test dataset is empty
-        if len(test_dataset) == 0:
-            print(f"[Error] Test dataset is empty. No data was loaded from {test_path}")
-            raise ValueError(f"No test data found in {test_path} for task {task}")
-        
-        print(f"[Success] Loaded {len(test_dataset)} test samples")
-        
-        # Create data loaders
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
-        )
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=batch_size, shuffle=False
-        )
-        
-        print(f"[Success] Data loaders created successfully")
-        return train_loader, test_loader
+    # Check if test subdirectory exists
+    test_dir = os.path.join(data_dir, 'test')
+    if os.path.exists(test_dir):
+        test_path = test_dir
+    else:
+        test_path = data_dir
     
-    except Exception as e:
-        print(f"[Error] Error loading unseen CSI data: {str(e)}")
-        raise
+    # Create dataset and loader
+    test_set = CSIDatasetMAT([test_path], task)
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False
+    )
+    
+    return test_loader
+
+
+def load_csi_supervised_with_train_test_dirs(data_dir, task='ThreeClass', batch_size=32):
+    """
+    Load CSI data from separate train and test directories.
+    This function supports the old file structure where training and test data
+    are stored in separate directories (data_dir/train and data_dir/test).
+    
+    Args:
+        data_dir (str): Base directory containing 'train' and 'test' subdirectories
+        task (str): Task type, default to 'ThreeClass'
+        batch_size (int): Batch size for data loaders
+        
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
+    """
+    train_dir = os.path.join(data_dir, 'train')
+    test_dir = os.path.join(data_dir, 'test')
+    
+    print(f"Loading CSI data from train directory: {train_dir}")
+    print(f"Loading CSI data from test directory: {test_dir}")
+    print(f"Task: {task}, Batch size: {batch_size}")
+    
+    # Check if directories exist
+    if not os.path.exists(train_dir):
+        raise ValueError(f"Training directory does not exist: {train_dir}")
+    
+    if not os.path.exists(test_dir):
+        print(f"Warning: Test directory does not exist: {test_dir}")
+        print("Will split training data for validation and testing")
+        test_dir = None
+    
+    # Create training dataset
+    train_dataset = CSIDatasetMAT([train_dir], task)
+    print(f"Training dataset loaded: {len(train_dataset)} samples")
+    
+    if hasattr(train_dataset, 'samples') and train_dataset.samples is not None:
+        print(f"Training sample shape: {train_dataset.samples.shape}")
+    
+    # Create test dataset if test directory exists
+    if test_dir and os.path.exists(test_dir):
+        test_dataset = CSIDatasetMAT([test_dir], task)
+        print(f"Test dataset loaded: {len(test_dataset)} samples")
+        
+        # Split training data for train and validation
+        train_size = int(0.9 * len(train_dataset))
+        val_size = len(train_dataset) - train_size
+        train_set, val_set = random_split(train_dataset, [train_size, val_size])
+        
+        # Use full test set
+        test_set = test_dataset
+    else:
+        # Split training data for train, validation, and test
+        train_size = int(0.8 * len(train_dataset))
+        val_size = int(0.1 * len(train_dataset))
+        test_size = len(train_dataset) - train_size - val_size
+        
+        print(f"Splitting dataset: train={train_size}, val={val_size}, test={test_size}")
+        train_set, val_set, test_set = random_split(train_dataset, [train_size, val_size, test_size])
+    
+    # Create data loaders
+    train_loader = torch.utils.data.DataLoader(
+        train_set, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        drop_last=True
+    )
+    
+    val_loader = torch.utils.data.DataLoader(
+        val_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    return train_loader, val_loader, test_loader
+
+
+def load_acf_supervised_with_train_test_dirs(data_dir, task='ThreeClass', batch_size=32):
+    """
+    Load ACF data from separate train and test directories.
+    This function supports the old file structure where training and test data
+    are stored in separate directories (data_dir/train and data_dir/test).
+    
+    Args:
+        data_dir (str): Base directory containing 'train' and 'test' subdirectories
+        task (str): Task type, default to 'ThreeClass'
+        batch_size (int): Batch size for data loaders
+        
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
+    """
+    train_dir = os.path.join(data_dir, 'train')
+    test_dir = os.path.join(data_dir, 'test')
+    
+    print(f"Loading ACF data from train directory: {train_dir}")
+    print(f"Loading ACF data from test directory: {test_dir}")
+    print(f"Task: {task}, Batch size: {batch_size}")
+    
+    # Check if directories exist
+    if not os.path.exists(train_dir):
+        raise ValueError(f"Training directory does not exist: {train_dir}")
+    
+    if not os.path.exists(test_dir):
+        print(f"Warning: Test directory does not exist: {test_dir}")
+        print("Will split training data for validation and testing")
+        test_dir = None
+    
+    # Create training dataset
+    train_dataset = ACFDatasetOW_HM3_MAT(train_dir, task)
+    print(f"Training dataset loaded: {len(train_dataset)} samples")
+    
+    if hasattr(train_dataset, 'samples') and train_dataset.samples is not None:
+        print(f"Training sample shape: {train_dataset.samples.shape}")
+    
+    # Create test dataset if test directory exists
+    if test_dir and os.path.exists(test_dir):
+        test_dataset = ACFDatasetOW_HM3_MAT(test_dir, task)
+        print(f"Test dataset loaded: {len(test_dataset)} samples")
+        
+        # Split training data for train and validation
+        train_size = int(0.9 * len(train_dataset))
+        val_size = len(train_dataset) - train_size
+        train_set, val_set = random_split(train_dataset, [train_size, val_size])
+        
+        # Use full test set
+        test_set = test_dataset
+    else:
+        # Split training data for train, validation, and test
+        train_size = int(0.8 * len(train_dataset))
+        val_size = int(0.1 * len(train_dataset))
+        test_size = len(train_dataset) - train_size - val_size
+        
+        print(f"Splitting dataset: train={train_size}, val={val_size}, test={test_size}")
+        train_set, val_set, test_set = random_split(train_dataset, [train_size, val_size, test_size])
+    
+    # Create data loaders
+    train_loader = torch.utils.data.DataLoader(
+        train_set, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        drop_last=True
+    )
+    
+    val_loader = torch.utils.data.DataLoader(
+        val_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    test_loader = torch.utils.data.DataLoader(
+        test_set, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        drop_last=False
+    )
+    
+    return train_loader, val_loader, test_loader

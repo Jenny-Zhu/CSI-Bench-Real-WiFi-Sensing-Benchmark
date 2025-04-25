@@ -37,8 +37,11 @@ from datetime import datetime
 PIPELINE = 'supervised'
 
 # Data and Output Directories
-DATA_DIR = r"H:\CSIMAT100"
-OUTPUT_DIR = r"C:\Users\weiha\Desktop\bench_mark_output"
+# For supervised learning with integrated loader, DATA_DIR should point directly 
+# to the folder containing .mat files or to the parent folder containing these files
+# Do not use subdirectories like 'csi' or 'acf' in the path unless your files are organized this way
+DATA_DIR = "C:\\Users\\weiha\\Desktop\\demo"
+OUTPUT_DIR = "C:\\Users\\weiha\\Desktop\\bench_mark_output"
 
 # Data Modality
 MODE = 'csi'  # Options: 'csi', 'acf'
@@ -56,9 +59,9 @@ FEATURE_SIZE = 232  # Feature size for CSI data
 
 # Common Training Parameters
 SEED = 42
-BATCH_SIZE = 16
+BATCH_SIZE = 2
+EPOCH_NUMBER = 1  # Number of training epochs
 MODEL_NAME = 'WiT'
-MAX_SAMPLES = 200  # Maximum number of samples to load (to prevent memory issues)
 
 # Advanced Configuration
 CONFIG_FILE = None  # Path to JSON configuration file to override defaults
@@ -83,28 +86,85 @@ print(f"PyTorch version: {torch.__version__}")
 # Set device string for command line arguments
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def run_command(cmd, display_output=True):
-    """Run a command and stream the output."""
-    process = subprocess.Popen(
-        cmd, 
-        stdout=subprocess.PIPE, 
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        shell=True
-    )
+def run_command(cmd, display_output=True, timeout=1800):
+    """
+    Run command and display output in real-time with timeout handling.
     
-    # Stream the output
-    output = []
-    for line in iter(process.stdout.readline, ''):
-        if not line:
-            break
+    Args:
+        cmd: Command to execute
+        display_output: Whether to display command output
+        timeout: Command execution timeout in seconds, default 30 minutes
+        
+    Returns:
+        Tuple of (return_code, output_string)
+    """
+    try:
+        # Start process
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+            shell=True
+        )
+        
+        # For storing output
+        output = []
+        start_time = time.time()
+        
+        # Main loop
+        while process.poll() is None:
+            # Check for timeout
+            if timeout and time.time() - start_time > timeout:
+                if display_output:
+                    print(f"\nError: Command execution timed out ({timeout} seconds), terminating...")
+                process.kill()
+                return -1, '\n'.join(output + [f"Error: Command execution timed out ({timeout} seconds)"])
+            
+            # Read output line by line without blocking
+            try:
+                line = process.stdout.readline()
+                if line:
+                    line = line.rstrip()
+                    if display_output:
+                        print(line)
+                    output.append(line)
+                else:
+                    # Small sleep to reduce CPU usage
+                    time.sleep(0.1)
+            except Exception as e:
+                print(f"Error reading output: {str(e)}")
+                time.sleep(0.1)
+        
+        # Ensure all remaining output is read
+        remaining_output, _ = process.communicate()
+        if remaining_output:
+            for line in remaining_output.splitlines():
+                if display_output:
+                    print(line)
+                output.append(line)
+                
+        return process.returncode, '\n'.join(output)
+        
+    except KeyboardInterrupt:
+        # User interruption
+        if 'process' in locals() and process.poll() is None:
+            print("\nUser interrupted, terminating process...")
+            process.kill()
+        return -2, "User interrupted execution"
+        
+    except Exception as e:
+        # Other exceptions
+        error_msg = f"Error executing command: {str(e)}"
         if display_output:
-            print(line.rstrip())
-        output.append(line.rstrip())
-    
-    process.wait()
-    return process.returncode, '\n'.join(output)
+            print(f"\nError: {error_msg}")
+        
+        # Kill process if still running
+        if 'process' in locals() and process.poll() is None:
+            process.kill()
+        
+        return -1, error_msg
 
 # Configure pretraining pipeline
 def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
@@ -126,7 +186,7 @@ def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
         'batch_size': BATCH_SIZE,
         'learning_rate': 1e-5,
         'weight_decay': 0.001,
-        'num_epochs': 100,
+        'num_epochs': EPOCH_NUMBER,
         'warmup_epochs': 5,
         'patience': 20,
         
@@ -144,41 +204,37 @@ def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
     }
 
 # Configure supervised learning pipeline
-def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained=False, pretrained_model=None, max_samples=None):
+def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained=False, pretrained_model=None):
     """Get configuration for supervised learning pipeline."""
     # Set default paths if not provided
     if data_dir is None:
         data_dir = DATA_DIR
     if output_dir is None:
         output_dir = OUTPUT_DIR
-    if max_samples is None:
-        max_samples = MAX_SAMPLES
     
     config = {
         # Data parameters
-        'csi_data_dir': data_dir ,
-        'acf_data_dir': data_dir,
+        'csi_data_dir': data_dir,  # Direct use of data_dir without joining
+        'acf_data_dir': data_dir,  # Direct use of data_dir without joining
         'output_dir': output_dir,
         'results_subdir': 'supervised',
         'train_ratio': 0.8,
         'val_ratio': 0.1,
         'test_ratio': 0.1,
-        'max_samples': max_samples,
         
         # Training parameters
-        'batch_size': 16,  # Reduced batch size to avoid memory issues
+        'batch_size': BATCH_SIZE,  # Use global BATCH_SIZE instead of hardcoded value
         'learning_rate': 1e-4,
         'weight_decay': 1e-5,
-        'num_epochs': 100,
+        'num_epochs': EPOCH_NUMBER,
         'warmup_epochs': 5,
         'patience': 15,
         
         # Model parameters
         'mode': mode,  # Options: 'csi', 'acf'
         'num_classes': 2,
-        'freeze_backbone': False,
+        'freeze_backbone': FREEZE_BACKBONE,  # Use global setting
         'pretrained': pretrained,
-        'sample_rate': 100,  # Add sample_rate parameter
         
         # Integrated loader options
         'integrated_loader': INTEGRATED_LOADER,
@@ -253,7 +309,11 @@ def run_pretraining(config):
             if value:
                 cmd += f"--{key} "
         else:
-            cmd += f"--{key} {value} "
+            # Add quotes for path-like arguments to handle spaces and special characters
+            if key in ['csi_data_dir', 'acf_data_dir', 'output_dir', 'pretrained_model', 'results_subdir']:
+                cmd += f"--{key} \"{value}\" "
+            else:
+                cmd += f"--{key} {value} "
     
     print(f"Running command: {cmd}")
     start_time = time.time()
@@ -267,32 +327,48 @@ def run_pretraining(config):
     
     return returncode == 0
 
-def run_supervised(config):
-    """Run supervised learning pipeline."""
-    print("\n========== Running Supervised Learning Pipeline ==========\n")
+def run_supervised_direct(config):
+    """直接导入并运行train_supervised模块"""
+    print("\n========== 运行监督学习管道 ==========\n")
     
-    # Build command
-    cmd = "python train_supervised.py "
+    # 保存原始参数
+    old_argv = sys.argv.copy()
     
-    # Add all arguments
+    # 构建新参数列表
+    sys.argv = ["train_supervised.py"]
     for key, value in config.items():
         if isinstance(value, bool):
             if value:
-                cmd += f"--{key.replace('_', '-')} "
+                sys.argv.append(f"--{key.replace('_', '-')}")
         else:
-            cmd += f"--{key.replace('_', '-')} {value} "
+            sys.argv.append(f"--{key.replace('_', '-')}")
+            sys.argv.append(f"{value}")
     
-    print(f"Running command: {cmd}")
-    start_time = time.time()
-    returncode, output = run_command(cmd)
-    end_time = time.time()
+    print(f"运行命令: {' '.join(sys.argv)}")
     
-    if returncode == 0:
-        print(f"\nSupervised learning completed successfully in {(end_time - start_time)/60:.2f} minutes")
-    else:
-        print(f"\nSupervised learning failed with return code {returncode}")
+    # 直接导入并运行
+    try:
+        start_time = time.time()
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("train_supervised", "./train_supervised.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # 假设train_supervised.py中有main函数
+        if hasattr(module, 'main'):
+            module.main()
+        
+        end_time = time.time()
+        print(f"\n监督学习完成，耗时 {(end_time - start_time)/60:.2f} 分钟")
+        success = True
+    except Exception as e:
+        print(f"\n监督学习失败: {str(e)}")
+        success = False
+    finally:
+        # 恢复原始参数
+        sys.argv = old_argv
     
-    return returncode == 0
+    return success
 
 def run_meta_learning(config):
     """Run meta-learning pipeline."""
@@ -307,7 +383,11 @@ def run_meta_learning(config):
             if value:
                 cmd += f"--{key} "
         else:
-            cmd += f"--{key} {value} "
+            # Add quotes for path-like arguments to handle spaces and special characters
+            if key in ['data_dir', 'output_dir', 'results_subdir']:
+                cmd += f"--{key} \"{value}\" "
+            else:
+                cmd += f"--{key} {value} "
     
     print(f"Running command: {cmd}")
     start_time = time.time()
@@ -349,8 +429,8 @@ def main():
                         help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
     parser.add_argument('--config_file', type=str,
                         help='JSON configuration file to override defaults')
-    parser.add_argument('--max_samples', type=int,
-                        help='Maximum number of samples to load (to prevent memory issues)')
+    parser.add_argument('--epochs', type=int,
+                        help='Number of training epochs')
     
     args = parser.parse_args()
     
@@ -365,7 +445,7 @@ def main():
     integrated_loader = args.integrated_loader if args.integrated_loader else INTEGRATED_LOADER
     task = args.task if args.task else TASK
     config_file = args.config_file if args.config_file else CONFIG_FILE
-    max_samples = args.max_samples if args.max_samples else MAX_SAMPLES
+    epochs = args.epochs if args.epochs else EPOCH_NUMBER
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -379,8 +459,7 @@ def main():
             output_dir,
             mode,
             pretrained,
-            pretrained_model,
-            max_samples
+            pretrained_model
         )
         if freeze_backbone:
             config['freeze_backbone'] = True
@@ -393,6 +472,11 @@ def main():
         print(f"Error: Unknown pipeline '{pipeline}'. Please choose from 'pretraining', 'supervised', or 'meta'.")
         return
     
+    # 更新epochs参数
+    if args.epochs:
+        config['num_epochs'] = epochs
+        print(f"Using custom epoch number: {epochs}")
+    
     # Load configuration from file if specified
     if config_file and os.path.exists(config_file):
         with open(config_file, 'r') as f:
@@ -403,7 +487,7 @@ def main():
     if pipeline == 'pretraining':
         run_pretraining(config)
     elif pipeline == 'supervised':
-        run_supervised(config)
+        run_supervised_direct(config)
     elif pipeline == 'meta':
         run_meta_learning(config)
 
