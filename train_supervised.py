@@ -94,107 +94,35 @@ def set_seed(seed):
 def train_supervised_csi(args):
     """Train a model for CSI modality."""
     print(f"Starting CSI modality supervised training...")
-    
-    # # Prepare data
-    # if args.unseen_test:
-    #     # For unseen test environment
-    #     if args.integrated_loader:
-    #         # Test loader only
-    #         test_loader = load_csi_unseen_integrated(
-    #             args.csi_data_dir,
-    #             task=args.task,
-    #             batch_size=args.batch_size
-    #         )
-    #         print(f"Using integrated loader for unseen environments with task: {args.task}")
-            
-    #         # Need to create train and val loaders from a different directory
-    #         # Assume train data is in the parent directory or provided separately
-    #         if hasattr(args, 'train_data_dir') and args.train_data_dir:
-    #             train_dir = args.train_data_dir
-    #         else:
-    #             # Try to use parent directory
-    #             train_dir = os.path.dirname(args.csi_data_dir.rstrip('/\\'))
-    #             if not train_dir or train_dir == args.csi_data_dir:
-    #                 train_dir = args.csi_data_dir
-            
-    #         # Load training data
-    #         print(f"Loading training data from: {train_dir}")
-    #         train_loader, val_loader, _ = load_csi_supervised_integrated(
-    #             train_dir,
-    #             task=args.task,
-    #             batch_size=args.batch_size,
-    #             train_ratio=args.train_ratio,
-    #             val_ratio=args.val_ratio,
-    #             test_ratio=args.test_ratio
-    #         )
-    #     else:
-    #         # Legacy mode
-    #         train_loader, val_loader, test_loader = load_data_supervised(
-    #             'OW_HM3', 
-    #             args.batch_size, 
-    #             args.win_len, 
-    #             args.sample_rate
-    #         )
-    # else:
-    # Normal training mode
-    if args.integrated_loader:
-        # Get all three loaders from the same function
-        train_loader, val_loader, test_loader = load_csi_supervised_integrated(
-            args.csi_data_dir,
-            task=args.task,
-            batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio
-        )
-        print(f"Using integrated loader with task: {args.task}")
-    else:
-        # Legacy mode
-        train_loader, test_loader = load_data_supervised(
-            'OW_HM3', 
-            args.batch_size, 
-            args.win_len, 
-            args.sample_rate
-        )
-        # Create a validation loader by splitting the test loader
-        # This is a legacy behavior and might not be optimal
-        val_loader = test_loader  # Use test loader as validation in legacy mode
+
+    # load data
+
+    train_loader, val_loader, test_loader = load_csi_supervised_integrated(
+        args.csi_data_dir,
+        task=args.task,
+        batch_size=args.batch_size,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio
+    )
+    print(f"CSI loaded for task: {args.task}")
+
 
     # Load model
-    if args.pretrained and args.pretrained_model:
-        # Load pretrained model
-        model = load_model_pretrained(
-            checkpoint_path=args.pretrained_model, 
-            num_classes=args.num_classes,
-            win_len=args.win_len,
-            feature_size=args.feature_size,
-            in_channels=args.in_channels
-        )
-        print(f"Loaded pretrained model: {args.pretrained_model}")
-    else:
-        # Create new model from scratch
-        from load import load_model_scratch
-        model = load_model_scratch(
-            num_classes=args.num_classes, 
-            win_len=args.win_len, 
-            feature_size=args.feature_size,
-            in_channels=args.in_channels
-        )
-        print("Using randomly initialized model")
-    
-    # Freeze backbone network (if needed)
-    if args.freeze_backbone:
-        print("Freezing backbone network...")
-        for name, param in model.named_parameters():
-            if 'fc' not in name and 'classifier' not in name:
-                param.requires_grad = False
+
+    from load import load_model_scratch
+    model = load_model_scratch(
+        num_classes=args.num_classes,
+        win_len=args.win_len,
+        feature_size=args.feature_size,
+        in_channels=args.in_channels
+    )
+    print("Using randomly initialized model")
+
     
     # Set save path
-    model_type = "pretrained" if args.pretrained else "scratch"
-    freeze_status = "frozen" if args.freeze_backbone else "unfrozen"
-    loader_type = "integrated" if args.integrated_loader else "standard"
     save_path = os.path.join(args.output_dir, args.results_subdir, 
-                            f"{args.model_name}_csi_{model_type}_{freeze_status}_{loader_type}")
+                            f"{args.task}_{args.model_name}_csi")
     os.makedirs(save_path, exist_ok=True)
     
     # Set training configuration
