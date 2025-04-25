@@ -9,7 +9,7 @@ import os
 import time
 import copy
 from sklearn.metrics import confusion_matrix, classification_report
-from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import LambdaLR
 from engine.base_trainer import BaseTrainer
 from engine.supervised.utils import warmup_schedule
 
@@ -46,13 +46,12 @@ class TaskTrainerACF(BaseTrainer):
         self.train_accuracies = []
         self.val_accuracies = []
         self.best_val_accuracy = 0.0
-        self.epochs_no_improve = 0
         
         # Number of classes
         self.num_classes = getattr(config, 'num_classes', 2)
         
         # ACF specific parameters
-        self.freeze_cnn = getattr(config, 'freeze_cnn', False)
+        self.freeze_cnn = getattr(config, 'freeze_backbone', False)
         if self.freeze_cnn:
             self.freeze_cnn_layers()
     
@@ -161,7 +160,7 @@ class TaskTrainerACF(BaseTrainer):
         total_samples = 0
         total_time = 0.0
         
-        for inputs, labels, domains in self.train_loader:  # ACF data loader might include domain info
+        for inputs, labels, domains in self.train_loader:  # ACF data loader includes domain info
             batch_size = inputs.size(0)
             total_samples += batch_size
             
@@ -183,11 +182,8 @@ class TaskTrainerACF(BaseTrainer):
             # Forward pass
             self.optimizer.zero_grad()
             
-            # Call model with or without domain info
-            if domains is not None and hasattr(self.model, 'domain_adaptation'):
-                outputs = self.model(inputs, domains=domains, flag="supervised_acf")
-            else:
-                outputs = self.model(inputs, flag="supervised_acf")
+            # Call model
+            outputs = self.model(inputs)
                 
             loss = self.criterion(outputs, labels_one_hot)
             
@@ -244,21 +240,14 @@ class TaskTrainerACF(BaseTrainer):
                 inputs = inputs.to(self.device)
                 labels = labels.to(self.device)
                 
-                domains = None
-                if len(extra) > 0 and extra[0] is not None:
-                    domains = extra[0].to(self.device)
-                
                 # One-hot encoding for labels if needed
                 if self.criterion.__class__.__name__ in ['BCELoss', 'BCEWithLogitsLoss']:
                     labels_one_hot = F.one_hot(labels, self.num_classes).float()
                 else:
                     labels_one_hot = labels
                 
-                # Forward pass - with or without domain info
-                if domains is not None and hasattr(self.model, 'domain_adaptation'):
-                    outputs = self.model(inputs, domains=domains, flag="supervised_acf")
-                else:
-                    outputs = self.model(inputs, flag="supervised_acf")
+                # Forward pass
+                outputs = self.model(inputs)
                     
                 loss = self.criterion(outputs, labels_one_hot)
                 
@@ -318,9 +307,8 @@ class TaskTrainerACF(BaseTrainer):
         plt.savefig(os.path.join(self.save_path, 'training_results.png'))
         plt.close()
         
-        # Also plot confusion matrix if validation loader is available
-        if hasattr(self, 'val_loader'):
-            self.plot_confusion_matrix()
+        # Also plot confusion matrix
+        self.plot_confusion_matrix()
     
     def plot_confusion_matrix(self):
         """Plot confusion matrix for validation data"""
@@ -331,7 +319,7 @@ class TaskTrainerACF(BaseTrainer):
         with torch.no_grad():
             for inputs, labels, *_ in self.val_loader:
                 inputs = inputs.to(self.device)
-                outputs = self.model(inputs, flag="supervised_acf")
+                outputs = self.model(inputs)
                 
                 if outputs.shape[1] > 1:  # Multi-class
                     preds = torch.argmax(outputs, dim=1)

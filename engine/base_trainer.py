@@ -1,10 +1,6 @@
 import torch
-import torch.nn as nn
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-from util.checkpoint import save_checkpoint, load_checkpoint
-from pathlib import Path
 import os
 import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
@@ -70,7 +66,6 @@ class BaseTrainer(ABC):
         
         full_path = os.path.join(path, name)
         
-        # Use save_checkpoint from util
         save_state = {
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict() if hasattr(self, 'optimizer') else None,
@@ -78,7 +73,7 @@ class BaseTrainer(ABC):
             'loss': self.best_loss
         }
         
-        save_checkpoint(save_state, full_path)
+        torch.save(save_state, full_path)
         print(f"Model saved to {full_path}")
     
     def load_model(self, path, optimizer=None):
@@ -88,18 +83,19 @@ class BaseTrainer(ABC):
             path: The path to load the model from.
             optimizer: Optional optimizer to load state.
         """
-        # Use load_checkpoint from util
-        self.model, optimizer, epoch, loss = load_checkpoint(
-            path, 
-            self.model, 
-            optimizer if optimizer is not None else getattr(self, 'optimizer', None),
-            map_location=self.device
-        )
+        checkpoint = torch.load(path, map_location=self.device)
         
-        if epoch is not None:
-            self.current_epoch = epoch
-        if loss is not None:
-            self.best_loss = loss
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        
+        if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        elif hasattr(self, 'optimizer') and 'optimizer_state_dict' in checkpoint:
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            
+        if 'epoch' in checkpoint:
+            self.current_epoch = checkpoint['epoch']
+        if 'loss' in checkpoint:
+            self.best_loss = checkpoint['loss']
             
         print(f"Model loaded from {path} (epoch {self.current_epoch})")
         
@@ -122,7 +118,7 @@ class BaseTrainer(ABC):
         if save:
             plt.savefig(os.path.join(self.save_path, "loss_plot.png"))
         
-        plt.show()
+        plt.close()
     
     def setup_optimizer(self, learning_rate=None, weight_decay=None):
         """Set up the optimizer.

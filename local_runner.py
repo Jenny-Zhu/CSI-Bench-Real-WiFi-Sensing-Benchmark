@@ -12,7 +12,8 @@ Usage:
     python local_runner.py --pipeline meta
     
 Additional parameters:
-    --data_dir: Directory containing the input data
+    --training_dir: Directory containing the training data
+    --test_dirs: List of directories containing test data
     --output_dir: Directory to save output results
     --mode: Data modality to use (csi or acf)
     --config_file: JSON configuration file to override defaults
@@ -35,31 +36,30 @@ from datetime import datetime
 PIPELINE = 'supervised'
 
 # Data and Output Directories
-# For supervised learning with integrated loader, DATA_DIR should point directly 
+# For supervised learning with integrated loader, TRAINING_DIR should point directly 
 # to the folder containing .mat files or to the parent folder containing these files
-# Do not use subdirectories like 'csi' or 'acf' in the path unless your files are organized this way
-DATA_DIR = "C:\\Users\\weiha\\Desktop\\demo"
-OUTPUT_DIR = "C:\\Users\\weiha\\Desktop\\bench_mark_output"
+TRAINING_DIR = "/Users/leo/Downloads/demo"
+# Test directories can be a list of paths to evaluate on multiple test sets
+TEST_DIRS = ["/Users/leo/Downloads/demo/test"]  # Example: ["C:\\Users\\weiha\\Desktop\\test1", "C:\\Users\\weiha\\Desktop\\test2"]
+OUTPUT_DIR = "/Users/leo/Downloads/output"
 
 # Data Modality
 MODE = 'csi'  # Options: 'csi', 'acf'
 
 # Supervised Learning Options
-PRETRAINED = False  # Use pretrained model for supervised learning
-PRETRAINED_MODEL = None  # Path to pretrained model (when PRETRAINED is True)
 FREEZE_BACKBONE = False  # Freeze backbone network for supervised learning
 INTEGRATED_LOADER = True  # Use integrated data loader for supervised learning
 TASK = 'FourClass'  # Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)
 
 # Model Parameters
-WIN_LEN =500  # Window length for CSI data
+WIN_LEN = 500  # Window length for CSI data
 FEATURE_SIZE = 232  # Feature size for CSI data
 
 # Common Training Parameters
 SEED = 42
-BATCH_SIZE = 2
+BATCH_SIZE = 8
 EPOCH_NUMBER = 1  # Number of training epochs
-MODEL_NAME = 'WiT'
+MODEL_NAME = 'ViT'
 
 # Advanced Configuration
 CONFIG_FILE = None  # Path to JSON configuration file to override defaults
@@ -74,15 +74,23 @@ if torch.cuda.is_available():
     print(f"Using CUDA device: {torch.cuda.get_device_name()}")
     print(f"CUDA version: {torch.version.cuda}")
     print(f"Total GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("CUDA not available. Using MPS (Apple Silicon GPU).")
 else:
     device = torch.device("cpu")
-    print("CUDA is not available. Using CPU.")
+    print("Neither CUDA nor MPS available. Using CPU.")
 
 # Print PyTorch version
 print(f"PyTorch version: {torch.__version__}")
 
 # Set device string for command line arguments
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+if torch.cuda.is_available():
+    DEVICE = 'cuda'
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    DEVICE = 'mps'
+else:
+    DEVICE = 'cpu'
 
 def run_command(cmd, display_output=True, timeout=1800):
     """
@@ -165,26 +173,44 @@ def run_command(cmd, display_output=True, timeout=1800):
         return -1, error_msg
 
 # Configure supervised learning pipeline
-def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained=False, pretrained_model=None):
+def get_supervised_config(training_dir=None, test_dirs=None, output_dir=None, mode='csi'):
     """Get configuration for supervised learning pipeline."""
     # Set default paths if not provided
-    if data_dir is None:
-        data_dir = DATA_DIR
+    if training_dir is None:
+        training_dir = TRAINING_DIR
+    if test_dirs is None:
+        test_dirs = TEST_DIRS
     if output_dir is None:
         output_dir = OUTPUT_DIR
     
+    # Define number of classes based on task
+    task_class_mapping = {
+        'HumanNonhuman': 2, 
+        'FourClass': 4, 
+        'NTUHumanID': 15, 
+        'NTUHAR': 6, 
+        'HumanID': 4, 
+        'Widar': 22,
+        'HumanMotion': 3, 
+        'ThreeClass': 3, 
+        'DetectionandClassification': 5, 
+        'Detection': 2
+    }
+    
+    # Get number of classes based on task
+    num_classes = task_class_mapping.get(TASK, 2)  # Default to 2 if task not found
+    
     config = {
         # Data parameters
-        'csi_data_dir': data_dir,  # Direct use of data_dir without joining
-        'acf_data_dir': data_dir,  # Direct use of data_dir without joining
+        'training_dir': training_dir,
+        'test_dirs': test_dirs,
         'output_dir': output_dir,
         'results_subdir': 'supervised',
         'train_ratio': 0.8,
-        'val_ratio': 0.1,
-        'test_ratio': 0.1,
+        'val_ratio': 0.2,
         
         # Training parameters
-        'batch_size': BATCH_SIZE,  # Use global BATCH_SIZE instead of hardcoded value
+        'batch_size': BATCH_SIZE,
         'learning_rate': 1e-4,
         'weight_decay': 1e-5,
         'num_epochs': EPOCH_NUMBER,
@@ -192,10 +218,9 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'patience': 15,
         
         # Model parameters
-        'mode': mode,  # Options: 'csi', 'acf'
-        'num_classes': 2,
-        'freeze_backbone': FREEZE_BACKBONE,  # Use global setting
-        'pretrained': pretrained,
+        'mode': mode,
+        'num_classes': num_classes,  # Now set based on task
+        'freeze_backbone': FREEZE_BACKBONE,
         
         # Integrated loader options
         'integrated_loader': INTEGRATED_LOADER,
@@ -205,29 +230,24 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'seed': SEED,
         'device': DEVICE,
         'model_name': MODEL_NAME,
-        'unseen_test': False,
         'win_len': WIN_LEN,
         'feature_size': FEATURE_SIZE
     }
     
-    # Override with pretrained model path if provided
-    if pretrained and pretrained_model:
-        config['pretrained_model'] = pretrained_model
-    
     return config
 
 
-def get_meta_config(data_dir=None, output_dir=None):
+def get_meta_config(training_dir=None, output_dir=None):
     """Get configuration for meta-learning pipeline."""
     # Set default paths if not provided
-    if data_dir is None:
-        data_dir = DATA_DIR
+    if training_dir is None:
+        training_dir = TRAINING_DIR
     if output_dir is None:
         output_dir = OUTPUT_DIR
     
     return {
         # Data parameters
-        'csi_data_dir': data_dir,
+        'training_dir': training_dir,
         'output_dir': output_dir,
         'results_subdir': 'meta',
         
@@ -251,209 +271,122 @@ def get_meta_config(data_dir=None, output_dir=None):
         # Other parameters
         'seed': SEED,
         'device': DEVICE,
-        'model_name': MODEL_NAME
+        'model_name': MODEL_NAME,
+        'win_len': WIN_LEN,
+        'feature_size': FEATURE_SIZE
     }
 
 
 def run_supervised_direct(config):
-    """Run supervised learning pipeline directly without subprocess."""
-    print(f"\n===== Running supervised learning pipeline directly =====")
-    print(f"Data directory: {config.get('csi_data_dir', 'N/A') if config.get('mode') == 'csi' else config.get('acf_data_dir', 'N/A')}")
-    print(f"Output directory: {config.get('output_dir', 'N/A')}")
-    print(f"Mode: {config.get('mode', 'N/A')}")
-    print(f"Task: {config.get('task', 'N/A')}")
-    print(f"Batch size: {config.get('batch_size', 'N/A')}")
-    print(f"Epochs: {config.get('num_epochs', 'N/A')}")
-    print(f"Device: {config.get('device', 'N/A')}")
+    """Run supervised learning pipeline directly using Python API"""
+    print("Running supervised learning pipeline directly...")
     
-    try:
-        # Import train_supervised module
-        from train_supervised import main as train_supervised_main
-        
-        # Create argparse Namespace from config dictionary
-        args = argparse.Namespace(**config)
-        
-        # Run the pipeline
-        train_supervised_main(args)
-        print(f"Supervised training completed successfully.")
-        return 0
-        
-    except Exception as e:
-        print(f"Error running supervised pipeline: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    # Import here to avoid circular imports
+    from train_supervised import main
+    
+    # Convert config dict to Namespace for compatibility
+    args = argparse.Namespace(**config)
+    
+    # Call main function
+    return main(args)
 
 
 def run_meta_learning(config):
-    """Run meta-learning pipeline directly without subprocess."""
-    print(f"\n===== Running meta-learning pipeline directly =====")
-    print(f"Data directory: {config.get('csi_data_dir', 'N/A')}")
-    print(f"Output directory: {config.get('output_dir', 'N/A')}")
-    print(f"Mode: {config.get('mode', 'N/A')}")
-    print(f"Batch size: {config.get('batch_size', 'N/A')}")
-    print(f"Meta batch size: {config.get('meta_batch_size', 'N/A')}")
-    print(f"Epochs: {config.get('num_epochs', 'N/A')}")
-    print(f"Device: {config.get('device', 'N/A')}")
+    """Run meta-learning pipeline directly using Python API"""
+    print("Running meta-learning pipeline directly...")
     
-    try:
-        # Import meta_learning module
-        from meta_learning import main as meta_learning_main
-        
-        # Create argparse Namespace from config dictionary
-        args = argparse.Namespace(**config)
-        
-        # Run the pipeline
-        meta_learning_main(args)
-        print(f"Meta-learning completed successfully.")
-        return 0
-        
-    except Exception as e:
-        print(f"Error running meta-learning pipeline: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    # Import here to avoid circular imports
+    from meta_learning import main
+    
+    # Convert config dict to Namespace for compatibility
+    args = argparse.Namespace(**config)
+    
+    # Call main function
+    return main(args)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='WiFi Sensing Pipeline Runner')
+    """Main function to execute WiFi sensing pipelines"""
     
-    # Required arguments
-    parser.add_argument('--pipeline', type=str, choices=['supervised', 'meta'], 
-                       default=PIPELINE, help='Pipeline to run')
-    
-    # Data directories
-    parser.add_argument('--data_dir', type=str, default=DATA_DIR,
-                       help='Directory containing the input data')
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline')
+    parser.add_argument('--pipeline', type=str, default=PIPELINE, 
+                      choices=['supervised', 'meta'],
+                      help='Pipeline to run')
+    parser.add_argument('--training_dir', type=str, default=TRAINING_DIR,
+                      help='Directory containing training data')
+    parser.add_argument('--test_dirs', type=str, nargs='+', default=TEST_DIRS,
+                      help='List of directories containing test data. Can specify multiple paths')
     parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR,
-                       help='Directory to save output results')
-    
-    # Mode configuration
-    parser.add_argument('--mode', type=str, choices=['csi', 'acf'], default=MODE,
-                       help='Data modality to use')
-    
-    # Supervised learning options
-    parser.add_argument('--pretrained', action='store_true', default=PRETRAINED,
-                       help='Use pretrained model for supervised learning')
-    parser.add_argument('--pretrained_model', type=str, default=PRETRAINED_MODEL,
-                       help='Path to pretrained model')
-    parser.add_argument('--freeze_backbone', action='store_true', default=FREEZE_BACKBONE,
-                       help='Freeze backbone network for supervised learning')
-    parser.add_argument('--integrated_loader', action='store_true', default=INTEGRATED_LOADER,
-                       help='Use integrated data loader for supervised learning')
-    parser.add_argument('--task', type=str, default=TASK,
-                       help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
-    
-    # Meta-learning options
-    parser.add_argument('--n_way', type=int, default=3,
-                       help='Number of classes per task for meta-learning')
-    parser.add_argument('--k_shot', type=int, default=5,
-                       help='Number of examples per class for meta-learning')
-    parser.add_argument('--q_query', type=int, default=5,
-                       help='Number of query examples for meta-learning')
-    parser.add_argument('--meta_batch_size', type=int, default=4,
-                       help='Number of tasks per meta-batch for meta-learning')
-    
-    # Common parameters
-    parser.add_argument('--batch_size', type=int, default=BATCH_SIZE,
-                       help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=EPOCH_NUMBER,
-                       help='Number of epochs to train')
-    parser.add_argument('--learning_rate', type=float, default=1e-4,
-                       help='Learning rate for training')
-    parser.add_argument('--seed', type=int, default=SEED,
-                       help='Random seed for reproducibility')
-    parser.add_argument('--win_len', type=int, default=WIN_LEN,
-                       help='Window length for CSI data')
-    parser.add_argument('--feature_size', type=int, default=FEATURE_SIZE,
-                       help='Feature size for CSI data')
-    
-    # Advanced configuration
+                      help='Directory to save output results')
+    parser.add_argument('--mode', type=str, default=MODE,
+                      choices=['csi', 'acf'],
+                      help='Data modality to use')
     parser.add_argument('--config_file', type=str, default=CONFIG_FILE,
-                       help='JSON configuration file to override defaults')
-    parser.add_argument('--subprocess', action='store_true', default=False,
-                       help='Run in subprocess mode')
+                      help='JSON configuration file to override defaults')
     
-    # Parse arguments
     args = parser.parse_args()
     
-    # Load configuration from file if provided
+    # Create output directory if it doesn't exist
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Load optional config file if provided
     config = {}
     if args.config_file and os.path.exists(args.config_file):
-        with open(args.config_file, 'r') as f:
-            config = json.load(f)
+        try:
+            with open(args.config_file, 'r') as f:
+                config = json.load(f)
             print(f"Loaded configuration from {args.config_file}")
+        except Exception as e:
+            print(f"Error loading config file: {str(e)}")
     
-    # Get configuration for the selected pipeline
+    # Get pipeline config based on selected pipeline
     if args.pipeline == 'supervised':
-        # Configure supervised learning
-        config.update(get_supervised_config(
-            data_dir=args.data_dir,
-            output_dir=args.output_dir,
-            mode=args.mode,
-            pretrained=args.pretrained,
-            pretrained_model=args.pretrained_model
-        ))
-        
-        # Update with command line arguments
-        config.update({
-            'mode': args.mode,
-            'freeze_backbone': args.freeze_backbone,
-            'integrated_loader': args.integrated_loader,
-            'task': args.task,
-            'batch_size': args.batch_size,
-            'num_epochs': args.epochs,
-            'learning_rate': args.learning_rate,
-            'seed': args.seed,
-            'win_len': args.win_len,
-            'feature_size': args.feature_size
-        })
-        
-        # Run supervised learning
-        return run_supervised_direct(config)
-    
+        pipe_config = get_supervised_config(args.training_dir, args.test_dirs, args.output_dir, args.mode)
     elif args.pipeline == 'meta':
-        # Configure meta-learning
-        config.update(get_meta_config(
-            data_dir=args.data_dir,
-            output_dir=args.output_dir
-        ))
-        
-        # Update with command line arguments
-        config.update({
-            'mode': args.mode,
-            'n_way': args.n_way,
-            'k_shot': args.k_shot,
-            'q_query': args.q_query,
-            'meta_batch_size': args.meta_batch_size,
-            'batch_size': args.batch_size,
-            'num_epochs': args.epochs,
-            'learning_rate': args.learning_rate,
-            'seed': args.seed
-        })
-        
-        # Run meta-learning
-        return run_meta_learning(config)
-    
+        pipe_config = get_meta_config(args.training_dir, args.output_dir)
+        # Meta-learning currently only supports CSI mode
+        if args.mode != 'csi':
+            print("Warning: Meta-learning only supports CSI mode. Switching to CSI.")
+            pipe_config['mode'] = 'csi'
     else:
-        print(f"Unknown pipeline: {args.pipeline}")
-        return 1
+        raise ValueError(f"Unknown pipeline: {args.pipeline}")
+    
+    # Override with values from config file
+    for key, value in config.items():
+        pipe_config[key] = value
+    
+    # Print configuration
+    print("\nConfiguration:")
+    for key, value in pipe_config.items():
+        print(f"  {key}: {value}")
+    print()
+    
+    # Save configuration for reproducibility
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    config_path = os.path.join(args.output_dir, f"config_{args.pipeline}_{timestamp}.json")
+    with open(config_path, 'w') as f:
+        json.dump(pipe_config, f, indent=2)
+    print(f"Configuration saved to {config_path}")
+    
+    # Run the selected pipeline
+    start_time = time.time()
+    try:
+        if args.pipeline == 'supervised':
+            run_supervised_direct(pipe_config)
+        elif args.pipeline == 'meta':
+            run_meta_learning(pipe_config)
+    except Exception as e:
+        print(f"Error running pipeline: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    
+    # Print elapsed time
+    elapsed_time = time.time() - start_time
+    print(f"\nPipeline execution completed in {elapsed_time:.2f} seconds.")
+    
+    return 0
 
 
 if __name__ == "__main__":
-    # Capture start time
-    start_time = time.time()
-    
-    # Run main function
-    exit_code = main()
-    
-    # Calculate and display execution time
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    hours, remainder = divmod(elapsed_time, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    
-    print(f"\nTotal execution time: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
-    
-    # Exit with appropriate code
-    sys.exit(exit_code)
+    sys.exit(main())

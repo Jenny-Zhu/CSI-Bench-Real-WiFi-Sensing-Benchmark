@@ -7,12 +7,13 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sn
 from tqdm import tqdm
+import argparse
 
-# 导入训练引擎
+# Import training engines
 from engine.supervised.task_trainer import TaskTrainer
 from engine.supervised.task_trainer_acf import TaskTrainerACF
 
-# 导入数据加载器
+# Import data loaders
 from load import (
     load_csi_supervised,
     load_acf_supervised,
@@ -20,61 +21,58 @@ from load import (
 )
 
 def parse_args():
-    """解析命令行参数"""
-    import argparse
-    parser = argparse.ArgumentParser(description='训练监督学习模型')
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Train supervised learning models')
     
-    # 数据目录
-    parser.add_argument('--csi-data-dir', type=str, default=None,
-                      help='包含CSI数据的目录')
-    parser.add_argument('--acf-data-dir', type=str, default=None,
-                      help='包含ACF数据的目录')
+    # Data directories
+    parser.add_argument('--training-dir', type=str, default=None,
+                      help='Directory containing training data')
+    parser.add_argument('--test-dirs', type=str, nargs='+', default=None,
+                      help='List of directories containing test data. Can specify multiple paths')
     parser.add_argument('--output-dir', type=str, default='experiments',
-                      help='保存输出结果的目录')
+                      help='Directory to save output results')
     parser.add_argument('--results-subdir', type=str, default='supervised',
-                      help='输出目录下保存结果的子目录')
+                      help='Subdirectory under output directory to save results')
     
-    # 数据参数
+    # Data parameters
     parser.add_argument('--mode', type=str, choices=['csi', 'acf'], default='csi',
-                      help='使用的数据模态(csi或acf)')
+                      help='Data modality to use (csi or acf)')
     parser.add_argument('--train-ratio', type=float, default=0.8,
-                      help='用于训练的数据比例')
-    parser.add_argument('--val-ratio', type=float, default=0.1,
-                      help='用于验证的数据比例')
-    parser.add_argument('--test-ratio', type=float, default=0.1,
-                      help='用于测试的数据比例')
+                      help='Ratio of data to use for training (from training dir)')
+    parser.add_argument('--val-ratio', type=float, default=0.2,
+                      help='Ratio of data to use for validation (from training dir)')
     parser.add_argument('--win-len', type=int, default=250,
-                      help='CSI数据的窗口长度')
+                      help='Window length for CSI data')
     parser.add_argument('--feature-size', type=int, default=90,
-                      help='CSI数据的特征大小')
+                      help='Feature size for CSI data')
     
-    # 训练参数
-    parser.add_argument('--batch-size', type=int, default=32, help='批量大小')
-    parser.add_argument('--learning-rate', type=float, default=1e-4, help='学习率')
-    parser.add_argument('--weight-decay', type=float, default=1e-5, help='权重衰减')
-    parser.add_argument('--num-epochs', type=int, default=100, help='训练轮数')
-    parser.add_argument('--patience', type=int, default=15, help='早停的等待轮数')
+    # Training parameters
+    parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
+    parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--weight-decay', type=float, default=1e-5, help='Weight decay')
+    parser.add_argument('--num-epochs', type=int, default=100, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=15, help='Patience for early stopping')
     
-    # 模型参数
-    parser.add_argument('--num-classes', type=int, default=2, help='类别数量')
-    parser.add_argument('--in-channels', type=int, default=1, help='输入通道数')
-    parser.add_argument('--freeze-backbone', action='store_true', help='是否冻结骨干网络')
+    # Model parameters
+    parser.add_argument('--num-classes', type=int, default=2, help='Number of classes')
+    parser.add_argument('--in-channels', type=int, default=1, help='Number of input channels')
+    parser.add_argument('--freeze-backbone', action='store_true', help='Whether to freeze the backbone network')
     
-    # 数据参数
-    parser.add_argument('--unseen-test', action='store_true', help='是否在未见过的环境上测试')
-    parser.add_argument('--integrated-loader', action='store_true', help='是否使用集成数据加载器')
+    # Data parameters
+    parser.add_argument('--integrated-loader', action='store_true', help='Whether to use the integrated data loader')
     parser.add_argument('--task', type=str, default='ThreeClass', 
-                      help='集成加载器的任务类型(如ThreeClass, HumanNonhuman)')
+                      help='Task type for integrated loader (e.g. ThreeClass, HumanNonhuman)')
     
-    # 其他参数
-    parser.add_argument('--seed', type=int, default=42, help='随机种子')
-    parser.add_argument('--device', type=str, default=None, help='训练设备')
+    # Other parameters
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--device', type=str, default=None, help='Training device')
+    parser.add_argument('--model-name', type=str, default='WiT', help='Model name')
 
     return parser.parse_args()
 
 
 def set_seed(seed):
-    """设置随机种子以便结果可复现"""
+    """Set random seed for reproducibility"""
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -83,201 +81,358 @@ def set_seed(seed):
 
 
 def train_supervised_csi(args):
-    """训练CSI模态的模型"""
-    print(f"开始CSI模态的监督学习训练...")
+    """Train a model on CSI data"""
+    print(f"Starting supervised learning training on CSI modality...")
 
-    # 加载数据
-    train_loader, val_loader, test_loader = load_csi_supervised(
-        args.csi_data_dir,
-        task=args.task,
+    # 确保训练目录和验证目录存在
+    train_dir = os.path.join(args.training_dir, 'train')
+    val_dir = os.path.join(args.training_dir, 'validation')
+    
+    # 检查训练和验证目录是否存在
+    if not os.path.exists(train_dir):
+        raise ValueError(f"Training directory {train_dir} does not exist")
+    if not os.path.exists(val_dir):
+        raise ValueError(f"Validation directory {val_dir} does not exist")
+
+    # 使用更新后的load_csi_supervised加载数据
+    train_loader, val_loader, test_loaders_dict = load_csi_supervised(
+        train_dir=train_dir,
+        val_dir=val_dir,
         batch_size=args.batch_size,
-        train_ratio=args.train_ratio,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio
+        task=args.task,
+        test_dirs=args.test_dirs
     )
-    print(f"已加载CSI数据，任务: {args.task}")
+    
+    # 检查测试集是否存在
+    has_multiple_test_sets = len(test_loaders_dict) > 0
 
-    # 加载模型
+    # Load model
     model = load_model_scratch(
-        num_classes=args.num_classes,
+        model_name=args.model_name,
+        task=args.task,
         win_len=args.win_len,
         feature_size=args.feature_size,
-        in_channels=args.in_channels
+        in_channels=getattr(args, 'in_channels', 1)  # Default to 1 if not provided
     )
-    print("使用随机初始化的模型")
+    print("Using randomly initialized model")
     
-    # 设置保存路径
+    # Setup save path
     save_path = os.path.join(args.output_dir, args.results_subdir, 
                             f"{args.task}_{args.model_name}_csi")
     os.makedirs(save_path, exist_ok=True)
     
-    # 设置损失函数
+    # Setup loss function
     criterion = nn.CrossEntropyLoss()
     
-    # 创建训练器并开始训练
+    # Create config object for trainer
+    config = argparse.Namespace()
+    config.learning_rate = args.learning_rate
+    config.weight_decay = args.weight_decay
+    config.num_epochs = args.num_epochs
+    config.patience = args.patience
+    config.num_classes = args.num_classes
+    config.output_dir = args.output_dir
+    config.results_subdir = args.results_subdir
+    config.model_name = f"{args.task}_{args.model_name}_csi"
+    config.device = args.device
+    
+    # Create trainer and start training
     trainer = TaskTrainer(
         model=model,
-        train_loader=train_loader,
-        valid_loader=val_loader,
-        num_epochs=args.num_epochs,
-        learning_rate=args.learning_rate, 
-        criterion=criterion,
-        device=args.device,
-        save_path=save_path,
-        optimizer_decay_rate=args.weight_decay,
-        patience=args.patience
+        data_loader=(train_loader, val_loader),
+        config=config,
+        criterion=criterion
     )
     
     model, results_df = trainer.train()
     
-    # 保存训练结果
+    # Save training results
     results_df.to_csv(os.path.join(save_path, 'training_history.csv'), index=False)
     
-    # 测试模型
-    print("在测试集上评估模型...")
-    test_results, _ = trainer.test(test_loader, args.num_classes, args.task)
-    test_results.to_csv(os.path.join(save_path, 'test_results.csv'), index=False)
-    
-    # 绘制结果
+    # Plot training results
     plot_results(results_df, save_path)
     
-    print(f"CSI监督学习训练完成！模型和结果保存到 {save_path}")
+    # Test on all test sets
+    test_results_all = []
+    
+    # Create a summary DataFrame for all test results
+    test_summary = pd.DataFrame(columns=['Test Set', 'Loss', 'Accuracy'])
+    
+    # 如果没有测试集，则直接返回
+    if not has_multiple_test_sets:
+        print("No test sets available. Skipping evaluation.")
+        return model, results_df
+    
+    print("\nEvaluating model on test sets:")
+    for test_name, test_loader in test_loaders_dict.items():
+        print(f"\nEvaluating on test set: {test_name}")
+        test_loss, test_acc = trainer.evaluate(test_loader)
+        
+        # Create test results DataFrame
+        test_results = pd.DataFrame({
+            'Test Loss': [test_loss],
+            'Test Accuracy': [test_acc]
+        })
+        
+        # Add to summary
+        test_summary = pd.concat([
+            test_summary, 
+            pd.DataFrame({'Test Set': [test_name], 'Loss': [test_loss], 'Accuracy': [test_acc]})
+        ])
+        
+        # Save individual test results
+        test_set_dir = os.path.join(save_path, f'test_{test_name}')
+        os.makedirs(test_set_dir, exist_ok=True)
+        test_results.to_csv(os.path.join(test_set_dir, 'test_results.csv'), index=False)
+        
+        print(f"Test set: {test_name}, Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+        
+        test_results_all.append((test_name, test_loss, test_acc))
+    
+    # Save summary of all test results
+    test_summary.to_csv(os.path.join(save_path, 'test_summary.csv'), index=False)
+    
+    # Plot test results comparison
+    if len(test_results_all) > 1:
+        plot_test_comparison(test_results_all, save_path)
+    
+    print(f"CSI supervised training completed! Model and results saved to {save_path}")
     
     return model, results_df
 
 
 def train_supervised_acf(args):
-    """训练ACF模态的模型"""
-    print(f"开始ACF模态的监督学习训练...")
+    """Train a model on ACF data"""
+    print(f"Starting supervised learning training on ACF modality...")
     
-    # 准备数据
-    if args.unseen_test:
-        # 对于未见过的测试环境，仍然使用load_acf_supervised
-        train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
-        if not train_dir or train_dir == args.acf_data_dir:
-            train_dir = args.acf_data_dir
-            
-        # 加载训练数据
-        print(f"从以下位置加载训练数据: {train_dir}")
-        train_loader, val_loader, test_loader = load_acf_supervised(
-            train_dir,
-            task=args.task,
-            batch_size=args.batch_size
-        )
-        print("使用unseen环境的测试集...")
-    else:
-        # 正常训练模式
-        train_loader, val_loader, test_loader = load_acf_supervised(
-            args.acf_data_dir,
-            task=args.task,
-            batch_size=args.batch_size
-        )
-        print(f"使用ACF数据加载器，任务: {args.task}")
+    # 确保训练目录和验证目录存在
+    train_dir = os.path.join(args.training_dir, 'train')
+    val_dir = os.path.join(args.training_dir, 'validation')
     
-    # 加载模型
+    # 检查训练和验证目录是否存在
+    if not os.path.exists(train_dir):
+        raise ValueError(f"Training directory {train_dir} does not exist")
+    if not os.path.exists(val_dir):
+        raise ValueError(f"Validation directory {val_dir} does not exist")
+    
+    # 使用更新后的load_acf_supervised加载数据
+    train_loader, val_loader, test_loaders_dict = load_acf_supervised(
+        train_dir=train_dir,
+        val_dir=val_dir,
+        batch_size=args.batch_size,
+        task=args.task,
+        test_dirs=args.test_dirs
+    )
+    
+    # 检查测试集是否存在
+    has_multiple_test_sets = len(test_loaders_dict) > 0
+    
+    # Load model
     model = load_model_scratch(
-        num_classes=args.num_classes,
+        model_name=args.model_name,
+        task=args.task,
         win_len=args.win_len,
         feature_size=args.feature_size,
-        in_channels=args.in_channels
+        in_channels=getattr(args, 'in_channels', 1)  # Default to 1 if not provided
     )
-    print("使用随机初始化的模型")
+    print("Using randomly initialized model")
     
-    # 设置保存路径
+    # Setup save path
     save_path = os.path.join(args.output_dir, args.results_subdir, 
                            f"{args.task}_{args.model_name}_acf")
     os.makedirs(save_path, exist_ok=True)
     
-    # 设置损失函数
+    # Setup loss function
     criterion = nn.CrossEntropyLoss()
     
-    # 创建训练器并开始训练
+    # Create config object for trainer
+    config = argparse.Namespace()
+    config.learning_rate = args.learning_rate
+    config.weight_decay = args.weight_decay
+    config.num_epochs = args.num_epochs
+    config.patience = args.patience
+    config.num_classes = args.num_classes
+    config.output_dir = args.output_dir
+    config.results_subdir = args.results_subdir
+    config.model_name = f"{args.task}_{args.model_name}_acf"
+    config.freeze_backbone = args.freeze_backbone
+    config.device = args.device
+    
+    # Create trainer and start training
     trainer = TaskTrainerACF(
         model=model,
-        train_loader=train_loader,
-        valid_loader=val_loader,
-        num_epochs=args.num_epochs,
-        learning_rate=args.learning_rate,
-        criterion=criterion,
-        device=args.device,
-        save_path=save_path,
-        optimizer_decay_rate=args.weight_decay,
-        IF_TRANSFER=False,
-        weight_setting_string='none',
-        patience=args.patience
+        data_loader=(train_loader, val_loader),
+        config=config,
+        criterion=criterion
     )
     
     model, results_df = trainer.train()
     
-    # 保存训练结果
+    # Save training results
     results_df.to_csv(os.path.join(save_path, 'training_history.csv'), index=False)
     
-    # 测试模型
-    print("在测试集上评估模型...")
-    test_results, _ = trainer.test(test_loader, args.num_classes, args.task, save_path)
-    test_results.to_csv(os.path.join(save_path, 'test_results.csv'), index=False)
-    
-    # 绘制结果
+    # Plot training results
     plot_results(results_df, save_path)
     
-    print(f"ACF监督学习训练完成！模型和结果保存到 {save_path}")
+    # Test on all test sets
+    test_results_all = []
+    
+    # Create a summary DataFrame for all test results
+    test_summary = pd.DataFrame(columns=['Test Set', 'Loss', 'Accuracy'])
+    
+    # 如果没有测试集，则直接返回
+    if not has_multiple_test_sets:
+        print("No test sets available. Skipping evaluation.")
+        return model, results_df
+    
+    print("\nEvaluating model on test sets:")
+    for test_name, test_loader in test_loaders_dict.items():
+        print(f"\nEvaluating on test set: {test_name}")
+        test_loss, test_acc = trainer.evaluate(test_loader)
+        
+        # Create test results DataFrame
+        test_results = pd.DataFrame({
+            'Test Loss': [test_loss],
+            'Test Accuracy': [test_acc]
+        })
+        
+        # Add to summary
+        test_summary = pd.concat([
+            test_summary, 
+            pd.DataFrame({'Test Set': [test_name], 'Loss': [test_loss], 'Accuracy': [test_acc]})
+        ])
+        
+        # Save individual test results
+        test_set_dir = os.path.join(save_path, f'test_{test_name}')
+        os.makedirs(test_set_dir, exist_ok=True)
+        test_results.to_csv(os.path.join(test_set_dir, 'test_results.csv'), index=False)
+        
+        print(f"Test set: {test_name}, Loss: {test_loss:.4f}, Accuracy: {test_acc:.4f}")
+        
+        test_results_all.append((test_name, test_loss, test_acc))
+    
+    # Save summary of all test results
+    test_summary.to_csv(os.path.join(save_path, 'test_summary.csv'), index=False)
+    
+    # Plot test results comparison
+    if len(test_results_all) > 1:
+        plot_test_comparison(test_results_all, save_path)
+    
+    print(f"ACF supervised training completed! Model and results saved to {save_path}")
     
     return model, results_df
 
 
 def plot_results(results, save_path):
-    """绘制训练和验证结果曲线"""
-    # 绘制验证准确率曲线
+    """Plot training and validation curves"""
+    # Plot validation accuracy
     fig_val_acc = plt.figure(figsize=(7, 7))
     sn.lineplot(x=results['Epoch'], y=results['Val Accuracy'])
-    plt.title('验证准确率')
+    plt.title('Validation Accuracy')
     plt.savefig(os.path.join(save_path, "val_acc.png"))
     plt.close()
     
-    # 绘制验证损失曲线
+    # Plot validation loss
     fig_val_loss = plt.figure(figsize=(7, 7))
     sn.lineplot(x=results['Epoch'], y=results['Val Loss'])
-    plt.title('验证损失')
+    plt.title('Validation Loss')
     plt.savefig(os.path.join(save_path, "val_loss.png"))
     plt.close()
     
-    # 绘制训练准确率曲线
+    # Plot training accuracy
     fig_train_acc = plt.figure(figsize=(7, 7))
     sn.lineplot(x=results['Epoch'], y=results['Train Accuracy'])
-    plt.title('训练准确率')
+    plt.title('Training Accuracy')
     plt.savefig(os.path.join(save_path, "train_acc.png"))
     plt.close()
     
-    # 绘制训练损失曲线
+    # Plot training loss
     fig_train_loss = plt.figure(figsize=(7, 7))
     sn.lineplot(x=results['Epoch'], y=results['Train Loss'])
-    plt.title('训练损失')
+    plt.title('Training Loss')
     plt.savefig(os.path.join(save_path, "train_loss.png"))
     plt.close()
 
 
+def plot_test_comparison(test_results, save_path):
+    """Plot comparison of test results across multiple test sets
+    
+    Args:
+        test_results: List of tuples (test_name, test_loss, test_acc)
+        save_path: Directory to save the plots
+    """
+    # Extract data
+    test_names = [result[0] for result in test_results]
+    test_loss = [result[1] for result in test_results]
+    test_acc = [result[2] for result in test_results]
+    
+    # Plot accuracy comparison
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(test_names, test_acc, color='skyblue')
+    plt.title('Test Accuracy Comparison')
+    plt.ylabel('Accuracy')
+    plt.ylim(0, 1.0)
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{height:.4f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "test_accuracy_comparison.png"))
+    plt.close()
+    
+    # Plot loss comparison
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(test_names, test_loss, color='salmon')
+    plt.title('Test Loss Comparison')
+    plt.ylabel('Loss')
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{height:.4f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "test_loss_comparison.png"))
+    plt.close()
+
+
 def main(args=None):
-    """主函数"""
-    # 如果没有提供参数，则解析命令行参数
+    """Main function"""
+    # If arguments not provided, parse command line arguments
     if args is None:
         args = parse_args()
     
-    # 设置随机种子
+    # Set random seed
     set_seed(args.seed)
     
-    # 设置设备
+    # Set device
     if args.device is None:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(args.device)
-    print(f"使用设备: {device}")
+    print(f"Using device: {device}")
     
-    # 根据数据模态选择训练函数
+    # For backwards compatibility, set training_dir to csi/acf_data_dir if specified
+    if not args.training_dir:
+        if args.mode.lower() == 'csi' and hasattr(args, 'csi_data_dir'):
+            args.training_dir = args.csi_data_dir
+        elif args.mode.lower() == 'acf' and hasattr(args, 'acf_data_dir'):
+            args.training_dir = args.acf_data_dir
+        else:
+            raise ValueError("No training directory specified. Use --training-dir.")
+    
+    # Choose training function based on data modality
     if args.mode.lower() == 'csi':
         train_supervised_csi(args)
     elif args.mode.lower() == 'acf':
         train_supervised_acf(args)
     else:
-        raise ValueError(f"未知的模态: {args.mode}。请选择'csi'或'acf'")
+        raise ValueError(f"Unknown modality: {args.mode}. Please choose 'csi' or 'acf'")
 
 
 if __name__ == "__main__":
