@@ -40,8 +40,8 @@ PIPELINE = 'supervised'
 # For supervised learning with integrated loader, DATA_DIR should point directly 
 # to the folder containing .mat files or to the parent folder containing these files
 # Do not use subdirectories like 'csi' or 'acf' in the path unless your files are organized this way
-DATA_DIR = r"H:\CSIMAT100"
-OUTPUT_DIR = r"C:\Users\weiha\Desktop\bench_mark_output"
+DATA_DIR = "C:\\Users\\weiha\\Desktop\\demo"
+OUTPUT_DIR = "C:\\Users\\weiha\\Desktop\\bench_mark_output"
 
 # Data Modality
 MODE = 'csi'  # Options: 'csi', 'acf'
@@ -59,7 +59,8 @@ FEATURE_SIZE = 232  # Feature size for CSI data
 
 # Common Training Parameters
 SEED = 42
-BATCH_SIZE = 4
+BATCH_SIZE = 2
+EPOCH_NUMBER = 1  # Number of training epochs
 MODEL_NAME = 'WiT'
 
 # Advanced Configuration
@@ -185,7 +186,7 @@ def get_pretrain_config(data_dir=None, output_dir=None, mode='csi'):
         'batch_size': BATCH_SIZE,
         'learning_rate': 1e-5,
         'weight_decay': 0.001,
-        'num_epochs': 100,
+        'num_epochs': EPOCH_NUMBER,
         'warmup_epochs': 5,
         'patience': 20,
         
@@ -225,7 +226,7 @@ def get_supervised_config(data_dir=None, output_dir=None, mode='csi', pretrained
         'batch_size': BATCH_SIZE,  # Use global BATCH_SIZE instead of hardcoded value
         'learning_rate': 1e-4,
         'weight_decay': 1e-5,
-        'num_epochs': 100,
+        'num_epochs': EPOCH_NUMBER,
         'warmup_epochs': 5,
         'patience': 15,
         
@@ -308,7 +309,11 @@ def run_pretraining(config):
             if value:
                 cmd += f"--{key} "
         else:
-            cmd += f"--{key} {value} "
+            # Add quotes for path-like arguments to handle spaces and special characters
+            if key in ['csi_data_dir', 'acf_data_dir', 'output_dir', 'pretrained_model', 'results_subdir']:
+                cmd += f"--{key} \"{value}\" "
+            else:
+                cmd += f"--{key} {value} "
     
     print(f"Running command: {cmd}")
     start_time = time.time()
@@ -322,32 +327,48 @@ def run_pretraining(config):
     
     return returncode == 0
 
-def run_supervised(config):
-    """Run supervised learning pipeline."""
-    print("\n========== Running Supervised Learning Pipeline ==========\n")
+def run_supervised_direct(config):
+    """直接导入并运行train_supervised模块"""
+    print("\n========== 运行监督学习管道 ==========\n")
     
-    # Build command
-    cmd = "python train_supervised.py "
+    # 保存原始参数
+    old_argv = sys.argv.copy()
     
-    # Add all arguments
+    # 构建新参数列表
+    sys.argv = ["train_supervised.py"]
     for key, value in config.items():
         if isinstance(value, bool):
             if value:
-                cmd += f"--{key.replace('_', '-')} "
+                sys.argv.append(f"--{key.replace('_', '-')}")
         else:
-            cmd += f"--{key.replace('_', '-')} {value} "
+            sys.argv.append(f"--{key.replace('_', '-')}")
+            sys.argv.append(f"{value}")
     
-    print(f"Running command: {cmd}")
-    start_time = time.time()
-    returncode, output = run_command(cmd)
-    end_time = time.time()
+    print(f"运行命令: {' '.join(sys.argv)}")
     
-    if returncode == 0:
-        print(f"\nSupervised learning completed successfully in {(end_time - start_time)/60:.2f} minutes")
-    else:
-        print(f"\nSupervised learning failed with return code {returncode}")
+    # 直接导入并运行
+    try:
+        start_time = time.time()
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("train_supervised", "./train_supervised.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # 假设train_supervised.py中有main函数
+        if hasattr(module, 'main'):
+            module.main()
+        
+        end_time = time.time()
+        print(f"\n监督学习完成，耗时 {(end_time - start_time)/60:.2f} 分钟")
+        success = True
+    except Exception as e:
+        print(f"\n监督学习失败: {str(e)}")
+        success = False
+    finally:
+        # 恢复原始参数
+        sys.argv = old_argv
     
-    return returncode == 0
+    return success
 
 def run_meta_learning(config):
     """Run meta-learning pipeline."""
@@ -362,7 +383,11 @@ def run_meta_learning(config):
             if value:
                 cmd += f"--{key} "
         else:
-            cmd += f"--{key} {value} "
+            # Add quotes for path-like arguments to handle spaces and special characters
+            if key in ['data_dir', 'output_dir', 'results_subdir']:
+                cmd += f"--{key} \"{value}\" "
+            else:
+                cmd += f"--{key} {value} "
     
     print(f"Running command: {cmd}")
     start_time = time.time()
@@ -404,6 +429,8 @@ def main():
                         help='Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)')
     parser.add_argument('--config_file', type=str,
                         help='JSON configuration file to override defaults')
+    parser.add_argument('--epochs', type=int,
+                        help='Number of training epochs')
     
     args = parser.parse_args()
     
@@ -418,6 +445,7 @@ def main():
     integrated_loader = args.integrated_loader if args.integrated_loader else INTEGRATED_LOADER
     task = args.task if args.task else TASK
     config_file = args.config_file if args.config_file else CONFIG_FILE
+    epochs = args.epochs if args.epochs else EPOCH_NUMBER
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -444,6 +472,11 @@ def main():
         print(f"Error: Unknown pipeline '{pipeline}'. Please choose from 'pretraining', 'supervised', or 'meta'.")
         return
     
+    # 更新epochs参数
+    if args.epochs:
+        config['num_epochs'] = epochs
+        print(f"Using custom epoch number: {epochs}")
+    
     # Load configuration from file if specified
     if config_file and os.path.exists(config_file):
         with open(config_file, 'r') as f:
@@ -454,7 +487,7 @@ def main():
     if pipeline == 'pretraining':
         run_pretraining(config)
     elif pipeline == 'supervised':
-        run_supervised(config)
+        run_supervised_direct(config)
     elif pipeline == 'meta':
         run_meta_learning(config)
 

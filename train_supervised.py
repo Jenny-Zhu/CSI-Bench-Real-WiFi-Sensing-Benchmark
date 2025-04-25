@@ -95,71 +95,71 @@ def train_supervised_csi(args):
     """Train a model for CSI modality."""
     print(f"Starting CSI modality supervised training...")
     
-    # Prepare data
-    if args.unseen_test:
-        # For unseen test environment
-        if args.integrated_loader:
-            # Test loader only
-            test_loader = load_csi_unseen_integrated(
-                args.csi_data_dir,
-                task=args.task,
-                batch_size=args.batch_size
-            )
-            print(f"Using integrated loader for unseen environments with task: {args.task}")
+    # # Prepare data
+    # if args.unseen_test:
+    #     # For unseen test environment
+    #     if args.integrated_loader:
+    #         # Test loader only
+    #         test_loader = load_csi_unseen_integrated(
+    #             args.csi_data_dir,
+    #             task=args.task,
+    #             batch_size=args.batch_size
+    #         )
+    #         print(f"Using integrated loader for unseen environments with task: {args.task}")
             
-            # Need to create train and val loaders from a different directory
-            # Assume train data is in the parent directory or provided separately
-            if hasattr(args, 'train_data_dir') and args.train_data_dir:
-                train_dir = args.train_data_dir
-            else:
-                # Try to use parent directory
-                train_dir = os.path.dirname(args.csi_data_dir.rstrip('/\\'))
-                if not train_dir or train_dir == args.csi_data_dir:
-                    train_dir = args.csi_data_dir
+    #         # Need to create train and val loaders from a different directory
+    #         # Assume train data is in the parent directory or provided separately
+    #         if hasattr(args, 'train_data_dir') and args.train_data_dir:
+    #             train_dir = args.train_data_dir
+    #         else:
+    #             # Try to use parent directory
+    #             train_dir = os.path.dirname(args.csi_data_dir.rstrip('/\\'))
+    #             if not train_dir or train_dir == args.csi_data_dir:
+    #                 train_dir = args.csi_data_dir
             
-            # Load training data
-            print(f"Loading training data from: {train_dir}")
-            train_loader, val_loader, _ = load_csi_supervised_integrated(
-                train_dir,
-                task=args.task,
-                batch_size=args.batch_size,
-                train_ratio=args.train_ratio,
-                val_ratio=args.val_ratio,
-                test_ratio=args.test_ratio
-            )
-        else:
-            # Legacy mode
-            train_loader, val_loader, test_loader = load_data_supervised(
-                'OW_HM3', 
-                args.batch_size, 
-                args.win_len, 
-                args.sample_rate
-            )
+    #         # Load training data
+    #         print(f"Loading training data from: {train_dir}")
+    #         train_loader, val_loader, _ = load_csi_supervised_integrated(
+    #             train_dir,
+    #             task=args.task,
+    #             batch_size=args.batch_size,
+    #             train_ratio=args.train_ratio,
+    #             val_ratio=args.val_ratio,
+    #             test_ratio=args.test_ratio
+    #         )
+    #     else:
+    #         # Legacy mode
+    #         train_loader, val_loader, test_loader = load_data_supervised(
+    #             'OW_HM3', 
+    #             args.batch_size, 
+    #             args.win_len, 
+    #             args.sample_rate
+    #         )
+    # else:
+    # Normal training mode
+    if args.integrated_loader:
+        # Get all three loaders from the same function
+        train_loader, val_loader, test_loader = load_csi_supervised_integrated(
+            args.csi_data_dir,
+            task=args.task,
+            batch_size=args.batch_size,
+            train_ratio=args.train_ratio,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio
+        )
+        print(f"Using integrated loader with task: {args.task}")
     else:
-        # Normal training mode
-        if args.integrated_loader:
-            # Get all three loaders from the same function
-            train_loader, val_loader, test_loader = load_csi_supervised_integrated(
-                args.csi_data_dir,
-                task=args.task,
-                batch_size=args.batch_size,
-                train_ratio=args.train_ratio,
-                val_ratio=args.val_ratio,
-                test_ratio=args.test_ratio
-            )
-            print(f"Using integrated loader with task: {args.task}")
-        else:
-            # Legacy mode
-            train_loader, test_loader = load_data_supervised(
-                'OW_HM3', 
-                args.batch_size, 
-                args.win_len, 
-                args.sample_rate
-            )
-            # Create a validation loader by splitting the test loader
-            # This is a legacy behavior and might not be optimal
-            val_loader = test_loader  # Use test loader as validation in legacy mode
-    
+        # Legacy mode
+        train_loader, test_loader = load_data_supervised(
+            'OW_HM3', 
+            args.batch_size, 
+            args.win_len, 
+            args.sample_rate
+        )
+        # Create a validation loader by splitting the test loader
+        # This is a legacy behavior and might not be optimal
+        val_loader = test_loader  # Use test loader as validation in legacy mode
+
     # Load model
     if args.pretrained and args.pretrained_model:
         # Load pretrained model

@@ -82,17 +82,17 @@ def load_acf_supervised(data_dir, task, batch_size):
         val_size = len(train_dataset) - train_size
         train_set, val_set = random_split(train_dataset, [train_size, val_size])
         test_set = test_dataset
-    else:
-        # Standard mode - single directory
-        dataset = ACFDatasetOW_HM3_MAT(data_dir, task)
+    # else:
+    #     # Standard mode - single directory
+    #     dataset = ACFDatasetOW_HM3_MAT(data_dir, task)
         
-        # Split into train, validation, and test sets
-        total_size = len(dataset)
-        train_size = int(0.8 * total_size)
-        val_size = int(0.1 * total_size)
-        test_size = total_size - train_size - val_size
+    #     # Split into train, validation, and test sets
+    #     total_size = len(dataset)
+    #     train_size = int(0.8 * total_size)
+    #     val_size = int(0.1 * total_size)
+    #     test_size = total_size - train_size - val_size
         
-        train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size])
+    #     train_set, val_set, test_set = random_split(dataset, [train_size, val_size, test_size])
     
     # Create data loaders
     train_loader = torch.utils.data.DataLoader(
