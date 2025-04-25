@@ -3,26 +3,42 @@ import torch
 import numpy as np
 import scipy.io as sio
 import h5py
-from torch.utils.data import random_split
+import mat73
+from torch.utils.data import Dataset, random_split
 from data.datasets.base_dataset import BaseDataset
 from data.preprocessing.acf_preprocessing import normalize_acf
 
-class ACFDatasetOW_HM3_MAT(BaseDataset):
-    """Dataset for supervised learning with ACF data from .mat files."""
+class ACFDatasetMAT(Dataset):
+    """Dataset for ACF data in MAT format.
     
-    def __init__(self, data_dir, task='HumanNonhuman', transform=None):
+    This class can be used for training, validation, and testing based on the dataset_type parameter.
+    """
+    
+    def __init__(self, data_dir, task='ThreeClass', transform=None, dataset_type='train'):
         """Initialize the dataset.
         
         Args:
-            data_dir: Directory containing ACF data.
-            task: The task for which to load data (e.g., 'HumanNonhuman', 'FourClass').
-            transform: Transform to apply to the data.
+            data_dir: Directory or list of directories containing ACF data
+            task: Task type ('ThreeClass', 'HumanNonhuman', etc.)
+            transform: Transform to apply to the data
+            dataset_type: Type of dataset ('train', 'validation', 'test')
         """
-        super().__init__(data_dir, transform)
-        
+        self.transform = transform
         self.task = task
+        self.dataset_type = dataset_type
         
-        # Define class mappings for different tasks
+        # Convert single directory to list
+        if isinstance(data_dir, str):
+            self.data_dir = [data_dir]
+        else:
+            self.data_dir = data_dir
+        
+        # Storage for data and labels
+        self.samples = None
+        self.labels = []
+        self.file_paths = []  # Store file paths for test set metadata analysis
+        
+        # Task to class mapping
         self.class_mappings = {
             'HumanNonhuman': {'human': 1, 'nonhuman': 0},
             'FourClass': {'empty': 0, 'human': 1, 'animal': 2, 'object': 3},
@@ -30,261 +46,240 @@ class ACFDatasetOW_HM3_MAT(BaseDataset):
             'HumanMotion': {'static': 0, 'walking': 1, 'running': 2},
             'ThreeClass': {'empty': 0, 'human': 1, 'nonhuman': 2},
             'DetectionandClassification': {'empty': 0, 'human': 1, 'animal': 2, 'object': 3, 'multiple': 4},
-            'Detection': {'empty': 0, 'nonempty': 1}
+            'Detection': {'empty': 0, 'nonempty': 1},
+            'NTUHumanID': {f'person{i}': i for i in range(15)},
+            'NTUHAR': {'walking': 0, 'sitting': 1, 'standing': 2, 'jumping': 3, 'falling': 4, 'lying': 5},
+            'Widar': {f'activity{i}': i for i in range(22)}
         }
+        
+        # Create class name mapping (for test set analysis)
+        self.idx_to_class = {}
+        for task_name, class_dict in self.class_mappings.items():
+            if task_name == self.task:
+                self.idx_to_class = {v: k for k, v in class_dict.items()}
         
         # Load data
         self.load_data()
-        
-        # Convert lists to torch tensors or numpy arrays
-        self.samples = np.array(self.data)
-        self.labels = self.labels
     
     def load_data(self):
-        """Load ACF data from files."""
-        mat_files = []
+        """Load ACF data from MAT files."""
+        # Process each directory
+        all_samples = []
+        
         for dir_path in self.data_dir:
-            for root, _, files in os.walk(dir_path):
-                for file in files:
-                    if file.endswith('.mat'):
-                        mat_files.append(os.path.join(root, file))
+            # Skip if not a directory
+            if not os.path.isdir(dir_path):
+                continue
+                
+            # Get all .mat files in directory
+            file_list = [f for f in os.listdir(dir_path) if f.endswith('.mat')]
+            
+            # Filter files for ThreeClass if needed
+            if self.task == 'ThreeClass':
+                file_list = [f for f in file_list if "Fan" not in f]
+            
+            # Process each file
+            for filename in file_list:
+                file_path = os.path.join(dir_path, filename)
+                log_prefix = f"[{self.dataset_type}]"
+                print(f"{log_prefix} Processing file: {file_path}")
+                try:
+                    # Load samples and convert to tensor
+                    samples = mat73.loadmat(file_path)['X']
+                    samples_tensor = torch.from_numpy(samples).float()
+                    
+                    # Get label for this file
+                    label = self.generate_label(file_path)
+                    if label is not None:
+                        # Add samples and labels
+                        all_samples.append(samples_tensor)
+                        # Add same label for all samples
+                        for i in range(samples_tensor.shape[0]):
+                            self.labels.append(label)
+                            if self.dataset_type == 'test':
+                                self.file_paths.append(file_path)
+                except Exception as e:
+                    print(f"Error loading file {file_path}: {e}")
         
-        for file_path in mat_files:
-            try:
-                data, label = self.load_acf_from_mat(file_path)
-                if data is not None and label is not None:
-                    self.data.append(data)
-                    self.labels.append(label)
-            except Exception as e:
-                print(f"Error loading ACF from {file_path}: {e}")
+        # Combine all samples and add channel dimension
+        if len(all_samples) > 0:
+            # Concatenate tensors and add channel dimension
+            self.samples = torch.unsqueeze(torch.cat(all_samples, dim=0), dim=-3)
+            print(f"{log_prefix} Loaded {len(self.labels)} samples with shape {self.samples.shape}")
+        else:
+            # Create empty tensor to avoid errors
+            self.samples = torch.zeros((0, 1, 250, 100))
     
-    def load_acf_from_mat(self, file_path):
-        """Load ACF data and label from a .mat file.
+    def generate_label(self, file_path):
+        """Generate label based on file name and task.
         
         Args:
-            file_path: Path to the .mat file.
+            file_path: Path to the data file.
             
         Returns:
-            A tuple of (data, label).
-        """
-        try:
-            # Try loading with scipy.io
-            mat_data = sio.loadmat(file_path)
-            
-            # Extract ACF data - this is a placeholder, modify based on actual structure
-            acf_data = None
-            for key in mat_data.keys():
-                if 'acf' in key.lower() or 'data' in key.lower():
-                    acf_data = mat_data[key]
-                    break
-            
-            if acf_data is None:
-                return None, None
-            
-            # Determine the label based on the file path and task
-            label = self.determine_label(file_path)
-            
-            if label is None:
-                return None, None
-            
-            # Normalize data
-            acf_data = normalize_acf(acf_data)
-            
-            return acf_data, label
-            
-        except NotImplementedError:
-            # Fall back to h5py for MATLAB v7.3 format
-            with h5py.File(file_path, 'r') as f:
-                # Extract ACF data - this is a placeholder, modify based on actual structure
-                acf_data = None
-                for key in f.keys():
-                    if 'acf' in key.lower() or 'data' in key.lower():
-                        acf_data = np.array(f[key])
-                        break
-                
-                if acf_data is None:
-                    return None, None
-                
-                # Determine the label based on the file path and task
-                label = self.determine_label(file_path)
-                
-                if label is None:
-                    return None, None
-                
-                # Normalize data
-                acf_data = normalize_acf(acf_data)
-                
-                return acf_data, label
-    
-    def determine_label(self, file_path):
-        """Determine the label for a file based on its path and the current task.
-        
-        Args:
-            file_path: Path to the file.
-            
-        Returns:
-            The label for the file.
+            Label as an integer.
         """
         file_name = os.path.basename(file_path).lower()
         
-        # Get the class mapping for the current task
-        mapping = self.class_mappings.get(self.task, {})
+        # Human/Nonhuman classification
+        if self.task == 'HumanNonhuman':
+            if 'human' in file_name:
+                return 1
+            else:
+                return 0
         
-        # Determine the label based on the file name
-        for class_name, class_label in mapping.items():
-            if class_name.lower() in file_name:
-                return class_label
+        # Four-class classification
+        elif self.task == 'FourClass':
+            if 'human' in file_name:
+                return 1
+            elif 'pet' in file_name:
+                return 2
+            elif 'irobot' in file_name:
+                return 3
+            elif 'fan' in file_name or 'empty' in file_name or 'nomotion' in file_name:
+                return 0
+            else:
+                return None
         
-        # Try determining label from parent directory name
+        # Three-class classification
+        elif self.task == 'ThreeClass':
+            if 'human' in file_name:
+                return 1
+            elif 'pet' in file_name or 'irobot' in file_name or 'fan' in file_name:
+                return 2
+            elif 'empty' in file_name or 'nomotion' in file_name:
+                return 0
+            else:
+                return None
+        
+        # Detection task (binary)
+        elif self.task == 'Detection':
+            if 'nomotion' in file_name or 'empty' in file_name:
+                return 0
+            elif any(x in file_name for x in ['human', 'fan', 'pet', 'irobot']):
+                return 1
+            else:
+                return None
+                
+        # Detection and Classification
+        elif self.task == 'DetectionandClassification':
+            if 'nomotion' in file_name or 'empty' in file_name:
+                return 0
+            elif 'human' in file_name:
+                return 1
+            elif 'pet' in file_name:
+                return 2
+            elif 'irobot' in file_name:
+                return 3
+            elif 'fan' in file_name:
+                return 4
+            else:
+                return None
+        
+        # Human ID
+        elif self.task == 'HumanID':
+            tester_list = ['Andrew', 'Brain', 'Brendon', 'Dan']
+            for ind, val in enumerate(tester_list):
+                if val.lower() in file_name:
+                    return ind
+            return None
+        
+        # Human Motion
+        elif self.task == 'HumanMotion':
+            motion_list = ['Running', 'Sneaking', 'Walking']
+            for ind, val in enumerate(motion_list):
+                if val.lower() in file_name:
+                    return ind
+            return None
+        
+        # NTU Human ID
+        elif self.task == 'NTUHumanID':
+            tester_list = ['001', '002', '003', '004', '005',
+                          '006', '007', '008', '009', '010',
+                          '011', '012', '013', '014', '015']
+            for ind, val in enumerate(tester_list):
+                if val in file_name:
+                    return ind
+            return None
+        
+        # NTU HAR
+        elif self.task == 'NTUHAR':
+            activity_list = ['run', 'walk', 'box', 'circle', 'clean', 'fall']
+            for ind, val in enumerate(activity_list):
+                if val.lower() in file_name:
+                    return ind
+            return None
+        
+        # Widar
+        elif self.task == 'Widar':
+            activity_list = ['PP', 'Sw', 'Cl', 'Sl', 'DNH', 'DOH', 'DRH', 'DTH',
+                           'DZH', 'DZ', 'DN', 'DO', 'Dr1', 'Dr2', 'Dr3', 'Dr4', 'Dr5',
+                           'Dr6', 'Dr7', 'Dr8', 'Dr9', 'Dr10']
+            for ind, val in enumerate(activity_list):
+                if val in file_name:
+                    return ind
+            return None
+        
+        # Fallback to parent directory
         parent_dir = os.path.basename(os.path.dirname(file_path)).lower()
-        for class_name, class_label in mapping.items():
-            if class_name.lower() in parent_dir:
-                return class_label
         
+        # Try to determine label from directory name
+        # Using the same logic as above for each task type
+        
+        print(f'No label determined for {file_path}')
         return None
     
-    def __getitem__(self, idx):
-        """Get an item from the dataset.
-        
-        Args:
-            idx: Index of the item.
-            
-        Returns:
-            A tuple of (sample, label).
-        """
-        sample = self.samples[idx]
-        label = self.labels[idx]
+    def __len__(self):
+        """Return the number of samples in the dataset."""
+        return len(self.labels)
+    
+    def __getitem__(self, index):
+        """Return a sample from the dataset."""
+        sample = self.samples[index]
+        label = self.labels[index]
         
         if self.transform:
             sample = self.transform(sample)
         
         return sample, label
-
-class DatasetNTU_MAT(BaseDataset):
-    """Dataset for supervised learning with NTU data from .mat files."""
     
-    def __init__(self, data_dir, task='NTUHumanID', transform=None):
-        """Initialize the dataset.
-        
-        Args:
-            data_dir: Directory containing NTU data.
-            task: The task for which to load data (e.g., 'NTUHumanID', 'NTUHAR').
-            transform: Transform to apply to the data.
-        """
-        super().__init__(data_dir, transform)
-        
-        self.task = task
-        
-        # Define class mappings for different tasks
-        self.class_mappings = {
-            'NTUHumanID': {f'person{i}': i for i in range(15)},
-            'NTUHAR': {
-                'walking': 0, 'sitting': 1, 'standing': 2,
-                'jumping': 3, 'falling': 4, 'lying': 5
-            },
-            'Widar': {f'activity{i}': i for i in range(22)}
+    
+    def get_metadata(self):
+        """Get test set metadata (only useful when dataset_type='test')"""
+        if self.dataset_type != 'test':
+            return {"warning": "Metadata is only available for test datasets"}
+            
+        metadata = {
+            "num_samples": len(self.labels),
+            "class_distribution": self._get_class_distribution()
         }
         
-        # Load data
-        self.load_data()
+        # Add class names to distribution
+        class_distribution_with_names = {}
+        for class_idx, count in metadata["class_distribution"].items():
+            class_name = self.idx_to_class.get(class_idx, f"Class {class_idx}")
+            class_distribution_with_names[class_name] = count
         
-        # Convert lists to torch tensors or numpy arrays
-        self.samples = np.array(self.data)
-        self.labels = self.labels
+        metadata["class_distribution"] = class_distribution_with_names
+        
+        # Add file information
+        if hasattr(self, 'file_paths') and self.file_paths:
+            metadata["files"] = self.file_paths
+            
+        return metadata
     
-    def load_data(self):
-        """Load NTU data from files."""
-        mat_files = []
-        for dir_path in self.data_dir:
-            for root, _, files in os.walk(dir_path):
-                for file in files:
-                    if file.endswith('.mat'):
-                        mat_files.append(os.path.join(root, file))
+    def _get_class_distribution(self):
+        """Get class distribution in the dataset"""
+        if not self.labels:
+            return {}
+            
+        class_counts = {}
+        for label in self.labels:
+            label_item = label.item() if torch.is_tensor(label) else label
+            class_counts[label_item] = class_counts.get(label_item, 0) + 1
         
-        for file_path in mat_files:
-            try:
-                data, label = self.load_ntu_from_mat(file_path)
-                if data is not None and label is not None:
-                    self.data.append(data)
-                    self.labels.append(label)
-            except Exception as e:
-                print(f"Error loading NTU data from {file_path}: {e}")
-    
-    def load_ntu_from_mat(self, file_path):
-        """Load NTU data and label from a .mat file.
+        return class_counts
         
-        Args:
-            file_path: Path to the .mat file.
-            
-        Returns:
-            A tuple of (data, label).
-        """
-        try:
-            # Try loading with scipy.io
-            mat_data = sio.loadmat(file_path)
-            
-            # Extract data - this is a placeholder, modify based on actual structure
-            ntu_data = None
-            for key in mat_data.keys():
-                if 'data' in key.lower() or 'features' in key.lower():
-                    ntu_data = mat_data[key]
-                    break
-            
-            if ntu_data is None:
-                return None, None
-            
-            # Determine the label based on the file path and task
-            label = self.determine_label(file_path)
-            
-            if label is None:
-                return None, None
-            
-            return ntu_data, label
-            
-        except NotImplementedError:
-            # Fall back to h5py for MATLAB v7.3 format
-            with h5py.File(file_path, 'r') as f:
-                # Extract data - this is a placeholder, modify based on actual structure
-                ntu_data = None
-                for key in f.keys():
-                    if 'data' in key.lower() or 'features' in key.lower():
-                        ntu_data = np.array(f[key])
-                        break
-                
-                if ntu_data is None:
-                    return None, None
-                
-                # Determine the label based on the file path and task
-                label = self.determine_label(file_path)
-                
-                if label is None:
-                    return None, None
-                
-                return ntu_data, label
-    
-    def determine_label(self, file_path):
-        """Determine the label for a file based on its path and the current task.
-        
-        Args:
-            file_path: Path to the file.
-            
-        Returns:
-            The label for the file.
-        """
-        file_name = os.path.basename(file_path).lower()
-        
-        # Get the class mapping for the current task
-        mapping = self.class_mappings.get(self.task, {})
-        
-        # Determine the label based on the file name
-        for class_name, class_label in mapping.items():
-            if class_name.lower() in file_name:
-                return class_label
-        
-        # Try determining label from parent directory name
-        parent_dir = os.path.basename(os.path.dirname(file_path)).lower()
-        for class_name, class_label in mapping.items():
-            if class_name.lower() in parent_dir:
-                return class_label
-        
-        return None
+    def get_confusion_matrix_labels(self):
+        """Get labels for confusion matrix visualization"""
+        return [self.idx_to_class.get(i, f"Class {i}") for i in range(len(self.idx_to_class))]

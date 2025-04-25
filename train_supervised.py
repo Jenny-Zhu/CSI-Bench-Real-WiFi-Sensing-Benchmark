@@ -14,10 +14,8 @@ from engine.supervised.task_trainer_acf import TaskTrainerACF
 
 # 导入数据加载器
 from load import (
-    load_csi_supervised_integrated,
-    load_csi_unseen_integrated,
+    load_csi_supervised,
     load_acf_supervised,
-    load_acf_unseen_environ,
     load_model_scratch
 )
 
@@ -89,7 +87,7 @@ def train_supervised_csi(args):
     print(f"开始CSI模态的监督学习训练...")
 
     # 加载数据
-    train_loader, val_loader, test_loader = load_csi_supervised_integrated(
+    train_loader, val_loader, test_loader = load_csi_supervised(
         args.csi_data_dir,
         task=args.task,
         batch_size=args.batch_size,
@@ -154,29 +152,19 @@ def train_supervised_acf(args):
     
     # 准备数据
     if args.unseen_test:
-        # 对于未见过的测试环境
-        test_loader = load_acf_unseen_environ(
-            args.acf_data_dir,
-            task=args.task
-        )
-        print("使用带有未见过环境的测试集...")
-        
-        # 从另一个目录加载训练和验证数据
-        if hasattr(args, 'train_data_dir') and args.train_data_dir:
-            train_dir = args.train_data_dir
-        else:
-            # 尝试使用父目录
-            train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
-            if not train_dir or train_dir == args.acf_data_dir:
-                train_dir = args.acf_data_dir
-        
+        # 对于未见过的测试环境，仍然使用load_acf_supervised
+        train_dir = os.path.dirname(args.acf_data_dir.rstrip('/\\'))
+        if not train_dir or train_dir == args.acf_data_dir:
+            train_dir = args.acf_data_dir
+            
         # 加载训练数据
         print(f"从以下位置加载训练数据: {train_dir}")
-        train_loader, val_loader, _ = load_acf_supervised(
+        train_loader, val_loader, test_loader = load_acf_supervised(
             train_dir,
             task=args.task,
             batch_size=args.batch_size
         )
+        print("使用unseen环境的测试集...")
     else:
         # 正常训练模式
         train_loader, val_loader, test_loader = load_acf_supervised(
