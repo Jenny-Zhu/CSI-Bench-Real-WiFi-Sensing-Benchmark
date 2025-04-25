@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model import ViT_Parallel
+from model.supervised import ViT_Parallel
 
 # Constants or default scaling factors for patch sizes
 PATCH_W_SCALE = 10

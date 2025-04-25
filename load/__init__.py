@@ -5,7 +5,6 @@ from .supervised.data_loader import (
 )
 
 from .supervised.model_loader import (
-    load_model_pretrained,
     fine_tune_model,
     load_model_trained,
     load_model_scratch
