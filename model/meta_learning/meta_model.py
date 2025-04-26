@@ -7,111 +7,36 @@ from ..backbone.vit import ViTBackbone
 from ..backbone.cnn import CNNBackbone
 from ..backbone.hybrid import HybridBackbone
 from ..base.heads import ClassificationHead
-from .backbones import MLPBackbone, LSTMBackbone, ResNet18Backbone, TransformerBackbone
+from .models import (
+    MLPClassifier, LSTMClassifier, ResNet18Classifier, TransformerClassifier, ViTClassifier
+)
 
 class BaseMetaModel(nn.Module):
-    """
-    Base meta-learning model
-    
-    Implements common functionality for CSI and ACF meta-learning models
-    """
-    
     def __init__(self, 
-                 data_type='csi',
-                 backbone_type='vit',  # 'vit', 'cnn', or 'hybrid'
+                 model_type='vit',  # 'mlp', 'lstm', 'resnet18', 'transformer', 'vit'
                  win_len=250,
                  feature_size=98,
                  in_channels=1,
                  emb_dim=128,
-                 num_classes=5,  # Usually 5-way classification
+                 num_classes=5,
                  dropout=0.1,
-                 inner_lr=0.01,  # Learning rate for inner loop adaptation
                  **kwargs):
         super().__init__()
-        
-        self.data_type = data_type
-        self.backbone_type = backbone_type
-        self.inner_lr = inner_lr
-        
-        # Initialize backbone based on type
-        if backbone_type == 'vit':
-            self.backbone = ViTBackbone(
-                data_type=data_type,
-                win_len=win_len,
-                feature_size=feature_size,
-                in_channels=in_channels,
-                emb_dim=emb_dim,
-                dropout=dropout,
-                **kwargs
-            )
-        elif backbone_type == 'cnn':
-            self.backbone = CNNBackbone(
-                data_type=data_type,
-                in_channels=in_channels,
-                feature_dim=emb_dim,
-                img_size=(feature_size, win_len),
-                dropout=dropout,
-                **kwargs
-            )
-        elif backbone_type == 'hybrid':
-            self.backbone = HybridBackbone(
-                data_type=data_type,
-                in_channels=in_channels,
-                emb_dim=emb_dim,
-                img_size=(feature_size, win_len),
-                dropout=dropout,
-                **kwargs
-            )
-        elif backbone_type == 'mlp':
-            self.backbone = MLPBackbone(
-                win_len=win_len,
-                feature_size=feature_size,
-                emb_dim=emb_dim,
-                **kwargs
-            )
-        elif backbone_type == 'lstm':
-            self.backbone = LSTMBackbone(
-                feature_size=feature_size,
-                emb_dim=emb_dim,
-                **kwargs
-            )
-        elif backbone_type == 'resnet18':
-            self.backbone = ResNet18Backbone(
-                win_len=win_len,
-                feature_size=feature_size,
-                emb_dim=emb_dim,
-                **kwargs
-            )
-        elif backbone_type == 'transformer':
-            self.backbone = TransformerBackbone(
-                feature_size=feature_size,
-                emb_dim=emb_dim,
-                **kwargs
-            )
+        if model_type == 'mlp':
+            self.model = MLPClassifier(win_len=win_len, feature_size=feature_size, num_classes=num_classes, emb_dim=emb_dim)
+        elif model_type == 'lstm':
+            self.model = LSTMClassifier(feature_size=feature_size, num_classes=num_classes, emb_dim=emb_dim)
+        elif model_type == 'resnet18':
+            self.model = ResNet18Classifier(win_len=win_len, feature_size=feature_size, num_classes=num_classes, emb_dim=emb_dim)
+        elif model_type == 'transformer':
+            self.model = TransformerClassifier(feature_size=feature_size, num_classes=num_classes, emb_dim=emb_dim)
+        elif model_type == 'vit':
+            self.model = ViTClassifier(win_len=win_len, feature_size=feature_size, in_channels=in_channels, emb_dim=emb_dim, num_classes=num_classes, dropout=dropout, **kwargs)
         else:
-            raise ValueError(f"Unknown backbone type: {backbone_type}")
-            
-        # Classification head
-        self.classifier = ClassificationHead(
-            in_features=emb_dim,
-            num_classes=num_classes,
-            hidden_dim=emb_dim*2,
-            dropout=dropout
-        )
-        
+            raise ValueError(f"Unknown model_type: {model_type}")
+
     def forward(self, x):
-        """
-        Default forward pass (no adaptation)
-        
-        Args:
-            x: Input data [B, C, H, W]
-            
-        Returns:
-            Classification logits [B, num_classes]
-        """
-        features = self.backbone(x)
-        logits = self.classifier(features)
-        return logits
+        return self.model(x)
     
     def adapt(self, support_x, support_y, num_inner_steps=1):
         """
