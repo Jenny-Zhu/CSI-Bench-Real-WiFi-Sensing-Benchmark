@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from model.supervised import ViT_Parallel
-
+from model.supervised import MLPClassifier,LSTMClassifier,ResNet18Classifier,TransformerClassifier
 # Constants or default scaling factors for patch sizes
 PATCH_W_SCALE = 10
 PATCH_H_SCALE = 2
@@ -128,7 +128,6 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
         )
     # 预留其他模型的导入和实例化，这些模型将在model/文件夹中逐步实现
     elif model_name == 'MLP':
-        from .models import MLPClassifier
         model = MLPClassifier(
             win_len=win_len,
             feature_size=feature_size,
@@ -136,14 +135,12 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
         )
     
     elif model_name == 'LSTM':
-        from .models import LSTMClassifier
         model = LSTMClassifier(
             feature_size=feature_size,
             num_classes=num_classes
         )
     
     elif model_name == 'ResNet18':
-        from .models import ResNet18Classifier
         model = ResNet18Classifier(
             win_len=win_len,
             feature_size=feature_size,
@@ -151,7 +148,6 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
         )
     
     elif model_name == 'Transformer':
-        from .models import TransformerClassifier
         model = TransformerClassifier(
             feature_size=feature_size,
             num_classes=num_classes

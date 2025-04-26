@@ -28,6 +28,7 @@ import argparse
 import json
 from datetime import datetime
 
+
 #==============================================================================
 # CONFIGURATION SECTION - MODIFY PARAMETERS HERE
 #==============================================================================
@@ -38,10 +39,10 @@ PIPELINE = 'supervised'
 # Data and Output Directories
 # For supervised learning with integrated loader, TRAINING_DIR should point directly 
 # to the folder containing .mat files or to the parent folder containing these files
-TRAINING_DIR = "/Users/leo/Downloads/demo"
+TRAINING_DIR = "C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100\\train"
 # Test directories can be a list of paths to evaluate on multiple test sets
-TEST_DIRS = ["/Users/leo/Downloads/demo/test"]  # Example: ["C:\\Users\\weiha\\Desktop\\test1", "C:\\Users\\weiha\\Desktop\\test2"]
-OUTPUT_DIR = "/Users/leo/Downloads/output"
+TEST_DIRS = ["C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100\\test"]  # Example: ["C:\\Users\\weiha\\Desktop\\test1", "C:\\Users\\weiha\\Desktop\\test2"]
+OUTPUT_DIR = "C:\\Guozhen\\Code\\Github\\temp"
 
 # Data Modality
 MODE = 'csi'  # Options: 'csi', 'acf'
@@ -59,7 +60,7 @@ FEATURE_SIZE = 98  # Feature size for CSI data
 SEED = 42
 BATCH_SIZE = 8
 EPOCH_NUMBER = 1  # Number of training epochs
-MODEL_NAME = 'ViT'
+MODEL_NAME = 'Transformer'
 
 # Advanced Configuration
 CONFIG_FILE = None  # Path to JSON configuration file to override defaults
