@@ -7,6 +7,7 @@ from ..backbone.vit import ViTBackbone
 from ..backbone.cnn import CNNBackbone
 from ..backbone.hybrid import HybridBackbone
 from ..base.heads import ClassificationHead
+from .backbones import MLPBackbone, LSTMBackbone, ResNet18Backbone, TransformerBackbone
 
 class BaseMetaModel(nn.Module):
     """
@@ -59,6 +60,32 @@ class BaseMetaModel(nn.Module):
                 emb_dim=emb_dim,
                 img_size=(feature_size, win_len),
                 dropout=dropout,
+                **kwargs
+            )
+        elif backbone_type == 'mlp':
+            self.backbone = MLPBackbone(
+                win_len=win_len,
+                feature_size=feature_size,
+                emb_dim=emb_dim,
+                **kwargs
+            )
+        elif backbone_type == 'lstm':
+            self.backbone = LSTMBackbone(
+                feature_size=feature_size,
+                emb_dim=emb_dim,
+                **kwargs
+            )
+        elif backbone_type == 'resnet18':
+            self.backbone = ResNet18Backbone(
+                win_len=win_len,
+                feature_size=feature_size,
+                emb_dim=emb_dim,
+                **kwargs
+            )
+        elif backbone_type == 'transformer':
+            self.backbone = TransformerBackbone(
+                feature_size=feature_size,
+                emb_dim=emb_dim,
                 **kwargs
             )
         else:

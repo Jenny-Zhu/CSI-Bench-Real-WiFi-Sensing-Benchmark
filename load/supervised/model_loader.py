@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from model.supervised import ViT_Parallel
-from model.supervised import MLPClassifier,LSTMClassifier,ResNet18Classifier,TransformerClassifier
+from model.supervised import MLPClassifier,LSTMClassifier,ResNet18Classifier,TransformerClassifier,ViTClassifier
 # Constants or default scaling factors for patch sizes
 PATCH_W_SCALE = 10
 PATCH_H_SCALE = 2
@@ -118,12 +118,10 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
     # 根据指定的模型名称创建相应的模型
     if model_name == 'ViT':
         print(f"Using model: ViT with emb_size={emb_size}, win_len={win_len}, feature_size={feature_size}")
-        model = ViT_Parallel(
+        model = ViTClassifier(
             win_len=win_len,
             feature_size=feature_size,
-            emb_dim=emb_size,
             in_channels=in_channels,
-            proj_dim=emb_size,
             num_classes=num_classes
         )
     # 预留其他模型的导入和实例化，这些模型将在model/文件夹中逐步实现
