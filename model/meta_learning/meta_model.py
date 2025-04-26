@@ -38,153 +38,234 @@ class BaseMetaModel(nn.Module):
     def forward(self, x):
         return self.model(x)
     
-    def adapt(self, support_x, support_y, num_inner_steps=1):
-        """
-        Adapt model to support set (inner loop of MAML)
+    # def adapt(self, support_x, support_y, num_inner_steps=1):
+    #     """
+    #     Adapt model to support set (inner loop of MAML)
         
-        Args:
-            support_x: Support set inputs [N*K, C, H, W] where N is num_classes and K is shots
-            support_y: Support set labels [N*K]
-            num_inner_steps: Number of inner loop update steps
+    #     Args:
+    #         support_x: Support set inputs [N*K, C, H, W] where N is num_classes and K is shots
+    #         support_y: Support set labels [N*K]
+    #         num_inner_steps: Number of inner loop update steps
             
-        Returns:
-            Adapted model parameters
-        """
-        # Create a copy of the model for adaptation
-        fast_weights = {}
-        for name, param in self.named_parameters():
-            fast_weights[name] = param.clone()
+    #     Returns:
+    #         Adapted model parameters
+    #     """
+    #     # Create a copy of the model for adaptation
+    #     fast_weights = {}
+    #     for name, param in self.named_parameters():
+    #         fast_weights[name] = param.clone()
             
-        # Inner loop adaptation
-        for step in range(num_inner_steps):
-            # Forward pass with current fast weights
-            features = self.backbone_with_params(support_x, fast_weights)
-            logits = self.classifier_with_params(features, fast_weights)
+    #     # Inner loop adaptation
+    #     for step in range(num_inner_steps):
+    #         # Forward pass with current fast weights
+    #         features = self.backbone_with_params(support_x, fast_weights)
+    #         logits = self.classifier_with_params(features, fast_weights)
             
-            # Compute loss
-            loss = F.cross_entropy(logits, support_y)
+    #         # Compute loss
+    #         loss = F.cross_entropy(logits, support_y)
             
-            # Compute gradients
-            grads = torch.autograd.grad(loss, fast_weights.values(), create_graph=True)
+    #         # Compute gradients
+    #         grads = torch.autograd.grad(loss, fast_weights.values(), create_graph=True)
             
-            # Update fast weights
-            for (name, param), grad in zip(fast_weights.items(), grads):
-                fast_weights[name] = param - self.inner_lr * grad
+    #         # Update fast weights
+    #         for (name, param), grad in zip(fast_weights.items(), grads):
+    #             fast_weights[name] = param - self.inner_lr * grad
                 
-        return fast_weights
+    #     return fast_weights
     
-    def backbone_with_params(self, x, params):
-        """
-        Forward pass through backbone with specified parameters
+    # def backbone_with_params(self, x, params):
+    #     """
+    #     Forward pass through backbone with specified parameters
         
-        Args:
-            x: Input data
-            params: Dictionary of model parameters
+    #     Args:
+    #         x: Input data
+    #         params: Dictionary of model parameters
             
-        Returns:
-            Features from backbone
-        """
-        # Extract backbone parameters
-        backbone_params = {k: v for k, v in params.items() if k.startswith('backbone.')}
+    #     Returns:
+    #         Features from backbone
+    #     """
+    #     # Extract backbone parameters
+    #     backbone_params = {k: v for k, v in params.items() if k.startswith('backbone.')}
         
-        # Create a temporary model for forward pass
-        # This is a simplified implementation and may need to be customized
-        # based on the specific backbone architecture
+    #     # Create a temporary model for forward pass
+    #     # This is a simplified implementation and may need to be customized
+    #     # based on the specific backbone architecture
         
-        # Here we assume x is already properly formatted
-        if self.backbone_type == 'vit':
-            # Apply ViT specific forward pass
-            # (simplified for demonstration purposes)
-            emb_params = {k.replace('backbone.input_embed.', ''): v for k, v in backbone_params.items() 
-                          if k.startswith('backbone.input_embed.')}
-            encoder_params = {k.replace('backbone.encoder.', ''): v for k, v in backbone_params.items() 
-                              if k.startswith('backbone.encoder.')}
+    #     # Here we assume x is already properly formatted
+    #     if self.backbone_type == 'vit':
+    #         # Apply ViT specific forward pass
+    #         # (simplified for demonstration purposes)
+    #         emb_params = {k.replace('backbone.input_embed.', ''): v for k, v in backbone_params.items() 
+    #                       if k.startswith('backbone.input_embed.')}
+    #         encoder_params = {k.replace('backbone.encoder.', ''): v for k, v in backbone_params.items() 
+    #                           if k.startswith('backbone.encoder.')}
             
-            # Manual forward pass with custom parameters
-            # (This is a simplified example; actual implementation depends on model architecture)
-            x = self.backbone.input_embed(x)  # Assume input_embed doesn't need custom params for simplicity
-            # Forward through encoder with custom params would go here
-            x = self.backbone.encoder(x)  # Simplified, ignoring custom params
-            return x[:, 0]  # Return class token
-        else:
-            # For CNN and hybrid, we simply use the existing backbone
-            # This is a fallback and might not correctly use the adapted parameters
-            return self.backbone(x)
+    #         # Manual forward pass with custom parameters
+    #         # (This is a simplified example; actual implementation depends on model architecture)
+    #         x = self.backbone.input_embed(x)  # Assume input_embed doesn't need custom params for simplicity
+    #         # Forward through encoder with custom params would go here
+    #         x = self.backbone.encoder(x)  # Simplified, ignoring custom params
+    #         return x[:, 0]  # Return class token
+    #     else:
+    #         # For CNN and hybrid, we simply use the existing backbone
+    #         # This is a fallback and might not correctly use the adapted parameters
+    #         return self.backbone(x)
     
-    def classifier_with_params(self, x, params):
-        """
-        Forward pass through classifier with specified parameters
+    # def classifier_with_params(self, x, params):
+    #     """
+    #     Forward pass through classifier with specified parameters
         
-        Args:
-            x: Features from backbone
-            params: Dictionary of model parameters
+    #     Args:
+    #         x: Features from backbone
+    #         params: Dictionary of model parameters
             
-        Returns:
-            Classification logits
-        """
-        # Extract classifier parameters
-        classifier_params = {k.replace('classifier.', ''): v for k, v in params.items() 
-                             if k.startswith('classifier.')}
+    #     Returns:
+    #         Classification logits
+    #     """
+    #     # Extract classifier parameters
+    #     classifier_params = {k.replace('classifier.', ''): v for k, v in params.items() 
+    #                          if k.startswith('classifier.')}
         
-        # Apply classifier weights directly
-        if 'classifier.fc.weight' in params and 'classifier.fc.bias' in params:
-            return F.linear(x, params['classifier.fc.weight'], params['classifier.fc.bias'])
-        else:
-            # Fallback to regular classifier
-            return self.classifier(x)
+    #     # Apply classifier weights directly
+    #     if 'classifier.fc.weight' in params and 'classifier.fc.bias' in params:
+    #         return F.linear(x, params['classifier.fc.weight'], params['classifier.fc.bias'])
+    #     else:
+    #         # Fallback to regular classifier
+    #         return self.classifier(x)
             
-    def meta_learning_forward(self, support_x, support_y, query_x):
-        """
-        MAML-style meta-learning forward pass
+    # def meta_learning_forward(self, support_x, support_y, query_x):
+    #     """
+    #     MAML-style meta-learning forward pass
         
-        Args:
-            support_x: Support set inputs [N*K, C, H, W]
-            support_y: Support set labels [N*K]
-            query_x: Query set inputs [N*Q, C, H, W]
+    #     Args:
+    #         support_x: Support set inputs [N*K, C, H, W]
+    #         support_y: Support set labels [N*K]
+    #         query_x: Query set inputs [N*Q, C, H, W]
             
-        Returns:
-            Query set logits [N*Q, num_classes]
-        """
-        # Adapt to support set
-        fast_weights = self.adapt(support_x, support_y)
+    #     Returns:
+    #         Query set logits [N*Q, num_classes]
+    #     """
+    #     # Adapt to support set
+    #     fast_weights = self.adapt(support_x, support_y)
         
-        # Evaluate on query set using adapted weights
-        features = self.backbone_with_params(query_x, fast_weights)
-        logits = self.classifier_with_params(features, fast_weights)
+    #     # Evaluate on query set using adapted weights
+    #     features = self.backbone_with_params(query_x, fast_weights)
+    #     logits = self.classifier_with_params(features, fast_weights)
         
-        return logits
+    #     return logits
     
-    def get_representation(self, x):
-        """
-        Get representation before classification head
+    # def get_representation(self, x):
+    #     """
+    #     Get representation before classification head
         
-        Args:
-            x: Input data [B, C, H, W]
+    #     Args:
+    #         x: Input data [B, C, H, W]
             
-        Returns:
-            Feature representation [B, emb_dim]
-        """
-        return self.backbone(x)
+    #     Returns:
+    #         Feature representation [B, emb_dim]
+    #     """
+    #     return self.backbone(x)
     
-    def load_from_ssl(self, state_dict, strict=False):
-        """
-        Load weights from a self-supervised pretrained model
+    # def load_from_ssl(self, state_dict, strict=False):
+    #     """
+    #     Load weights from a self-supervised pretrained model
         
-        Args:
-            state_dict: State dict from SSL model
-            strict: Whether to strictly enforce that the keys in state_dict match
-        """
-        # Filter weights to only include backbone
-        backbone_dict = {}
-        for k, v in state_dict.items():
-            if k.startswith('backbone.') or k.startswith('encoder.') or k.startswith('input_embed.'):
-                backbone_dict[k] = v
+    #     Args:
+    #         state_dict: State dict from SSL model
+    #         strict: Whether to strictly enforce that the keys in state_dict match
+    #     """
+    #     # Filter weights to only include backbone
+    #     backbone_dict = {}
+    #     for k, v in state_dict.items():
+    #         if k.startswith('backbone.') or k.startswith('encoder.') or k.startswith('input_embed.'):
+    #             backbone_dict[k] = v
         
-        # Load filtered weights
-        missing_keys, unexpected_keys = self.backbone.load_state_dict(backbone_dict, strict=strict)
+    #     # Load filtered weights
+    #     missing_keys, unexpected_keys = self.backbone.load_state_dict(backbone_dict, strict=strict)
         
-        return missing_keys, unexpected_keys
+    #     return missing_keys, unexpected_keys
+def adapt(self, support_x, support_y, num_inner_steps=1):
+    """
+    Adapt model to support set (inner loop of MAML)
+    
+    Args:
+        support_x: Support set inputs [N*K, C, H, W] where N is num_classes and K is shots
+        support_y: Support set labels [N*K]
+        num_inner_steps: Number of inner loop update steps
+        
+    Returns:
+        Adapted model parameters
+    """
+    # Store the original parameters
+    orig_params = {name: param.clone() for name, param in self.model.named_parameters()}
+    fast_weights = {name: param.clone() for name, param in self.model.named_parameters()}
+    
+    # Inner loop learning rate
+    inner_lr = 0.01  # You can make this a parameter
+    
+    # Inner loop adaptation
+    for step in range(num_inner_steps):
+        # Forward pass with current fast weights
+        logits = self.forward_with_weights(support_x, fast_weights)
+        
+        # Compute loss
+        loss = F.cross_entropy(logits, support_y)
+        
+        # Compute gradients
+        grads = torch.autograd.grad(loss, fast_weights.values(), create_graph=True)
+        
+        # Update fast weights
+        for (name, param), grad in zip(fast_weights.items(), grads):
+            fast_weights[name] = param - inner_lr * grad
+            
+    return fast_weights
 
+def forward_with_weights(self, x, weights):
+    """
+    Forward pass using specified weights
+    
+    Args:
+        x: Input data
+        weights: Dictionary of model parameters
+        
+    Returns:
+        Model output using provided weights
+    """
+    # This is a simplification and might need to be customized based on your model architecture
+    # For each model type, you may need a specific implementation
+    
+    # Example implementation for generic model:
+    # Create a temporary copy of the model
+    model_copy = copy.deepcopy(self.model)
+    
+    # Replace model parameters with specified weights
+    with torch.no_grad():
+        for name, param in model_copy.named_parameters():
+            if name in weights:
+                param.copy_(weights[name])
+    
+    # Forward pass with the copied model
+    return model_copy(x)
+
+def meta_learning_forward(self, support_x, support_y, query_x):
+    """
+    MAML-style meta-learning forward pass
+    
+    Args:
+        support_x: Support set inputs
+        support_y: Support set labels
+        query_x: Query set inputs
+        
+    Returns:
+        Query set logits
+    """
+    # Adapt to support set
+    fast_weights = self.adapt(support_x, support_y)
+    
+    # Evaluate on query set using adapted weights
+    logits = self.forward_with_weights(query_x, fast_weights)
+    
+    return logits
 
 class CSIMetaModel(BaseMetaModel):
     """Specialized meta-learning model for CSI data"""

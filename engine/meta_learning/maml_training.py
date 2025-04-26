@@ -64,68 +64,111 @@ def maml_train(model, meta_optimizer, train_loader, val_loader=None, inner_lr=0.
             batch = next(train_iter)
         
         # Extract support and query sets
-        if isinstance(batch, dict):
-            # If batch is in dictionary format
-            support_x = batch['support'][0].to(device)  # [meta_batch_size, n_way*k_shot, ...]
-            support_y = batch['support'][1].to(device)  # [meta_batch_size, n_way*k_shot]
-            query_x = batch['query'][0].to(device)      # [meta_batch_size, n_way*q_query, ...]
-            query_y = batch['query'][1].to(device)      # [meta_batch_size, n_way*q_query]
-        else:
-            # If batch is in tuple format
-            support_x, support_y, query_x, query_y = batch
-            support_x = support_x.to(device)
-            support_y = support_y.to(device)
-            query_x = query_x.to(device)
-            query_y = query_y.to(device)
+        # if isinstance(batch, dict):
+        #     # If batch is in dictionary format
+        #     support_x = batch['support'][0].to(device)  # [meta_batch_size, n_way*k_shot, ...]
+        #     support_y = batch['support'][1].to(device)  # [meta_batch_size, n_way*k_shot]
+        #     query_x = batch['query'][0].to(device)      # [meta_batch_size, n_way*q_query, ...]
+        #     query_y = batch['query'][1].to(device)      # [meta_batch_size, n_way*q_query]
+        # else:
+        #     # If batch is in tuple format
+        #     support_x, support_y, query_x, query_y = batch
+        #     support_x = support_x.to(device)
+        #     support_y = support_y.to(device)
+        #     query_x = query_x.to(device)
+        #     query_y = query_y.to(device)
         
-        # Meta batch size may be smaller than what the loader provides
-        actual_meta_batch_size = min(meta_batch_size, support_x.size(0))
+        # # Meta batch size may be smaller than what the loader provides
+        # actual_meta_batch_size = min(meta_batch_size, support_x.size(0))
         
-        # Initialize meta loss
-        meta_loss = 0
-        meta_acc = 0
+        # # Initialize meta loss
+        # meta_loss = 0
+        # meta_acc = 0
         
-        # Loop through each task in the meta batch
-        for i in range(actual_meta_batch_size):
-            # Get support and query set for the current task
-            task_support_x = support_x[i]
-            task_support_y = support_y[i]
-            task_query_x = query_x[i]
-            task_query_y = query_y[i]
+        # # Loop through each task in the meta batch
+        # for i in range(actual_meta_batch_size):
+        #     # Get support and query set for the current task
+        #     task_support_x = support_x[i]
+        #     task_support_y = support_y[i]
+        #     task_query_x = query_x[i]
+        #     task_query_y = query_y[i]
             
-            # Clone model to save initial weights
-            fast_weights = {name: param.clone() for name, param in model.named_parameters()}
+        #     # Clone model to save initial weights
+        #     fast_weights = {name: param.clone() for name, param in model.named_parameters()}
             
-            # Inner loop optimization - few gradient steps
-            for _ in range(5):  # Typical MAML uses 1-5 steps
-                # Forward pass
-                support_logits = model(task_support_x, params=fast_weights)
-                support_loss = criterion(support_logits, task_support_y)
+        #     # Inner loop optimization - few gradient steps
+        #     for _ in range(5):  # Typical MAML uses 1-5 steps
+        #         # Forward pass
+        #         support_logits = model(task_support_x, params=fast_weights)
+        #         support_loss = criterion(support_logits, task_support_y)
                 
-                # Compute gradients
-                grads = torch.autograd.grad(support_loss, fast_weights.values(),
-                                          create_graph=True, allow_unused=True)
+        #         # Compute gradients
+        #         grads = torch.autograd.grad(support_loss, fast_weights.values(),
+        #                                   create_graph=True, allow_unused=True)
                 
-                # Update fast weights
-                fast_weights = {name: param - inner_lr * (grad if grad is not None else 0)
-                              for ((name, param), grad) in zip(fast_weights.items(), grads)}
+        #         # Update fast weights
+        #         fast_weights = {name: param - inner_lr * (grad if grad is not None else 0)
+        #                       for ((name, param), grad) in zip(fast_weights.items(), grads)}
             
-            # Compute loss on query set with updated parameters
-            query_logits = model(task_query_x, params=fast_weights)
-            query_loss = criterion(query_logits, task_query_y)
+        #     # Compute loss on query set with updated parameters
+        #     query_logits = model(task_query_x, params=fast_weights)
+        #     query_loss = criterion(query_logits, task_query_y)
+            
+        #     # Accumulate meta loss
+        #     meta_loss += query_loss
+            
+        #     # Calculate accuracy
+        #     with torch.no_grad():
+        #         pred = query_logits.argmax(dim=1)
+        #         task_acc = (pred == task_query_y).float().mean().item()
+        #         meta_acc += task_acc
+        # Inside the maml_train function, update the inner loop adaptation logic
+
+        # For each task in the meta batch
+        for task_idx in range(actual_meta_batch_size):
+            # Get task data
+            task_support_x = support_x[task_idx]
+            task_support_y = support_y[task_idx]
+            task_query_x = query_x[task_idx]
+            task_query_y = query_y[task_idx]
+            
+            # Inner loop adaptation
+            # Create a copy of model parameters for fast adaptation
+            fast_weights = {name: param.clone() for name, param in model.named_parameters() if param.requires_grad}
+            
+            # Inner loop adaptation
+            for _ in range(5):  # 5 adaptation steps
+                # Forward pass with current fast weights
+                # Use model.forward_with_weights or implement a temporary forward pass
+                # For each model type, this might need to be customized
+                with torch.set_grad_enabled(True):
+                    logits = model.forward_with_weights(task_support_x, fast_weights)
+                    inner_loss = criterion(logits, task_support_y)
+                    
+                    # Compute gradients for the adaptation
+                    grads = torch.autograd.grad(inner_loss, fast_weights.values(), create_graph=True)
+                    
+                    # Update fast weights (inner loop update)
+                    fast_weights = {name: param - inner_lr * grad 
+                                    for (name, param), grad in zip(fast_weights.items(), grads)}
+            
+            # Evaluate on query set using adapted model (Meta objective)
+            query_logits = model.forward_with_weights(task_query_x, fast_weights)
+            task_meta_loss = criterion(query_logits, task_query_y)
             
             # Accumulate meta loss
-            meta_loss += query_loss
+            meta_loss += task_meta_loss / actual_meta_batch_size
             
-            # Calculate accuracy
+            # Compute accuracy
             with torch.no_grad():
                 pred = query_logits.argmax(dim=1)
-                task_acc = (pred == task_query_y).float().mean().item()
-                meta_acc += task_acc
-        
-        # Average meta loss
-        meta_loss = meta_loss / actual_meta_batch_size
-        meta_acc = meta_acc / actual_meta_batch_size
+                correct = (pred == task_query_y).sum().item()
+                total = task_query_y.size(0)
+                task_acc = correct / total
+                meta_acc += task_acc / actual_meta_batch_size
+                # Average meta loss
+                meta_loss = meta_loss / actual_meta_batch_size
+                meta_acc = meta_acc / actual_meta_batch_size
         
         # Meta optimization step - update model parameters
         meta_optimizer.zero_grad()
