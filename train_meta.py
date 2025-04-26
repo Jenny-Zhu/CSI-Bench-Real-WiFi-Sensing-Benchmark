@@ -70,31 +70,25 @@ def set_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+
 def main():
-    """Main function for meta-learning"""
     args = parse_args()
-    
-    # Set random seed
     set_seed(args.seed)
-    
-    # Set device
     if args.device is None:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(args.device)
     print(f"Using device: {device}")
-    
-    # Ensure output directory exists
-    os.makedirs(os.path.join(args.output_dir, args.results_subdir), exist_ok=True)
-    
-    # Load data
+
+    # --- Load meta-learning data ---
     data_loader = load_csi_data_benchmark(
         data_dir=args.training_dir,
         n_way=args.n_way,
         k_shot=args.k_shot,
-        q_query=args.q_query
+        q_query=args.q_query,
+        batch_size=args.meta_batch_size
     )
-    
-    # Load model
+
+    # --- Load model ---
     model = load_meta_model(
         model_type=args.model_type,
         win_len=args.win_len,
@@ -104,13 +98,11 @@ def main():
         in_channels=args.in_channels,
         emb_dim=args.emb_dim
     )
-    
-    # Set save path
-    save_path = os.path.join(args.output_dir, args.results_subdir, 
+
+    # --- Set up config and trainer as before ---
+    save_path = os.path.join(args.output_dir, args.results_subdir,
                            f"{args.model_type}_{args.meta_method}_{args.n_way}way_{args.k_shot}shot")
     os.makedirs(save_path, exist_ok=True)
-    
-    # Meta-learning configuration
     config = argparse.Namespace()
     config.meta_method = args.meta_method
     config.inner_lr = args.inner_lr
@@ -122,15 +114,14 @@ def main():
     config.num_iterations = args.num_iterations
     config.device = device
     config.save_path = save_path
-    
-    # Create meta-learning trainer
+
+    from engine.meta_learning.meta_trainer import MetaTrainer
     trainer = MetaTrainer(
         model=model,
-        data_loader={'train': data_loader['train'], 'val': data_loader.get('val')},
+        data_loader={'train': data_loader.get('train'), 'val': data_loader.get('val')},
         config=config
     )
-    
-    # Start training
+
     print(f"Starting meta-learning training with {args.model_type} model...")
     model, results = trainer.train()
     print("Meta-learning training completed!")

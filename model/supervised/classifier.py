@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..backbone.vit import ViTBackbone
 from ..backbone.cnn import CNNBackbone
 from ..backbone.hybrid import HybridBackbone
 from ..base.heads import ClassificationHead

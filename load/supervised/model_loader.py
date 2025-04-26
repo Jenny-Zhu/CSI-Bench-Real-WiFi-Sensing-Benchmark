@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from model.supervised import ViT_Parallel
 from model.supervised import MLPClassifier,LSTMClassifier,ResNet18Classifier,TransformerClassifier,ViTClassifier
 # Constants or default scaling factors for patch sizes
 PATCH_W_SCALE = 10

@@ -1,42 +1,99 @@
-# Export main model classes
-from .supervised.vit import ViT_Parallel
-from .meta_learning.meta_model import CSI2DCNN, CSITransformer
+"""
+Model module initialization.
+Provides access to all model classes for both supervised learning and meta-learning.
+"""
 
-# For supervised learning
-from .supervised.vit import ViT_Parallel
-from .meta_learning.meta_model import CSI2DCNN, CSITransformer
+# Import supervised models
+from .supervised.models import (
+    MLPClassifier,
+    LSTMClassifier,
+    ResNet18Classifier,
+    TransformerClassifier,
+    ViTClassifier
+)
 
-# Convenience factory function - get appropriate model based on task and data type
-def get_model(task_type, data_type, **kwargs):
+# Import meta-learning models
+from .meta_learning.meta_model import (
+    BaseMetaModel,
+    CSIMetaModel,
+    ACFMetaModel,
+    CSI2DCNN,
+    CSITransformer
+)
+
+# For backwards compatibility
+
+# Define what gets imported with "from model import *"
+__all__ = [
+    # Supervised models
+    'MLPClassifier',
+    'LSTMClassifier',
+    'ResNet18Classifier',
+    'TransformerClassifier',
+    'ViTClassifier',
+    # Meta-learning models
+    'BaseMetaModel',
+    'CSIMetaModel',
+    'ACFMetaModel',
+    'CSI2DCNN',
+    'CSITransformer'
+]
+
+# Provide model type mapping for convenience
+MODEL_TYPES = {
+    'mlp': MLPClassifier,
+    'lstm': LSTMClassifier,
+    'resnet18': ResNet18Classifier,
+    'transformer': TransformerClassifier,
+    'vit': ViTClassifier
+}
+
+# Meta model type mapping
+META_MODEL_TYPES = {
+    'mlp': 'mlp',
+    'lstm': 'lstm',
+    'resnet18': 'resnet18',
+    'transformer': 'transformer',
+    'vit': 'vit',
+    'csi2dcnn': 'resnet18',  # Legacy mapping
+    'csitransformer': 'transformer'  # Legacy mapping
+}
+
+
+def get_model(model_name, **kwargs):
     """
-    Factory function to get appropriate model based on task and data type
-    
+    Factory function to create a model instance
+
     Args:
-        task_type (str): 'supervised' or 'meta_learning'
-        data_type (str): 'csi' or 'acf'
-        **kwargs: Other parameters for the model
-        
+        model_name (str): Name of the model to create
+        **kwargs: Additional arguments for model initialization
+
     Returns:
-        Appropriate model instance
+        Model instance
     """
-    if task_type == 'supervised':
-        if kwargs.get('model_name', '').lower() == 'vit':
-            # Use ViT model directly
-            return ViT_Parallel(**kwargs)
-        elif data_type == 'csi':
-            from .supervised.classifier import CSIClassifier
-            return CSIClassifier(**kwargs)
-        else:  # 'acf'
-            from .supervised.classifier import ACFClassifier
-            return ACFClassifier(**kwargs)
-    
-    elif task_type == 'meta_learning':
-        if data_type == 'csi':
-            from .meta_learning.meta_model import CSIMetaModel
-            return CSIMetaModel(**kwargs)
-        else:  # 'acf'
-            from .meta_learning.meta_model import ACFMetaModel
-            return ACFMetaModel(**kwargs)
-    
-    # 如果没有匹配的模型类型，抛出错误
-    raise ValueError(f"Unsupported combination of task_type={task_type} and data_type={data_type}")
+    model_name = model_name.lower()
+
+    if model_name in MODEL_TYPES:
+        return MODEL_TYPES[model_name](**kwargs)
+    else:
+        raise ValueError(f"Unknown model type: {model_name}. Available models: {list(MODEL_TYPES.keys())}")
+
+
+def get_meta_model(model_name, **kwargs):
+    """
+    Factory function to create a meta-learning model instance
+
+    Args:
+        model_name (str): Name of the model to create
+        **kwargs: Additional arguments for model initialization
+
+    Returns:
+        Meta-learning model instance
+    """
+    model_name = model_name.lower()
+
+    if model_name in META_MODEL_TYPES:
+        model_type = META_MODEL_TYPES[model_name]
+        return BaseMetaModel(model_type=model_type, **kwargs)
+    else:
+        raise ValueError(f"Unknown meta-model type: {model_name}. Available models: {list(META_MODEL_TYPES.keys())}")
