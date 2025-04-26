@@ -128,39 +128,34 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
         )
     # 预留其他模型的导入和实例化，这些模型将在model/文件夹中逐步实现
     elif model_name == 'MLP':
-        print(f"Using model: MLP (not implemented yet)")
-        # 以后将导入和实现MLP模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
-    
-    elif model_name == 'LeNet':
-        print(f"Using model: LeNet (not implemented yet)")
-        # 以后将导入和实现LeNet模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
-    
-    elif model_name == 'ResNet18':
-        print(f"Using model: ResNet18 (not implemented yet)")
-        # 以后将导入和实现ResNet18模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+        from .models import MLPClassifier
+        model = MLPClassifier(
+            win_len=win_len,
+            feature_size=feature_size,
+            num_classes=num_classes
+        )
     
     elif model_name == 'LSTM':
-        print(f"Using model: LSTM (not implemented yet)")
-        # 以后将导入和实现LSTM模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+        from .models import LSTMClassifier
+        model = LSTMClassifier(
+            feature_size=feature_size,
+            num_classes=num_classes
+        )
     
-    elif model_name == 'BiLSTM':
-        print(f"Using model: BiLSTM (not implemented yet)")
-        # 以后将导入和实现BiLSTM模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
-    
-    elif model_name == 'GRUNet':
-        print(f"Using model: GRUNet (not implemented yet)")
-        # 以后将导入和实现GRUNet模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+    elif model_name == 'ResNet18':
+        from .models import ResNet18Classifier
+        model = ResNet18Classifier(
+            win_len=win_len,
+            feature_size=feature_size,
+            num_classes=num_classes
+        )
     
     elif model_name == 'Transformer':
-        print(f"Using model: Transformer (not implemented yet)")
-        # 以后将导入和实现自定义Transformer模型
-        raise NotImplementedError(f"Model {model_name} is not implemented yet")
+        from .models import TransformerClassifier
+        model = TransformerClassifier(
+            feature_size=feature_size,
+            num_classes=num_classes
+        )
     
     else:
         supported_models = ['ViT', 'MLP', 'LeNet', 'ResNet18', 'LSTM', 'BiLSTM', 'GRUNet', 'Transformer']
