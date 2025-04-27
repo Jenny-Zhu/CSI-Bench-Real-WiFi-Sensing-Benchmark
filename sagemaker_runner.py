@@ -182,12 +182,24 @@ class SageMakerRunner:
         # Convert config to hyperparameters dict for SageMaker
         hyperparameters = {}
         for key, value in config.items():
-            # Handle special case for test_dirs to avoid JSON array parsing issues
+            # Skip warmup-epochs which isn't supported
+            if key == 'warmup-epochs':
+                continue
+                
+            # Handle test-dirs for proper format
             if key == 'test-dirs' and isinstance(value, list):
-                # Pass each test directory as a separate parameter
-                for i, test_dir in enumerate(value):
-                    hyperparameters[f'test-dir-{i}'] = test_dir
-            # Convert other lists to strings for SageMaker - but avoid JSON format
+                # Use standard test-dirs format rather than separate parameters
+                hyperparameters['test-dirs'] = ' '.join(value)
+            # Handle boolean flags properly (don't include value)
+            elif key == 'freeze-backbone':
+                if value:
+                    hyperparameters[key] = ''  # Include flag without value to set True
+                # Skip if False - absence of flag means False
+            elif key == 'integrated-loader':
+                if value:
+                    hyperparameters[key] = ''  # Include flag without value to set True
+                # Skip if False - absence of flag means False
+            # Handle other lists
             elif isinstance(value, list):
                 hyperparameters[key] = ' '.join(str(item) for item in value)
             else:
@@ -218,14 +230,14 @@ class SageMakerRunner:
         inputs = {}
         if config['mode'] == 'csi':
             inputs['csi'] = config['training-dir']
-            # Add test directories
-            for i, test_dir in enumerate(config.get('test-dirs', [])):
-                inputs[f'test_{i}'] = test_dir
+            # Add test directories - only use one for simplicity to avoid SageMaker channel naming issues
+            if config.get('test-dirs') and len(config.get('test-dirs')) > 0:
+                inputs['test'] = config['test-dirs'][0]
         elif config['mode'] == 'acf':
             inputs['acf'] = config['training-dir']
-            # Add test directories 
-            for i, test_dir in enumerate(config.get('test-dirs', [])):
-                inputs[f'test_{i}'] = test_dir
+            # Add test directories - only use one for simplicity to avoid SageMaker channel naming issues
+            if config.get('test-dirs') and len(config.get('test-dirs')) > 0:
+                inputs['test'] = config['test-dirs'][0]
         
         # Print configuration
         print("\nSageMaker Job Configuration:")
