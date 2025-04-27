@@ -35,7 +35,7 @@ import re
 TRAINING_DIR = "s3://rnd-sagemaker/Data/Benchmark/demo/"
 # Test directories can be a list of paths to evaluate on multiple test sets
 TEST_DIRS = ["s3://rnd-sagemaker/Data/Benchmark/demo/test/"] 
-OUTPUT_DIR = "s3://rnd-sagemaker/Benchmark_Log/demo/
+OUTPUT_DIR = "s3://rnd-sagemaker/Benchmark_Log/demo/"
 
 # SageMaker Settings
 INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for training
