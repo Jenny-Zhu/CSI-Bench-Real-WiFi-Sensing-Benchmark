@@ -23,6 +23,8 @@ from datetime import datetime
 import sagemaker
 from sagemaker.pytorch import PyTorch
 from sagemaker.inputs import TrainingInput
+import boto3
+import re
 
 #==============================================================================
 # CONFIGURATION SECTION - MODIFY PARAMETERS HERE
@@ -30,10 +32,10 @@ from sagemaker.inputs import TrainingInput
 
 # Training Data S3 Location
 # For supervised learning, this should point to a folder containing train and validation subdirectories
-TRAINING_DIR = "s3://rnd-sagemakerData/Benchmark/demo/"
+TRAINING_DIR = "s3://sagemaker-{region}-{account_id}/wifi-sensing/data/training"
 # Test directories can be a list of paths to evaluate on multiple test sets
-TEST_DIRS = ["s3://rnd-sagemakerData/Benchmark/demo/test"] 
-OUTPUT_DIR = "s3://rnd-sagemakerData/Benchmark_Log/demo/"
+TEST_DIRS = ["s3://sagemaker-{region}-{account_id}/wifi-sensing/data/test"] 
+OUTPUT_DIR = "s3://sagemaker-{region}-{account_id}/wifi-sensing/output"
 
 # SageMaker Settings
 INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for training
@@ -57,7 +59,7 @@ FEATURE_SIZE = 98  # Feature size for CSI data
 # Common Training Parameters
 SEED = 42
 BATCH_SIZE = 8
-EPOCH_NUMBER = 2  # Number of training epochs
+EPOCH_NUMBER = 1  # Number of training epochs
 PATIENCE = 15  # Early stopping patience
 MODEL_NAME = 'Transformer'
 
@@ -77,6 +79,32 @@ class SageMakerRunner:
         self.session = sagemaker.Session()
         self.role = role or sagemaker.get_execution_role()
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        
+        # Get AWS account ID and region
+        account_id = boto3.client('sts').get_caller_identity().get('Account')
+        region = boto3.session.Session().region_name
+        
+        # Format S3 paths with account and region
+        global TRAINING_DIR, TEST_DIRS, OUTPUT_DIR
+        TRAINING_DIR = TRAINING_DIR.format(region=region, account_id=account_id)
+        TEST_DIRS = [path.format(region=region, account_id=account_id) for path in TEST_DIRS]
+        OUTPUT_DIR = OUTPUT_DIR.format(region=region, account_id=account_id)
+        
+        # Ensure default bucket exists
+        bucket_name = f"sagemaker-{region}-{account_id}"
+        s3 = boto3.resource('s3')
+        if bucket_name not in [bucket.name for bucket in s3.buckets.all()]:
+            print(f"Creating default SageMaker bucket: {bucket_name}")
+            s3.create_bucket(
+                Bucket=bucket_name,
+                CreateBucketConfiguration={'LocationConstraint': region} if region != 'us-east-1' else {}
+            )
+            print(f"Bucket {bucket_name} created successfully")
+        
+        print(f"Using S3 paths:")
+        print(f"  Training: {TRAINING_DIR}")
+        print(f"  Test: {TEST_DIRS}")
+        print(f"  Output: {OUTPUT_DIR}")
     
     def get_supervised_config(self, training_dir=None, test_dirs=None, output_dir=None, mode='csi'):
         """Get configuration for supervised learning pipeline."""
@@ -185,7 +213,8 @@ class SageMakerRunner:
             hyperparameters=hyperparameters,
             output_path=config['output_dir'],
             base_job_name=job_name,
-            disable_profiler=True
+            disable_profiler=True,
+            debugger_hook_config=False
         )
         
         # Prepare inputs
