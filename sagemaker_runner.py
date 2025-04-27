@@ -30,10 +30,10 @@ from sagemaker.inputs import TrainingInput
 
 # Training Data S3 Location
 # For supervised learning, this should point to a folder containing train and validation subdirectories
-TRAINING_DIR = "s3://your-bucket/path/to/training-data"
+TRAINING_DIR = "s3://rnd-sagemakerData/Benchmark/demo/"
 # Test directories can be a list of paths to evaluate on multiple test sets
-TEST_DIRS = ["s3://your-bucket/path/to/test-data"] 
-OUTPUT_DIR = "s3://your-bucket/path/to/output"
+TEST_DIRS = ["s3://rnd-sagemakerData/Benchmark/demo/test"] 
+OUTPUT_DIR = "s3://rnd-sagemakerData/Benchmark_Log/demo/"
 
 # SageMaker Settings
 INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for training
@@ -57,7 +57,7 @@ FEATURE_SIZE = 98  # Feature size for CSI data
 # Common Training Parameters
 SEED = 42
 BATCH_SIZE = 8
-EPOCH_NUMBER = 1  # Number of training epochs
+EPOCH_NUMBER = 2  # Number of training epochs
 PATIENCE = 15  # Early stopping patience
 MODEL_NAME = 'Transformer'
 
