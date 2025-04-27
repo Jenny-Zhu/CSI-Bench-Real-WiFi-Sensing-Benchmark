@@ -40,7 +40,7 @@ OUTPUT_DIR = "s3://rnd-sagemaker/Benchmark_Log/demo/"
 # SageMaker Settings
 INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for training
 INSTANCE_COUNT = 1
-FRAMEWORK_VERSION = "1.12.1"
+FRAMEWORK_VERSION = "1.12.1"  # Match with requirements.txt
 PY_VERSION = "py38"
 BASE_JOB_NAME = "wifi-sensing-supervised"
 
@@ -200,7 +200,8 @@ class SageMakerRunner:
             output_path=config['output_dir'],
             base_job_name=job_name,
             disable_profiler=True,
-            debugger_hook_config=False
+            debugger_hook_config=False,
+            environment={"HOROVOD_WITH_PYTORCH": "0"}
         )
         
         # Prepare inputs
