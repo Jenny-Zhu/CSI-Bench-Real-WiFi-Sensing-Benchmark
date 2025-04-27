@@ -32,10 +32,10 @@ import re
 
 # Training Data S3 Location
 # For supervised learning, this should point to a folder containing train and validation subdirectories
-TRAINING_DIR = "s3://rnd-sagemaker/wifi-sensing/data/training"
+TRAINING_DIR = "s3://rnd-sagemaker/Data/Benchmark/demo/"
 # Test directories can be a list of paths to evaluate on multiple test sets
-TEST_DIRS = ["s3://rnd-sagemaker/wifi-sensing/data/test"] 
-OUTPUT_DIR = "s3://rnd-sagemaker/wifi-sensing/output"
+TEST_DIRS = ["s3://rnd-sagemaker/Data/Benchmark/demo/test/"] 
+OUTPUT_DIR = "s3://rnd-sagemaker/Benchmark_Log/demo/
 
 # SageMaker Settings
 INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for training
