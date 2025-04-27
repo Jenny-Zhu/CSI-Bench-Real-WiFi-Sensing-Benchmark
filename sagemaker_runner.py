@@ -121,36 +121,36 @@ class SageMakerRunner:
         
         config = {
             # Data parameters
-            'training_dir': training_dir,
-            'test_dirs': test_dirs,
-            'output_dir': output_dir,
-            'results_subdir': 'supervised',
-            'train_ratio': 0.8,
-            'val_ratio': 0.2,
+            'training-dir': training_dir,
+            'test-dirs': test_dirs,
+            'output-dir': output_dir,
+            'results-subdir': 'supervised',
+            'train-ratio': 0.8,
+            'val-ratio': 0.2,
             
             # Training parameters
-            'batch_size': BATCH_SIZE,
-            'learning_rate': 1e-4,
-            'weight_decay': 1e-5,
-            'num_epochs': EPOCH_NUMBER,
-            'warmup_epochs': 5,
+            'batch-size': BATCH_SIZE,
+            'learning-rate': 1e-4,
+            'weight-decay': 1e-5,
+            'num-epochs': EPOCH_NUMBER,
+            'warmup-epochs': 5,
             'patience': PATIENCE,
             
             # Model parameters
             'mode': mode,
-            'num_classes': num_classes,
-            'freeze_backbone': FREEZE_BACKBONE,
+            'num-classes': num_classes,
+            'freeze-backbone': FREEZE_BACKBONE,
             
             # Integrated loader options
-            'integrated_loader': INTEGRATED_LOADER,
+            'integrated-loader': INTEGRATED_LOADER,
             'task': TASK,
             
             # Other parameters
             'seed': SEED,
             'device': 'cuda',  # SageMaker instances will have GPU
-            'model_name': MODEL_NAME,
-            'win_len': WIN_LEN,
-            'feature_size': FEATURE_SIZE
+            'model-name': MODEL_NAME,
+            'win-len': WIN_LEN,
+            'feature-size': FEATURE_SIZE
         }
         
         return config
@@ -161,7 +161,12 @@ class SageMakerRunner:
         print("Preparing supervised learning pipeline for SageMaker...")
         
         # Get configuration
-        config = self.get_supervised_config(training_dir, test_dirs, output_dir, mode)
+        config = self.get_supervised_config(
+            training_dir or TRAINING_DIR,
+            test_dirs or TEST_DIRS,
+            output_dir or OUTPUT_DIR, 
+            mode or MODE
+        )
         
         # Override with values from config file if provided
         if config_file and os.path.exists(config_file):
@@ -177,9 +182,14 @@ class SageMakerRunner:
         # Convert config to hyperparameters dict for SageMaker
         hyperparameters = {}
         for key, value in config.items():
-            # Convert lists to strings for SageMaker
-            if isinstance(value, list):
-                hyperparameters[key] = json.dumps(value)
+            # Handle special case for test_dirs to avoid JSON array parsing issues
+            if key == 'test-dirs' and isinstance(value, list):
+                # Pass each test directory as a separate parameter
+                for i, test_dir in enumerate(value):
+                    hyperparameters[f'test-dir-{i}'] = test_dir
+            # Convert other lists to strings for SageMaker - but avoid JSON format
+            elif isinstance(value, list):
+                hyperparameters[key] = ' '.join(str(item) for item in value)
             else:
                 hyperparameters[key] = value
         
@@ -197,7 +207,7 @@ class SageMakerRunner:
             framework_version=FRAMEWORK_VERSION,
             py_version=PY_VERSION,
             hyperparameters=hyperparameters,
-            output_path=config['output_dir'],
+            output_path=config['output-dir'],
             base_job_name=job_name,
             disable_profiler=True,
             debugger_hook_config=False,
@@ -207,15 +217,15 @@ class SageMakerRunner:
         # Prepare inputs
         inputs = {}
         if config['mode'] == 'csi':
-            inputs['csi'] = config['training_dir']
-            if config['test_dirs']:
-                for i, test_dir in enumerate(config['test_dirs']):
-                    inputs[f'test_{i}'] = test_dir
+            inputs['csi'] = config['training-dir']
+            # Add test directories
+            for i, test_dir in enumerate(config.get('test-dirs', [])):
+                inputs[f'test_{i}'] = test_dir
         elif config['mode'] == 'acf':
-            inputs['acf'] = config['training_dir']
-            if config['test_dirs']:
-                for i, test_dir in enumerate(config['test_dirs']):
-                    inputs[f'test_{i}'] = test_dir
+            inputs['acf'] = config['training-dir']
+            # Add test directories 
+            for i, test_dir in enumerate(config.get('test-dirs', [])):
+                inputs[f'test_{i}'] = test_dir
         
         # Print configuration
         print("\nSageMaker Job Configuration:")
@@ -224,8 +234,8 @@ class SageMakerRunner:
         print(f"  Input Paths:")
         for key, value in inputs.items():
             print(f"    {key}: {value}")
-        print(f"  Output Path: {config['output_dir']}")
-        print(f"  Model: {config['model_name']}")
+        print(f"  Output Path: {config['output-dir']}")
+        print(f"  Model: {config['model-name']}")
         print(f"  Task: {config.get('task', 'Not specified')}")
         print()
         
