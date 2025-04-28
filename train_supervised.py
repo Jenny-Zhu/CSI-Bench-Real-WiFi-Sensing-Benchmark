@@ -10,6 +10,7 @@ from tqdm import tqdm
 import argparse
 import torch.nn.functional as F
 import math  # Add this import at the top
+import re
 
 
 # Import training engines
@@ -87,15 +88,21 @@ def train_supervised_csi(args):
     """Train a model on CSI data"""
     print(f"Starting supervised learning training on CSI modality...")
 
-    # 确保训练目录和验证目录存在
-    train_dir = os.path.join(args.training_dir, 'train')
-    val_dir = os.path.join(args.training_dir, 'validation')
+    # 设置训练目录和验证目录
+    train_dir = args.training_dir
+    val_dir = args.training_dir
     
-    # 检查训练和验证目录是否存在
-    if not os.path.exists(train_dir):
-        raise ValueError(f"Training directory {train_dir} does not exist")
-    if not os.path.exists(val_dir):
-        raise ValueError(f"Validation directory {val_dir} does not exist")
+    # 检查是否是SageMaker环境
+    in_sagemaker = os.path.exists('/opt/ml/input/data')
+    
+    # 在非SageMaker环境中检查目录是否存在
+    if not in_sagemaker:
+        if not os.path.exists(train_dir):
+            raise ValueError(f"Training directory {train_dir} does not exist")
+    else:
+        # 在SageMaker环境中，确保目录存在
+        if not os.path.exists(train_dir):
+            raise ValueError(f"SageMaker training directory {train_dir} does not exist")
 
     # 使用更新后的load_csi_supervised加载数据
     train_loader, val_loader, test_loaders_dict = load_csi_supervised(
@@ -119,9 +126,13 @@ def train_supervised_csi(args):
     )
     print("Using randomly initialized model")
     
-    # Setup save path
-    save_path = os.path.join(args.output_dir, args.results_subdir, 
-                            f"{args.task}_{args.model_name}_csi")
+    # Setup save path - 在SageMaker环境中使用不同的保存路径
+    if in_sagemaker:
+        save_path = os.path.join('/opt/ml/model', args.results_subdir, 
+                                f"{args.task}_{args.model_name}_csi")
+    else:
+        save_path = os.path.join(args.output_dir, args.results_subdir, 
+                                f"{args.task}_{args.model_name}_csi")
     os.makedirs(save_path, exist_ok=True)
     
     # Setup loss function
@@ -419,6 +430,33 @@ def main(args=None):
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(args.device)
     print(f"Using device: {device}")
+    
+    # Check if running in SageMaker environment
+    in_sagemaker = os.path.exists('/opt/ml/input/data')
+    
+    # In SageMaker, use the right directories
+    if in_sagemaker:
+        print("Running in SageMaker environment")
+        # SageMaker mounts input data to these directories
+        if os.path.exists('/opt/ml/input/data/training'):
+            args.training_dir = '/opt/ml/input/data/training'
+            print(f"Using SageMaker training directory: {args.training_dir}")
+        
+        # Check for test directories - SageMaker may have them as separate channels
+        test_dirs = []
+        if os.path.exists('/opt/ml/input/data/test'):
+            test_dirs.append('/opt/ml/input/data/test')
+        
+        # Check for additional test directories
+        test_channel_pattern = re.compile(r'test\d+')
+        for channel_dir in os.listdir('/opt/ml/input/data'):
+            if test_channel_pattern.match(channel_dir):
+                channel_path = os.path.join('/opt/ml/input/data', channel_dir)
+                test_dirs.append(channel_path)
+        
+        if test_dirs:
+            args.test_dirs = test_dirs
+            print(f"Using SageMaker test directories: {args.test_dirs}")
     
     # For backwards compatibility, set training_dir to csi/acf_data_dir if specified
     if not args.training_dir:

@@ -67,8 +67,9 @@ class CSIDatasetMAT(Dataset):
         for dir_path in self.data_dir:
             # Skip if not a directory
             if not os.path.isdir(dir_path):
+                print(f"Warning: {dir_path} is not a directory")
                 continue
-                
+            
             # Get all .mat files in directory
             file_list = [f for f in os.listdir(dir_path) if f.endswith('.mat')]
             
@@ -103,10 +104,11 @@ class CSIDatasetMAT(Dataset):
         if len(all_samples) > 0:
             # Concatenate tensors and add channel dimension
             self.samples = torch.unsqueeze(torch.cat(all_samples, dim=0), dim=-3)
-            print(f"{log_prefix} Loaded {len(self.labels)} samples with shape {self.samples.shape}")
+            print(f"[{self.dataset_type}] Loaded {len(self.labels)} samples with shape {self.samples.shape}")
         else:
             # Create empty tensor to avoid errors
             self.samples = torch.zeros((0, 1, 250, 100))
+            print(f"[{self.dataset_type}] Warning: No samples were loaded!")
     
     def generate_label(self, file_path):
         """Generate label based on file name and task.
@@ -118,6 +120,7 @@ class CSIDatasetMAT(Dataset):
             Label as an integer.
         """
         file_name = os.path.basename(file_path).lower()
+        parent_dir = os.path.basename(os.path.dirname(file_path)).lower()
         
         # Human/Nonhuman classification
         if self.task == 'HumanNonhuman':
@@ -218,12 +221,7 @@ class CSIDatasetMAT(Dataset):
                     return ind
             return None
         
-        # Fallback to parent directory
-        parent_dir = os.path.basename(os.path.dirname(file_path)).lower()
-        
-        # Try to determine label from directory name
-        # Using the same logic as above for each task type
-        
+        # 尝试从目录名确定标签
         print(f'No label determined for {file_path}')
         return None
     
