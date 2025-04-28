@@ -43,8 +43,6 @@ def parse_args():
                       help='Data modality to use (csi or acf)')
     parser.add_argument('--train-ratio', type=float, default=0.8,
                       help='Ratio of data to use for training (from training dir)')
-    parser.add_argument('--val-ratio', type=float, default=0.2,
-                      help='Ratio of data to use for validation (from training dir)')
     parser.add_argument('--win-len', type=int, default=250,
                       help='Window length for CSI data')
     parser.add_argument('--feature-size', type=int, default=90,
@@ -88,21 +86,51 @@ def train_supervised_csi(args):
     """Train a model on CSI data"""
     print(f"Starting supervised learning training on CSI modality...")
 
-    # 设置训练目录和验证目录
-    train_dir = args.training_dir
-    val_dir = args.training_dir
-    
     # 检查是否是SageMaker环境
     in_sagemaker = os.path.exists('/opt/ml/input/data')
     
-    # 在非SageMaker环境中检查目录是否存在
+    # 设置训练目录和验证目录
     if not in_sagemaker:
+        # 在本地环境中
+        train_dir = os.path.join(args.training_dir, 'train')
+        val_dir = os.path.join(args.training_dir, 'validation')
+        
+        # 检查本地目录是否存在
         if not os.path.exists(train_dir):
             raise ValueError(f"Training directory {train_dir} does not exist")
+        if not os.path.exists(val_dir):
+            raise ValueError(f"Validation directory {val_dir} does not exist")
     else:
-        # 在SageMaker环境中，确保目录存在
+        # 在SageMaker环境中，目录结构会有所不同
+        # SageMaker会将S3的内容下载到/opt/ml/input/data/training目录下
+        train_dir = os.path.join('/opt/ml/input/data/training', 'train')
+        val_dir = os.path.join('/opt/ml/input/data/training', 'validation')
+        
+        # 检查SageMaker中的目录是否存在
+        print(f"SageMaker training directory: {train_dir}")
+        print(f"SageMaker validation directory: {val_dir}")
+        
         if not os.path.exists(train_dir):
-            raise ValueError(f"SageMaker training directory {train_dir} does not exist")
+            # 查看训练目录的内容
+            print("Contents of /opt/ml/input/data/training:")
+            if os.path.exists('/opt/ml/input/data/training'):
+                print(os.listdir('/opt/ml/input/data/training'))
+            else:
+                print("Directory does not exist")
+            
+            # 尝试另一种路径
+            alt_train_dir = '/opt/ml/input/data/training'
+            if os.path.exists(alt_train_dir):
+                print(f"Using alternative training directory: {alt_train_dir}")
+                train_dir = alt_train_dir
+                val_dir = alt_train_dir
+            else:
+                raise ValueError(f"SageMaker training directory {train_dir} does not exist")
+        
+        if not os.path.exists(val_dir) and train_dir != val_dir:
+            # 如果验证目录不存在，使用训练目录
+            print(f"Validation directory {val_dir} does not exist, using training directory instead")
+            val_dir = train_dir
 
     # 使用更新后的load_csi_supervised加载数据
     train_loader, val_loader, test_loaders_dict = load_csi_supervised(
@@ -219,15 +247,51 @@ def train_supervised_acf(args):
     """Train a model on ACF data"""
     print(f"Starting supervised learning training on ACF modality...")
     
-    # 确保训练目录和验证目录存在
-    train_dir = os.path.join(args.training_dir, 'train')
-    val_dir = os.path.join(args.training_dir, 'validation')
+    # 检查是否是SageMaker环境
+    in_sagemaker = os.path.exists('/opt/ml/input/data')
     
-    # 检查训练和验证目录是否存在
-    if not os.path.exists(train_dir):
-        raise ValueError(f"Training directory {train_dir} does not exist")
-    if not os.path.exists(val_dir):
-        raise ValueError(f"Validation directory {val_dir} does not exist")
+    # 设置训练目录和验证目录
+    if not in_sagemaker:
+        # 在本地环境中
+        train_dir = os.path.join(args.training_dir, 'train')
+        val_dir = os.path.join(args.training_dir, 'validation')
+        
+        # 检查本地目录是否存在
+        if not os.path.exists(train_dir):
+            raise ValueError(f"Training directory {train_dir} does not exist")
+        if not os.path.exists(val_dir):
+            raise ValueError(f"Validation directory {val_dir} does not exist")
+    else:
+        # 在SageMaker环境中，目录结构会有所不同
+        # SageMaker会将S3的内容下载到/opt/ml/input/data/training目录下
+        train_dir = os.path.join('/opt/ml/input/data/training', 'train')
+        val_dir = os.path.join('/opt/ml/input/data/training', 'validation')
+        
+        # 检查SageMaker中的目录是否存在
+        print(f"SageMaker training directory: {train_dir}")
+        print(f"SageMaker validation directory: {val_dir}")
+        
+        if not os.path.exists(train_dir):
+            # 查看训练目录的内容
+            print("Contents of /opt/ml/input/data/training:")
+            if os.path.exists('/opt/ml/input/data/training'):
+                print(os.listdir('/opt/ml/input/data/training'))
+            else:
+                print("Directory does not exist")
+            
+            # 尝试另一种路径
+            alt_train_dir = '/opt/ml/input/data/training'
+            if os.path.exists(alt_train_dir):
+                print(f"Using alternative training directory: {alt_train_dir}")
+                train_dir = alt_train_dir
+                val_dir = alt_train_dir
+            else:
+                raise ValueError(f"SageMaker training directory {train_dir} does not exist")
+        
+        if not os.path.exists(val_dir) and train_dir != val_dir:
+            # 如果验证目录不存在，使用训练目录
+            print(f"Validation directory {val_dir} does not exist, using training directory instead")
+            val_dir = train_dir
     
     # 使用更新后的load_acf_supervised加载数据
     train_loader, val_loader, test_loaders_dict = load_acf_supervised(
@@ -251,9 +315,13 @@ def train_supervised_acf(args):
     )
     print("Using randomly initialized model")
     
-    # Setup save path
-    save_path = os.path.join(args.output_dir, args.results_subdir, 
-                           f"{args.task}_{args.model_name}_acf")
+    # Setup save path - 在SageMaker环境中使用不同的保存路径
+    if in_sagemaker:
+        save_path = os.path.join('/opt/ml/model', args.results_subdir, 
+                                f"{args.task}_{args.model_name}_acf")
+    else:
+        save_path = os.path.join(args.output_dir, args.results_subdir, 
+                                f"{args.task}_{args.model_name}_acf")
     os.makedirs(save_path, exist_ok=True)
     
     # Setup loss function
@@ -433,21 +501,25 @@ def main(args=None):
     
     # Check if running in SageMaker environment
     in_sagemaker = os.path.exists('/opt/ml/input/data')
-    
-    # In SageMaker, use the right directories
     if in_sagemaker:
         print("Running in SageMaker environment")
-        # SageMaker mounts input data to these directories
-        if os.path.exists('/opt/ml/input/data/training'):
-            args.training_dir = '/opt/ml/input/data/training'
-            print(f"Using SageMaker training directory: {args.training_dir}")
         
-        # Check for test directories - SageMaker may have them as separate channels
+        # 查看SageMaker中的数据目录结构
+        print("SageMaker input directories:")
+        if os.path.exists('/opt/ml/input/data'):
+            for data_dir in os.listdir('/opt/ml/input/data'):
+                print(f"  - {data_dir}")
+        
+        # 在SageMaker环境中，设置training_dir为/opt/ml/input/data/training
+        args.training_dir = '/opt/ml/input/data/training'
+        print(f"Using SageMaker training directory: {args.training_dir}")
+        
+        # 检查测试目录
         test_dirs = []
         if os.path.exists('/opt/ml/input/data/test'):
             test_dirs.append('/opt/ml/input/data/test')
         
-        # Check for additional test directories
+        # 检查额外的测试目录
         test_channel_pattern = re.compile(r'test\d+')
         for channel_dir in os.listdir('/opt/ml/input/data'):
             if test_channel_pattern.match(channel_dir):
