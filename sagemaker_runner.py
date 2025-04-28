@@ -126,7 +126,6 @@ class SageMakerRunner:
             'output-dir': output_dir,
             'results-subdir': 'supervised',
             'train-ratio': 0.8,
-            'val-ratio': 0.2,
             
             # Training parameters
             'batch-size': BATCH_SIZE,
