@@ -186,10 +186,10 @@ class SageMakerRunner:
             if key == 'warmup-epochs':
                 continue
                 
-            # Handle test-dirs for proper format
-            if key == 'test-dirs' and isinstance(value, list):
-                # Use standard test-dirs format rather than separate parameters
-                hyperparameters['test-dirs'] = ' '.join(value)
+            # Skip input channels as they'll be handled by SageMaker's input mechanism
+            if key in ['training-dir', 'test-dirs']:
+                continue
+                
             # Handle boolean flags properly (don't include value)
             elif key == 'freeze-backbone':
                 if value:
@@ -209,10 +209,26 @@ class SageMakerRunner:
         instance_type = instance_type or INSTANCE_TYPE
         job_name = f"{BASE_JOB_NAME}-{self.timestamp}"
         
+        # Ensure requirements.txt is included
+        dependencies = ["requirements.txt"]
+        
+        # Print information about requirements.txt
+        req_path = os.path.join(CODE_DIR, "requirements.txt")
+        if os.path.exists(req_path):
+            print(f"Using requirements.txt from {req_path}")
+            try:
+                with open(req_path, 'r') as f:
+                    requirements = f.read().strip()
+                    print(f"Requirements file contains:\n{requirements}")
+            except Exception as e:
+                print(f"Error reading requirements.txt: {e}")
+        else:
+            print(f"Warning: requirements.txt not found at {req_path}")
+        
         estimator = PyTorch(
             entry_point="train_supervised.py",
             source_dir=CODE_DIR,
-            dependencies=["requirements.txt"],
+            dependencies=dependencies,
             role=self.role,
             instance_type=instance_type,
             instance_count=INSTANCE_COUNT,
@@ -223,50 +239,51 @@ class SageMakerRunner:
             base_job_name=job_name,
             disable_profiler=True,
             debugger_hook_config=False,
-            environment={"HOROVOD_WITH_PYTORCH": "0"}
+            environment={
+                "HOROVOD_WITH_PYTORCH": "0", 
+                "SAGEMAKER_PROGRAM": "train_supervised.py"
+            }
         )
         
-        # Prepare inputs
-        inputs = {}
-        if config['mode'] == 'csi':
-            inputs['csi'] = config['training-dir']
-            # Add test directories - only use one for simplicity to avoid SageMaker channel naming issues
-            if config.get('test-dirs') and len(config.get('test-dirs')) > 0:
-                inputs['test'] = config['test-dirs'][0]
-        elif config['mode'] == 'acf':
-            inputs['acf'] = config['training-dir']
-            # Add test directories - only use one for simplicity to avoid SageMaker channel naming issues
-            if config.get('test-dirs') and len(config.get('test-dirs')) > 0:
-                inputs['test'] = config['test-dirs'][0]
+        # Setup input channels for SageMaker
+        inputs = {
+            "training": config['training-dir']
+        }
+        
+        # Add test directories as separate channels if provided
+        if config['test-dirs'] and len(config['test-dirs']) > 0:
+            for i, test_dir in enumerate(config['test-dirs']):
+                channel_name = f"test{i+1}" if i > 0 else "test"
+                inputs[channel_name] = test_dir
         
         # Print configuration
         print("\nSageMaker Job Configuration:")
         print(f"  Job Name: {job_name}")
         print(f"  Instance Type: {instance_type}")
-        print(f"  Input Paths:")
-        for key, value in inputs.items():
-            print(f"    {key}: {value}")
+        print(f"  Input Channels:")
+        for channel, path in inputs.items():
+            print(f"    {channel}: {path}")
         print(f"  Output Path: {config['output-dir']}")
         print(f"  Model: {config['model-name']}")
-        print(f"  Task: {config.get('task', 'Not specified')}")
-        print()
+        print(f"  Task: {config['task']}")
+        print(f"  Number of Classes: {config['num-classes']}")
+        print(f"  Number of Epochs: {config['num-epochs']}")
+        print(f"  Batch Size: {config['batch-size']}")
         
-        # Save configuration for reproducibility
-        config_path = os.path.join('/tmp', f"config_sagemaker_{job_name}.json")
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=2)
-        print(f"Configuration saved to {config_path}")
-        
-        # Submit training job
-        print(f"Submitting SageMaker training job: {job_name}")
+        # Launch training job
+        print("\nLaunching SageMaker training job...")
         estimator.fit(inputs, wait=False)
         
-        print(f"\nTraining job {job_name} submitted successfully.")
-        print(f"You can monitor the job in the SageMaker console or use the following code:")
-        print(f"    import sagemaker")
-        print(f"    sagemaker.Session().logs_for_job('{job_name}')")
+        print(f"\nSageMaker training job '{job_name}' launched.")
+        print(f"Check the AWS SageMaker console for job status and logs.")
         
-        return estimator
+        # Return job details
+        return {
+            'job_name': job_name,
+            'estimator': estimator,
+            'config': config,
+            'inputs': inputs
+        }
     
 def main():
     """Main function to execute from command line"""
