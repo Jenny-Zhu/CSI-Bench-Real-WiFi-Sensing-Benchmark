@@ -71,5 +71,15 @@ class MetaTaskDataset(Dataset):
             return torch.from_numpy(np.load(filepath)).float()
         elif filepath.endswith('.pt'):
             return torch.load(filepath).float()
+        elif filepath.endswith('.h5'):
+            # Add support for h5 files
+            import h5py
+            with h5py.File(filepath, 'r') as f:
+                # Load the first dataset found in the h5 file
+                # Adjust this based on your specific h5 file structure
+                for key in f.keys():
+                    data = f[key][()]
+                    break
+            return torch.from_numpy(data).float()
         else:
             raise ValueError(f"Unsupported file type: {filepath}")
