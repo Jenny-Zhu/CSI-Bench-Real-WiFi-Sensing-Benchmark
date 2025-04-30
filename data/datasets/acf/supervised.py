@@ -49,7 +49,8 @@ class ACFDatasetMAT(Dataset):
             'Detection': {'empty': 0, 'nonempty': 1},
             'NTUHumanID': {f'person{i}': i for i in range(15)},
             'NTUHAR': {'walking': 0, 'sitting': 1, 'standing': 2, 'jumping': 3, 'falling': 4, 'lying': 5},
-            'Widar': {f'activity{i}': i for i in range(22)}
+            'Widar': {f'activity{i}': i for i in range(22)},
+            'demo': {'Human': 0, 'Pet': 1, 'IRobot': 2, 'Fan': 3}  # 为demo任务添加标签映射
         }
         
         # Create class name mapping (for test set analysis)
@@ -219,6 +220,26 @@ class ACFDatasetMAT(Dataset):
                 if val in file_name:
                     return ind
             return None
+            
+        # Demo任务 - 四分类
+        elif self.task == 'demo':
+            if 'human' in file_name:
+                return 0  # Human类别索引为0
+            elif 'pet' in file_name:
+                return 1  # Pet类别索引为1
+            elif 'irobot' in file_name:
+                return 2  # IRobot类别索引为2
+            elif 'fan' in file_name:
+                return 3  # Fan类别索引为3
+            elif 'empty' in file_name or 'nomotion' in file_name:
+                # 对于empty文件，通常归类为Fan/空场景
+                return 3
+            else:
+                # 如果没有明确的匹配，尝试额外处理
+                if 'brendon' in file_name or any(x in file_name for x in ['person', 'walk', 'run']):
+                    return 0  # 可能是Human
+                print(f"Demo task: Could not determine label for {file_path}")
+                return None
         
         # Fallback to parent directory
         parent_dir = os.path.basename(os.path.dirname(file_path)).lower()
