@@ -8,13 +8,17 @@ class MLPClassifier(nn.Module):
     """Multi-layer Perceptron for WiFi sensing"""
     def __init__(self, win_len=250, feature_size=98, num_classes=2):
         super(MLPClassifier, self).__init__()
-        input_size = win_len * feature_size
+        # Calculate input size but limit it to prevent memory issues
+        input_size = min(win_len * feature_size, 10000)
+        
+        self.win_len = win_len
+        self.feature_size = feature_size
         
         self.fc = nn.Sequential(
-            nn.Linear(input_size, 1024),
+            nn.Linear(input_size, 512),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 128),
+            nn.Linear(512, 128),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(128, num_classes)
@@ -23,6 +27,9 @@ class MLPClassifier(nn.Module):
     def forward(self, x):
         # Flatten input: [batch, channels, win_len, feature_size] -> [batch, win_len*feature_size]
         x = x.view(x.size(0), -1)
+        # Limit input size if needed
+        if x.size(1) > 10000:
+            x = x[:, :10000]
         return self.fc(x)
 
 class LSTMClassifier(nn.Module):

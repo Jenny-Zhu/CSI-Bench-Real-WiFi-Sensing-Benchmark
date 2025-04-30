@@ -27,6 +27,7 @@ import time
 import argparse
 import json
 from datetime import datetime
+import importlib.util
 
 
 #==============================================================================
@@ -50,7 +51,7 @@ MODE = 'csi'  # Options: 'csi', 'acf'
 # Supervised Learning Options
 FREEZE_BACKBONE = False  # Freeze backbone network for supervised learning
 INTEGRATED_LOADER = True  # Use integrated data loader for supervised learning
-TASK = 'FourClass'  # Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)
+TASK = 'MotionSourceRecognition'  # Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)
 
 # Model Parameters
 WIN_LEN = 250  # Window length for CSI data
@@ -187,7 +188,7 @@ def get_supervised_config(training_dir=None, test_dirs=None, output_dir=None, mo
     # Define number of classes based on task
     task_class_mapping = {
         'HumanNonhuman': 2, 
-        'FourClass': 4, 
+        'MotionSourceRecognition': 4, 
         'NTUHumanID': 15, 
         'NTUHAR': 6, 
         'HumanID': 4, 
@@ -279,17 +280,51 @@ def get_meta_config(training_dir=None, output_dir=None):
 
 
 def run_supervised_direct(config):
-    """Run supervised learning pipeline directly using Python API"""
-    print("Running supervised learning pipeline directly...")
-    
-    # Import here to avoid circular imports
-    from train_supervised import main
-    
-    # Convert config dict to Namespace for compatibility
-    args = argparse.Namespace(**config)
-    
-    # Call main function
-    return main(args)
+    """Run supervised learning pipeline directly."""
+    try:
+        # Import required modules from train_supervised
+        import importlib.util
+        import sys
+        
+        # Import necessary modules from train_supervised
+        spec = importlib.util.spec_from_file_location("train_supervised", "scripts/train_supervised.py")
+        train_supervised = importlib.util.module_from_spec(spec)
+        sys.modules["train_supervised"] = train_supervised
+        spec.loader.exec_module(train_supervised)
+        
+        # Create an argparse namespace object to pass to the main function
+        args = type('Args', (), {})()
+        
+        # Set required arguments from config
+        setattr(args, 'data_dir', config.get('training_dir', TRAINING_DIR))
+        setattr(args, 'task_name', config.get('task', TASK))
+        setattr(args, 'model_type', config.get('model_name', MODEL_NAME).lower())
+        setattr(args, 'batch_size', config.get('batch_size', BATCH_SIZE))
+        setattr(args, 'num_epochs', config.get('num_epochs', EPOCH_NUMBER))
+        setattr(args, 'learning_rate', config.get('learning_rate', 0.001))
+        setattr(args, 'weight_decay', config.get('weight_decay', 1e-5))
+        setattr(args, 'win_len', config.get('win_len', WIN_LEN))
+        setattr(args, 'feature_size', config.get('feature_size', FEATURE_SIZE))
+        setattr(args, 'data_key', 'CSI_amps')
+        setattr(args, 'save_dir', os.path.join(config.get('output_dir', OUTPUT_DIR), config.get('results_subdir', 'supervised')))
+        setattr(args, 'warmup_epochs', config.get('warmup_epochs', 5))
+        setattr(args, 'patience', config.get('patience', 15))
+        setattr(args, 'in_channels', config.get('in_channels', 1))
+        setattr(args, 'emb_dim', config.get('emb_dim', 128))
+        setattr(args, 'dropout', config.get('dropout', 0.1))
+        
+        # Create save directory if it doesn't exist
+        os.makedirs(args.save_dir, exist_ok=True)
+        
+        # Call main function with prepared arguments
+        train_supervised.main(args)
+        
+    except Exception as e:
+        print(f"Error running pipeline: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    return True
 
 
 def run_meta_learning(config):

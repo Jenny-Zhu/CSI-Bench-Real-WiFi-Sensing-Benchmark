@@ -1,133 +1,93 @@
-# WiFi Sensing Analysis Tools
+# WiFi Sensing Benchmark
 
-This repository contains a set of tools for analyzing WiFi sensing model performance results directly from Amazon S3, eliminating the need to download large result files first.
+A comprehensive benchmark and training system for WiFi sensing using CSI data.
 
-## Overview
+## Project Structure
 
-These tools allow you to:
+```
+├── configs/                  # Model configuration files
+│   ├── lstm_config.json
+│   ├── mlp_config.json
+│   ├── resnet18_config.json
+│   ├── transformer_config.json
+│   └── vit_config.json
+├── scripts/                  # Training and utility scripts
+│   ├── run_model.py          # Main model training wrapper
+│   ├── local_runner.py       # Execution runner script
+│   └── train_supervised.py   # Implementation of training loop
+├── model/                    # Model implementations
+│   └── supervised/           # Supervised learning models
+├── engine/                   # Training engines
+│   └── supervised/           # Supervised learning trainers
+├── load/                     # Data loading utilities
+│   └── supervised/           # Supervised learning data loaders
+├── wifi_benchmark_dataset/   # Dataset directory
+│   └── tasks/                # Different WiFi sensing tasks
+└── results/                  # Training results and models
+└── train.py                  # Training shortcut script
+```
 
-1. **Directly analyze results from S3** without downloading files first
-2. **Generate comparison tables** across models and tasks
-3. **Create visualizations** of model performance 
-4. **Plot training/validation loss curves** to track model convergence
-5. **Generate comprehensive reports** with insights and recommendations
+## Training Models
 
-## Main Analysis Tool
-
-### S3 WiFi Analyzer (`s3_wifi_analyzer.py`)
-
-This comprehensive tool handles all aspects of WiFi sensing experiment analysis directly from S3.
+You can easily train different models using our training shortcut script:
 
 ```bash
-python s3_wifi_analyzer.py --s3-dir s3://bucket/results/ --tasks FourClass HumanNonhuman --models Transformer ResNet18
+python train.py --model [model_name] --task [task_name]
 ```
 
-#### Features
-
-- **Direct S3 Access**: Reads results directly from S3, no need to download files first
-- **Summary Tables**: Creates comprehensive tables of model performance across tasks
-- **Learning Curves**: Generates training and validation loss/accuracy curves
-- **Model Comparisons**: Visualizes performance comparisons between models across tasks
-- **Performance Metrics**: Analyzes accuracy, precision, recall, F1 score, and training time
-- **Aggregation**: Combines results from multiple runs using mean, median, or max
-
-#### Common Options
+Or use the full path to the wrapper script:
 
 ```bash
-# Analyze specific tasks and models
-python s3_wifi_analyzer.py --s3-dir s3://bucket/results/ --tasks FourClass HumanNonhuman --models Transformer ResNet18
-
-# Specify output directory
-python s3_wifi_analyzer.py --s3-dir s3://bucket/results/ --output-dir ./my_analysis/
-
-# Disable curve plotting to speed up analysis
-python s3_wifi_analyzer.py --s3-dir s3://bucket/results/ --no-plot-curves
-
-# Change aggregation method for multiple runs
-python s3_wifi_analyzer.py --s3-dir s3://bucket/results/ --agg-method max
+python scripts/run_model.py --model [model_name] --task [task_name]
 ```
 
-#### Full Parameter List
+### Available Models
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--s3-dir` | S3 URI containing results (Required) | None |
-| `--output-dir` | Local directory for analysis outputs | ./analysis_results |
-| `--tasks` | Specific tasks to analyze | All tasks |
-| `--models` | Specific models to analyze | All models |
-| `--metrics` | Performance metrics to analyze | accuracy, precision, recall, f1, training_time |
-| `--plot-curves` | Plot training/validation loss curves | True |
-| `--plot-comparisons` | Plot model performance comparisons | True |
-| `--agg-method` | Method to aggregate multiple runs (mean, median, max) | mean |
+- `mlp`: Multi-Layer Perceptron
+- `lstm`: Long Short-Term Memory
+- `resnet18`: ResNet-18 CNN
+- `transformer`: Transformer-based model
+- `vit`: Vision Transformer
 
-## Result Summarization Process
+### Available Tasks
 
-The current result summarization workflow efficiently analyzes WiFi sensing experiment results:
+- `MotionSourceRecognition`
+- `HumanMotion`
+- `DetectionandClassification`
+- `HumanID`
+- `NTUHAR`
 
-1. **Data Discovery**: The analyzer automatically discovers experiments in the specified S3 directory by navigating the hierarchical structure of task/model/job directories.
+### Example
 
-2. **File Extraction**: For each experiment, the tool locates and extracts data from:
-   - `classification_report.csv` - Contains model performance metrics
-   - `training_results.csv` - Contains training history data
-   - `hyperparams.json` - Contains experiment configuration parameters
+```bash
+# Train an LSTM model for MotionSourceRecognition
+python train.py --model lstm --task MotionSourceRecognition
 
-3. **Metrics Compilation**: Performance metrics are extracted and compiled into comprehensive tables:
-   - Overall summary table for all tasks and models
-   - Per-task performance tables
-   - Per-model average performance across tasks
-
-4. **Visualization Generation**:
-   - Training/validation loss curves for each experiment
-   - Accuracy curves for each experiment
-   - Model comparison heatmaps across tasks
-   - Bar charts of model performance
-
-5. **Report Generation**: A Markdown summary report is created with key findings and links to visualizations.
-
-## Expected S3 Directory Structure
-
-The tool expects results to be organized in the following hierarchy:
-
+# Train a transformer model with custom parameters
+python train.py --model transformer --task HumanID --epochs 20 --batch_size 64
 ```
-s3://bucket/results/
-  ├── Task1/
-  │    ├── Model1/
-  │    │    ├── Job1/
-  │    │    │    ├── classification_report.csv
-  │    │    │    └── training_results.csv
-  │    │    └── Job2/
-  │    └── Model2/
-  └── Task2/
-       ├── Model1/
-       └── Model2/
+
+## Configuration
+
+Model configurations are stored in the `configs/` directory. Each model has its own configuration file with parameters optimized for that architecture.
+
+You can directly modify these configs, or override key parameters from the command line:
+
+```bash
+python train.py --model lstm --task MotionSourceRecognition --epochs 20 --batch_size 64 --output_dir ./custom_results
 ```
+
+## Results
+
+Training results are saved in the `results/` directory, including:
+
+- Trained model weights
+- Training metrics and logs
+- Confusion matrices
+- Classification reports
 
 ## Requirements
 
 - Python 3.7+
-- boto3
-- pandas
-- matplotlib
-- seaborn
-- numpy
-
-## Installation
-
-```bash
-pip install boto3 pandas matplotlib seaborn numpy
-```
-
-## AWS Credentials
-
-The tool requires AWS credentials with S3 access. Configure your credentials using one of these methods:
-
-1. **AWS CLI**: Run `aws configure`
-2. **Environment variables**: Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
-3. **Credentials file**: Create a file at `~/.aws/credentials`
-
-## Troubleshooting
-
-1. **No results found**: Check the S3 path and verify the directory structure
-2. **Access denied**: Verify AWS credentials and permissions
-3. **Empty results**: Ensure the classification_report.csv and training_results.csv files exist
-4. **Memory errors**: For large datasets, analyze fewer tasks/models at once
+- PyTorch 1.8+
+- NumPy, Pandas, Matplotlib, Seaborn

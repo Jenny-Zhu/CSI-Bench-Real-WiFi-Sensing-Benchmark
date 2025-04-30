@@ -98,7 +98,7 @@ def run_meta_learning_direct(config):
 if __name__ == "__main__":
     # Example config (replace with your own or parse from file/args)
     config = {
-        'training_dir': "C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100\\train",
+        'training_dir': "C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100\\train\\h5_data\\train",
         'output_dir': "C:\\Guozhen\\Code\\Github\\temp",
         'results_subdir': 'meta',
         'model_type': 'lstm',
@@ -107,14 +107,15 @@ if __name__ == "__main__":
         'k_shot': 5,
         'q_query': 5,
         'meta_batch_size': 4,
-        'num_iterations': 10000,
+        'num_iterations': 1000,
         'win_len': 250,
-        'feature_size': 90,
+        'feature_size': 98,
         'in_channels': 1,
         'emb_dim': 128,
         'inner_lr': 0.01,
         'meta_lr': 0.001,
         'seed': 42,
-        'device': 'cuda'
+        'device': 'cuda',
+        'file_ext': '.h5'
     }
     run_meta_learning_direct(config)
