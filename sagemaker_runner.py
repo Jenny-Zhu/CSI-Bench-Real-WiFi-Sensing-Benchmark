@@ -77,7 +77,7 @@ SEED = 42
 BATCH_SIZE = 8
 EPOCH_NUMBER = 1  # Number of training epochs
 PATIENCE = 15  # Early stopping patience
-MODEL_NAME = 'Transformer'
+MODEL_NAME = 'ViT'
 
 # Advanced Configuration
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory containing the code
