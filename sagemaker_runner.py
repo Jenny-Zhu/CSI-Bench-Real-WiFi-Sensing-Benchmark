@@ -46,7 +46,7 @@ S3_OUTPUT_BASE = "s3://rnd-sagemaker/Benchmark_Log/"
 TASKS = ['demo']
 
 # Available models
-MODELS = ['Transformer', 'CNN', 'LSTM', 'ConvLSTM', 'ViT', 'ResNet']
+MODELS = ['ViT']
 
 # Map tasks to their test directories
 TASK_TEST_DIRS = {
