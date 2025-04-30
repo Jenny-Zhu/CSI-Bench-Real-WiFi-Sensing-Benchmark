@@ -60,7 +60,8 @@ def load_model_trained(checkpoint_path, model_name, task, win_len=250, feature_s
         'HumanMotion': 3, 
         'ThreeClass': 3, 
         'DetectionandClassification': 5, 
-        'Detection': 2
+        'Detection': 2,
+        'demo': 4  # 添加demo任务，设置为4个类别
     }
     
     # 确保任务在支持列表中
@@ -101,7 +102,8 @@ def load_model_scratch(model_name='ViT', task='ThreeClass', win_len=250, feature
         'HumanMotion': 3, 
         'ThreeClass': 3, 
         'DetectionandClassification': 5, 
-        'Detection': 2
+        'Detection': 2,
+        'demo': 4  # 添加demo任务，设置为4个类别
     }
     
     # 确保任务在支持列表中
