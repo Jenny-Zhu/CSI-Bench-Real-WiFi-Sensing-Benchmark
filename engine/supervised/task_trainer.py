@@ -11,44 +11,74 @@ import copy
 from sklearn.metrics import confusion_matrix, classification_report
 from torch.optim.lr_scheduler import LambdaLR
 from engine.base_trainer import BaseTrainer
-from engine.supervised.utils import warmup_schedule
+
+def warmup_schedule(epoch, warmup_epochs):
+    """Warmup learning rate schedule."""
+    if epoch < warmup_epochs:
+        # Linear warmup
+        return float(epoch) / float(max(1, warmup_epochs))
+    else:
+        # Cosine annealing
+        return 0.5 * (1.0 + np.cos(np.pi * epoch / warmup_epochs))
 
 class TaskTrainer(BaseTrainer):
     """Trainer for supervised learning tasks with CSI data."""
     
-    def __init__(self, model, data_loader, config, criterion=None):
-        """Initialize the trainer.
+    def __init__(self, model, train_loader, val_loader=None, test_loader=None, criterion=None, optimizer=None, 
+                 scheduler=None, device='cuda:0', save_path='./results', checkpoint_path=None, 
+                 num_classes=None, label_mapper=None, config=None):
+        """
+        Initialize the task trainer.
         
         Args:
-            model: The model to train.
-            data_loader: A tuple of (train_loader, val_loader).
-            config: The configuration object.
-            criterion: The loss function to use.
+            model: PyTorch model
+            train_loader: Training data loader
+            val_loader: Validation data loader
+            test_loader: Test data loader
+            criterion: Loss function
+            optimizer: Optimizer
+            scheduler: Learning rate scheduler
+            device: Device to use
+            save_path: Path to save results
+            checkpoint_path: Path to load checkpoint
+            num_classes: Number of classes for the model
+            label_mapper: LabelMapper for mapping between class indices and names
+            config: Configuration object with training parameters
         """
-        # Unpack data loaders
-        self.train_loader, self.val_loader = data_loader
+        self.model = model
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.test_loader = test_loader
+        self.criterion = criterion
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.device = device
+        self.save_path = save_path
+        self.checkpoint_path = checkpoint_path
+        self.num_classes = num_classes
+        self.label_mapper = label_mapper
+        self.config = config
         
-        super().__init__(model, self.train_loader, config)
+        # Create directory if it doesn't exist
+        os.makedirs(save_path, exist_ok=True)
         
-        # Set criterion
-        self.criterion = criterion if criterion is not None else nn.CrossEntropyLoss()
+        # Move model to device
+        self.model.to(self.device)
         
-        # Setup optimizer
-        self.setup_optimizer(
-            learning_rate=getattr(config, 'learning_rate', 1e-4),
-            weight_decay=getattr(config, 'weight_decay', 1e-5)
-        )
+        # Load checkpoint if specified
+        if checkpoint_path is not None:
+            self.load_checkpoint(checkpoint_path)
         
-        # Setup scheduler
-        self.setup_scheduler()
+        # Log
+        self.train_losses = []
+        self.train_accs = []
+        self.val_losses = []
+        self.val_accs = []
         
         # Training tracking
         self.train_accuracies = []
         self.val_accuracies = []
         self.best_val_accuracy = 0.0
-        
-        # Number of classes
-        self.num_classes = getattr(config, 'num_classes', 2)
     
     def setup_scheduler(self):
         """Set up learning rate scheduler."""
@@ -63,9 +93,14 @@ class TaskTrainer(BaseTrainer):
         # Records for tracking progress
         records = []
         
-        # Number of epochs
-        num_epochs = getattr(self.config, 'num_epochs', 100)
-        patience = getattr(self.config, 'patience', 15)
+        # Set default configuration values if config is None
+        if self.config is None:
+            num_epochs = 30
+            patience = 15
+        else:
+            # Number of epochs and patience from config
+            num_epochs = getattr(self.config, 'num_epochs', 30)
+            patience = getattr(self.config, 'patience', 15)
         
         # Best model state
         best_model = None
@@ -110,7 +145,15 @@ class TaskTrainer(BaseTrainer):
                 epochs_no_improve = 0
                 best_val_loss = val_loss
                 best_model = copy.deepcopy(self.model.state_dict())
-                self.save_model(name="best_model.pt")
+                # Save the best model
+                best_model_path = os.path.join(self.save_path, "best_model.pt")
+                torch.save({
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'val_loss': val_loss,
+                    'epoch': epoch,
+                }, best_model_path)
+                print(f"Best model saved to {best_model_path}")
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve == patience:
@@ -147,7 +190,29 @@ class TaskTrainer(BaseTrainer):
             
             # Transfer to device
             inputs = inputs.to(self.device)
-            labels = labels.to(self.device)
+            
+            # Handle case where labels might be a tuple
+            if isinstance(labels, tuple):
+                labels = labels[0]
+            
+            # Create batch of labels
+            batch_size = inputs.size(0)
+            
+            # Handle case where labels might be strings or scalars
+            if isinstance(labels, str):
+                try:
+                    # Create a tensor of the same value repeated batch_size times
+                    label_value = int(labels)
+                    labels = torch.tensor([label_value] * batch_size).to(self.device)
+                except:
+                    labels = torch.zeros(batch_size, dtype=torch.long).to(self.device)
+            elif not hasattr(labels, 'shape') or len(labels.shape) == 0:
+                # Handle scalar labels by repeating them
+                label_value = int(labels)
+                labels = torch.tensor([label_value] * batch_size).to(self.device)
+            else:
+                # If it's already a batch, just move to device
+                labels = labels.to(self.device)
             
             # One-hot encoding for labels if needed
             if self.criterion.__class__.__name__ in ['BCELoss', 'BCEWithLogitsLoss']:
@@ -160,6 +225,7 @@ class TaskTrainer(BaseTrainer):
             # Forward pass
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
+            
             loss = self.criterion(outputs, labels_one_hot)
             
             # Backward pass
@@ -213,7 +279,28 @@ class TaskTrainer(BaseTrainer):
                 
                 # Transfer to device
                 inputs = inputs.to(self.device)
-                labels = labels.to(self.device)
+                # Handle case where labels might be a tuple
+                if isinstance(labels, tuple):
+                    labels = labels[0]
+                
+                # Create batch of labels
+                batch_size = inputs.size(0)
+                
+                # Handle case where labels might be strings or scalars
+                if isinstance(labels, str):
+                    try:
+                        # Create a tensor of the same value repeated batch_size times
+                        label_value = int(labels)
+                        labels = torch.tensor([label_value] * batch_size).to(self.device)
+                    except:
+                        labels = torch.zeros(batch_size, dtype=torch.long).to(self.device)
+                elif not hasattr(labels, 'shape') or len(labels.shape) == 0:
+                    # Handle scalar labels by repeating them
+                    label_value = int(labels)
+                    labels = torch.tensor([label_value] * batch_size).to(self.device)
+                else:
+                    # If it's already a batch, just move to device
+                    labels = labels.to(self.device)
                 
                 # One-hot encoding for labels if needed
                 if self.criterion.__class__.__name__ in ['BCELoss', 'BCEWithLogitsLoss']:
@@ -284,37 +371,105 @@ class TaskTrainer(BaseTrainer):
         # Also plot confusion matrix
         self.plot_confusion_matrix()
     
-    def plot_confusion_matrix(self):
-        """Plot confusion matrix for validation data."""
+    def plot_confusion_matrix(self, data_loader=None, epoch=None, mode='val'):
+        """
+        Plot the confusion matrix and save the figure.
+        
+        Args:
+            data_loader: Dataloader to use for evaluation
+            epoch: Current epoch
+            mode: 'val' or 'test' mode
+        """
+        # Set evaluation mode
         self.model.eval()
+        
+        # Use validation loader if not specified
+        if data_loader is None:
+            if mode == 'val' and self.val_loader is not None:
+                data_loader = self.val_loader
+            elif mode == 'test' and self.test_loader is not None:
+                data_loader = self.test_loader
+            else:
+                raise ValueError(f"No data loader available for mode {mode}")
+        
+        # Collect all predictions and labels
         all_preds = []
         all_labels = []
         
         with torch.no_grad():
-            for inputs, labels in self.val_loader:
-                inputs = inputs.to(self.device)
-                outputs = self.model(inputs)
+            for batch in data_loader:
+                # Get data and labels
+                if isinstance(batch, dict):
+                    data = batch['data']
+                    labels = batch['labels']
+                else:
+                    data, labels = batch
                 
-                if outputs.shape[1] > 1:  # Multi-class
-                    preds = torch.argmax(outputs, dim=1)
-                else:  # Binary
-                    preds = (outputs > 0.5).float()
+                # Handle different label formats
+                if isinstance(labels, tuple):
+                    # Use the first element as class label
+                    labels = labels[0]
                 
+                # Move data to device
+                data = data.to(self.device)
+                if isinstance(labels, torch.Tensor):
+                    labels = labels.to(self.device)
+                elif isinstance(labels, (list, np.ndarray)):
+                    labels = torch.tensor(labels).to(self.device)
+                
+                # Forward pass
+                outputs = self.model(data)
+                _, preds = torch.max(outputs, 1)
+                
+                # Collect predictions and labels
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
         
-        # Create confusion matrix
-        cm = confusion_matrix(all_labels, all_preds)
+        # Convert to numpy arrays
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
         
-        # Plot
+        # Get class names if available
+        class_names = None
+        if self.label_mapper is not None:
+            class_names = [self.label_mapper.get_name(i) for i in range(self.num_classes)]
+        
+        # Plot confusion matrix
+        cm = confusion_matrix(all_labels, all_preds)
         plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                   xticklabels=class_names, yticklabels=class_names)
         plt.xlabel('Predicted')
         plt.ylabel('True')
-        plt.title('Confusion Matrix')
-        plt.savefig(os.path.join(self.save_path, 'confusion_matrix.png'))
+        plt.title(f'Confusion Matrix ({mode})')
+        
+        # Save figure
+        epoch_str = f'_epoch{epoch}' if epoch is not None else ''
+        plt.savefig(os.path.join(self.save_path, f'confusion_matrix_{mode}{epoch_str}.png'))
         plt.close()
         
-        # Also save classification report
+        # Generate and save classification report
         report = classification_report(all_labels, all_preds, output_dict=True)
-        pd.DataFrame(report).transpose().to_csv(os.path.join(self.save_path, 'classification_report.csv'))
+        report_df = pd.DataFrame(report).transpose()
+        
+        # Replace indices with class names if available
+        if class_names is not None:
+            # Create a mapping dictionary from indices to class names
+            index_to_name = {}
+            for i, name in enumerate(class_names):
+                index_to_name[str(i)] = name
+            
+            # Replace indices with class names
+            new_index = []
+            for idx in report_df.index:
+                if idx in index_to_name:
+                    new_index.append(index_to_name[idx])
+                else:
+                    new_index.append(idx)
+            
+            report_df.index = new_index
+        
+        # Save report
+        report_df.to_csv(os.path.join(self.save_path, f'classification_report_{mode}{epoch_str}.csv'))
+        
+        return report_df
