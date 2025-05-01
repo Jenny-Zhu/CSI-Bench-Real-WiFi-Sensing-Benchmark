@@ -166,10 +166,18 @@ class SageMakerRunner:
         current_model = model_name or MODEL_NAME
         
         # Set default paths if not provided, adjusting for the current task
+        # Update paths to match new data structure: base_path/tasks/task_name/
         if training_dir is None:
-            training_dir = f"{S3_DATA_BASE}{current_task}/"
+            # Point to the base directory containing tasks folder
+            # Ensure S3_DATA_BASE ends with a slash for consistency
+            base_path = S3_DATA_BASE if S3_DATA_BASE.endswith('/') else f"{S3_DATA_BASE}/"
+            training_dir = base_path
+        
+        # Test directories are not needed with the new data loading approach
+        # as they are determined by the splits inside the task directory
         if test_dirs is None:
-            test_dirs = [f"{S3_DATA_BASE}{current_task}/{test_dir}" for test_dir in TASK_TEST_DIRS.get(current_task, ["test/"])]
+            test_dirs = []
+            
         if output_dir is None:
             output_dir = f"{S3_OUTPUT_BASE}{current_task}/"
         
@@ -177,36 +185,36 @@ class SageMakerRunner:
         num_classes = TASK_CLASS_MAPPING.get(current_task, 2)  # Default to 2 if task not found
         
         config = {
-            # Data parameters
-            'training-dir': training_dir,
-            'test-dirs': test_dirs,
-            'output-dir': output_dir,
-            'results-subdir': f'supervised/{current_model}',  # Include model in results path
-            'train-ratio': 0.8,
+            # Data parameters - use underscores instead of dashes for parameter names
+            # to match the new data loading convention
+            'data_dir': training_dir,
+            'task_name': current_task,
+            'output_dir': output_dir,
+            'results_subdir': f'supervised/{current_model}',  # Include model in results path
             
             # Training parameters
-            'batch-size': BATCH_SIZE,
-            'learning-rate': 1e-4,
-            'weight-decay': 1e-5,
-            'num-epochs': EPOCH_NUMBER,
-            'warmup-epochs': 5,
+            'batch_size': BATCH_SIZE,
+            'learning_rate': 1e-4,
+            'weight_decay': 1e-5,
+            'num_epochs': EPOCH_NUMBER,
+            'warmup_epochs': 5,
             'patience': PATIENCE,
             
             # Model parameters
             'mode': mode,
-            'num-classes': num_classes,
-            'freeze-backbone': FREEZE_BACKBONE,
+            'num_classes': num_classes,
+            'freeze_backbone': FREEZE_BACKBONE,
             
             # Integrated loader options
-            'integrated-loader': INTEGRATED_LOADER,
-            'task': current_task,
+            'integrated_loader': INTEGRATED_LOADER,
             
             # Other parameters
             'seed': SEED,
             'device': 'cuda',  # SageMaker instances will have GPU
-            'model-name': current_model,
-            'win-len': WIN_LEN,
-            'feature-size': FEATURE_SIZE
+            'model_type': current_model.lower(),  # Updated to model_type for train_supervised.py
+            'win_len': WIN_LEN,
+            'feature_size': FEATURE_SIZE,
+            'data_key': 'CSI_amps'  # Add data_key parameter
         }
         
         return config
@@ -244,20 +252,16 @@ class SageMakerRunner:
         # Convert config to hyperparameters dict for SageMaker
         hyperparameters = {}
         for key, value in config.items():
-            # Skip warmup-epochs which isn't supported
-            if key == 'warmup-epochs':
+            # Skip fields that are handled differently
+            if key in ['data_dir', 'output_dir']:
                 continue
                 
-            # Skip input channels as they'll be handled by SageMaker's input mechanism
-            if key in ['training-dir', 'test-dirs']:
-                continue
-                
-            # Handle boolean flags properly (don't include value)
-            elif key == 'freeze-backbone':
+            # Handle boolean flags properly
+            if key == 'freeze_backbone' and isinstance(value, bool):
                 if value:
                     hyperparameters[key] = ''  # Include flag without value to set True
                 # Skip if False - absence of flag means False
-            elif key == 'integrated-loader':
+            elif key == 'integrated_loader' and isinstance(value, bool):
                 if value:
                     hyperparameters[key] = ''  # Include flag without value to set True
                 # Skip if False - absence of flag means False
@@ -289,7 +293,7 @@ class SageMakerRunner:
             framework_version=FRAMEWORK_VERSION,
             py_version=PY_VERSION,
             hyperparameters=hyperparameters,
-            output_path=config['output-dir'],
+            output_path=config['output_dir'],
             base_job_name=job_name,
             disable_profiler=True,
             debugger_hook_config=False,
@@ -300,22 +304,17 @@ class SageMakerRunner:
         )
         
         # Setup input channels for SageMaker
+        # With new data loading approach, we only need to provide the base data directory
         inputs = {
-            "training": config['training-dir']
+            "training": config['data_dir']
         }
-        
-        # Add test directories as separate channels if provided
-        if config['test-dirs'] and len(config['test-dirs']) > 0:
-            for i, test_dir in enumerate(config['test-dirs']):
-                channel_name = f"test{i+1}" if i > 0 else "test"
-                inputs[channel_name] = test_dir
         
         # Print configuration
         print(f"Job: {job_name}")
         print(f"  Task: {current_task}")
         print(f"  Model: {current_model}")
         print(f"  Instance: {instance_type}")
-        print(f"  Training path: {inputs['training']}")
+        print(f"  Data directory: {inputs['training']}")
         
         # Launch training job
         print("Launching SageMaker job...")
@@ -361,6 +360,9 @@ class SageMakerRunner:
         print(f"Tasks: {', '.join(tasks)}")
         print(f"Models: {', '.join(models)}")
         
+        # Common data directory for all tasks (with new data loading approach)
+        data_dir = S3_DATA_BASE
+        
         # Loop through all combinations
         for i, current_task in enumerate(tasks):
             for j, current_model in enumerate(models):
@@ -369,16 +371,14 @@ class SageMakerRunner:
                 
                 print(f"\n[{job_index}/{total_jobs}] Starting job: Task={current_task}, Model={current_model}")
                 
-                # Create task-specific paths
-                training_dir = f"{S3_DATA_BASE}{current_task}/"
-                test_dirs = [f"{S3_DATA_BASE}{current_task}/{test_dir}" for test_dir in TASK_TEST_DIRS.get(current_task, ["test/"])]
+                # Create task-specific output path
                 output_dir = f"{S3_OUTPUT_BASE}{current_task}/"
                 
                 try:
                     # Run supervised training with current task and model
                     job_details = self.run_supervised(
-                        training_dir=training_dir,
-                        test_dirs=test_dirs,
+                        training_dir=data_dir,
+                        test_dirs=None,  # No specific test dirs with new approach
                         output_dir=output_dir,
                         mode=mode,
                         instance_type=instance_type,
@@ -442,23 +442,24 @@ class SageMakerRunner:
         print(f"Tasks: {', '.join(tasks)}")
         print(f"Models: {', '.join(models)}")
         
+        # Common data directory for all tasks
+        data_dir = S3_DATA_BASE
+        
         # 循环遍历每个任务
         for i, current_task in enumerate(tasks):
             job_index = i + 1
             
             print(f"\n[{job_index}/{len(tasks)}] Starting job: Task={current_task} (all models)")
             
-            # 创建特定于任务的路径
-            training_dir = f"{S3_DATA_BASE}{current_task}/"
-            test_dirs = [f"{S3_DATA_BASE}{current_task}/{test_dir}" for test_dir in TASK_TEST_DIRS.get(current_task, ["test/"])]
+            # Create task-specific output path
             output_dir = f"{S3_OUTPUT_BASE}{current_task}/"
             
             try:
                 # 使用自定义脚本运行所有模型训练
                 # 这里我们创建一个额外的参数来指定要训练的所有模型
                 config = self.get_supervised_config(
-                    training_dir=training_dir,
-                    test_dirs=test_dirs,
+                    training_dir=data_dir,
+                    test_dirs=None,  # No specific test dirs with new approach
                     output_dir=output_dir,
                     mode=mode,
                     task=current_task,
@@ -467,30 +468,26 @@ class SageMakerRunner:
                 )
                 
                 # 添加一个特殊参数，指定要训练的所有模型
-                config['all-models'] = models
+                config['all_models'] = models
                 
                 # 转换配置为超参数字典
                 hyperparameters = {}
                 for key, value in config.items():
-                    # 跳过warmup-epochs（不支持）
-                    if key == 'warmup-epochs':
+                    # 跳过特定字段
+                    if key in ['data_dir', 'output_dir']:
                         continue
                         
-                    # 跳过输入通道（将由SageMaker的输入机制处理）
-                    if key in ['training-dir', 'test-dirs']:
-                        continue
-                        
-                    # 正确处理布尔标志（不包含值）
-                    elif key == 'freeze-backbone':
+                    # 正确处理布尔标志
+                    if key == 'freeze_backbone' and isinstance(value, bool):
                         if value:
                             hyperparameters[key] = ''  # 不带值包含标志表示True
                         # 如果为False则跳过 - 标志不存在表示False
-                    elif key == 'integrated-loader':
+                    elif key == 'integrated_loader' and isinstance(value, bool):
                         if value:
                             hyperparameters[key] = ''  # 不带值包含标志表示True
                         # 如果为False则跳过 - 标志不存在表示False
                     # 处理所有模型列表
-                    elif key == 'all-models':
+                    elif key == 'all_models':
                         hyperparameters[key] = ' '.join(value)
                     # 处理其他列表
                     elif isinstance(value, list):
@@ -516,7 +513,7 @@ class SageMakerRunner:
                     framework_version=FRAMEWORK_VERSION,
                     py_version=PY_VERSION,
                     hyperparameters=hyperparameters,
-                    output_path=config['output-dir'],
+                    output_path=config['output_dir'],
                     base_job_name=job_name,
                     disable_profiler=True,
                     debugger_hook_config=False,
@@ -528,21 +525,15 @@ class SageMakerRunner:
                 
                 # 设置SageMaker的输入通道
                 inputs = {
-                    "training": config['training-dir']
+                    "training": config['data_dir']
                 }
-                
-                # 如果提供了测试目录，则将其添加为单独的通道
-                if config['test-dirs'] and len(config['test-dirs']) > 0:
-                    for i, test_dir in enumerate(config['test-dirs']):
-                        channel_name = f"test{i+1}" if i > 0 else "test"
-                        inputs[channel_name] = test_dir
                 
                 # 打印配置
                 print(f"Job: {job_name}")
                 print(f"  Task: {current_task}")
                 print(f"  Models: {', '.join(models)}")
                 print(f"  Instance: {instance_type}")
-                print(f"  Training path: {inputs['training']}")
+                print(f"  Data directory: {inputs['training']}")
                 
                 # 启动训练作业
                 print("Launching SageMaker job...")
@@ -596,9 +587,9 @@ class SageMakerRunner:
                 f.write(f"Job: {job_key}\n")
                 f.write(f"  Job Name: {job_details['job_name']}\n")
                 f.write(f"  Input: {job_details['inputs']['training']}\n")
-                f.write(f"  Output: {job_details['config']['output-dir']}\n")
-                f.write(f"  Task: {job_details['config']['task']}\n")
-                f.write(f"  Model: {job_details['config']['model-name']}\n")
+                f.write(f"  Output: {job_details['config']['output_dir']}\n")
+                f.write(f"  Task: {job_details['config']['task_name']}\n")
+                f.write(f"  Model: {job_details['config']['model_type']}\n")
                 
                 # Add information about multiple models if available
                 if 'models' in job_details:
@@ -617,10 +608,10 @@ class SageMakerRunner:
         for job_key, job_details in jobs.items():
             summary_data["jobs"][job_key] = {
                 "job_name": job_details['job_name'],
-                "task": job_details['config']['task'],
-                "model": job_details['config']['model-name'],
+                "task": job_details['config']['task_name'],
+                "model": job_details['config']['model_type'],
                 "input": job_details['inputs']['training'],
-                "output": job_details['config']['output-dir']
+                "output": job_details['config']['output_dir']
             }
             
             # Add information about multiple models if available
@@ -662,10 +653,8 @@ def main():
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
     parser.add_argument('--task', type=str, default=DEFAULT_TASK, choices=TASKS,
                       help=f'Task to run (default: {DEFAULT_TASK}). Available tasks: {", ".join(TASKS)}')
-    parser.add_argument('--training-dir', type=str, default=None,
-                      help='S3 URI containing training data (default: task-specific directory)')
-    parser.add_argument('--test-dirs', type=str, nargs='+', default=None,
-                      help='List of S3 URIs containing test data. Can specify multiple paths')
+    parser.add_argument('--data-dir', type=str, default=None,
+                      help='S3 URI containing data (default: S3_DATA_BASE)')
     parser.add_argument('--output-dir', type=str, default=None,
                       help='S3 URI to save output results (default: task-specific directory)')
     parser.add_argument('--mode', type=str, default=MODE,
@@ -717,8 +706,8 @@ def main():
     else:
         # 运行单个训练作业
         runner.run_supervised(
-            args.training_dir, 
-            args.test_dirs, 
+            args.data_dir, 
+            None,  # test_dirs no longer needed with new approach
             args.output_dir, 
             args.mode, 
             args.config_file,
