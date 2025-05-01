@@ -14,7 +14,16 @@ from datetime import datetime
 from sklearn.metrics import confusion_matrix, classification_report
 from torch.optim.lr_scheduler import LambdaLR
 from engine.base_trainer import BaseTrainer
-from engine.supervised.utils import warmup_schedule
+
+def warmup_schedule(epoch, warmup_epochs):
+    """Warmup learning rate schedule."""
+    if epoch < warmup_epochs:
+        # Linear warmup
+        return float(epoch) / float(max(1, warmup_epochs))
+    else:
+        # Cosine annealing
+        return 0.5 * (1.0 + np.cos(np.pi * epoch / warmup_epochs))
+        
 
 class TaskTrainerACF(BaseTrainer):
     """Trainer for supervised learning tasks with ACF data."""

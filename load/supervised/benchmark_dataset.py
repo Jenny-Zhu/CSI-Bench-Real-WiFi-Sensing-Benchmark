@@ -100,11 +100,68 @@ class BenchmarkCSIDataset(Dataset):
         row = self.split_metadata.iloc[idx]
         
         # Get file path (might be relative to dataset_root)
-        filepath = row[self.data_column]
-        if filepath.startswith('./'):
-            filepath = filepath[2:]  # Remove leading './'
+        original_filepath = row[self.data_column]
+        filepath = original_filepath
+        
+   
+        
+        # # Debug print - original path from CSV
+        # print(f"Original path from CSV: {original_filepath}")
+        # print(f"Dataset root: {self.dataset_root}")
+        
+        # Handle different path formats
         if not os.path.isabs(filepath):
-            filepath = os.path.join(self.dataset_root, filepath)
+            # Case 1: Path includes 'tasks/TaskName/...'
+            if filepath.startswith('/tasks/') or filepath.startswith('tasks/') or filepath.startswith('tasks\\'):
+                filepath = os.path.join(self.dataset_root, filepath)
+            
+            # Case 2: Path is just 'TaskName/...'
+            elif filepath.startswith(f"{self.task_name}/") or filepath.startswith(f"{self.task_name}\\"):
+                filepath = os.path.join(self.dataset_root, 'tasks', filepath)
+            
+            # Case 3: Path is relative to task directory
+            else:
+                filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filepath)
+        
+        # # Debug print - constructed path
+        # print(f"Final path constructed: {filepath}")
+        
+        # Check if file exists
+        if not os.path.exists(filepath):
+            # Try alternative constructions if file not found
+            alt_paths = []
+            
+            # Alternative 1: Try joining directly
+            alt1 = os.path.join(self.dataset_root, original_filepath)
+            alt_paths.append(("Direct join", alt1))
+            
+            # Alternative 2: Try with 'tasks' prefix
+            if 'tasks' not in original_filepath:
+                alt2 = os.path.join(self.dataset_root, 'tasks', original_filepath)
+                alt_paths.append(("With tasks prefix", alt2))
+            
+            # Alternative 3: Try with task name
+            if self.task_name not in original_filepath:
+                alt3 = os.path.join(self.dataset_root, 'tasks', self.task_name, original_filepath)
+                alt_paths.append(("With task name", alt3))
+            
+            # Check alternatives
+            for desc, alt_path in alt_paths:
+                print(f"Trying alternative path ({desc}): {alt_path}")
+                if os.path.exists(alt_path):
+                    print(f"Found file using alternative path: {alt_path}")
+                    filepath = alt_path
+                    break
+            
+            # If still not found, raise error with detailed information
+            if not os.path.exists(filepath):
+                error_msg = f"File not found: {filepath}\n"
+                error_msg += f"Original path from CSV: {original_filepath}\n"
+                error_msg += f"Dataset root: {self.dataset_root}\n"
+                error_msg += "Tried alternative paths:\n"
+                for desc, alt_path in alt_paths:
+                    error_msg += f"  - {desc}: {alt_path}\n"
+                raise FileNotFoundError(error_msg)
         
         # Load data based on file format
         if self.file_format == "npy":

@@ -63,7 +63,9 @@ def main(args=None):
         parser.add_argument('--in_channels', type=int, default=1, 
                             help='Number of input channels')
         parser.add_argument('--emb_dim', type=int, default=128, 
-                            help='Embedding dimension')
+                            help='Embedding dimension for ViT model')
+        parser.add_argument('--d_model', type=int, default=256, 
+                            help='Model dimension for Transformer model')
         parser.add_argument('--dropout', type=float, default=0.1, 
                             help='Dropout rate')
         args = parser.parse_args()
@@ -125,15 +127,24 @@ def main(args=None):
             'in_channels': args.in_channels
         })
     
-    if args.model_type in ['lstm', 'transformer']:
+    if args.model_type == 'lstm':
         model_params.update({
-            'feature_size': args.feature_size
+            'feature_size': args.feature_size,
+            'dropout': args.dropout
         })
     
-    if args.model_type in ['vit', 'transformer']:
+    if args.model_type == 'transformer':
         model_params.update({
-            'embedding_dim': args.emb_dim,
+            'feature_size': args.feature_size,
+            'd_model': args.d_model,
             'dropout': args.dropout
+        })
+    
+    if args.model_type == 'vit':
+        model_params.update({
+            'emb_dim': args.emb_dim,
+            'dropout': args.dropout,
+            'in_channels': args.in_channels
         })
     
     model = ModelClass(**model_params)
