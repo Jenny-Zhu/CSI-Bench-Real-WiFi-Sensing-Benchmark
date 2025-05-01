@@ -1,0 +1,51 @@
+{
+  "pipeline": "supervised",
+  "s3_data_base": "s3://rnd-sagemaker/Data/Benchmark/",
+  "s3_output_base": "s3://rnd-sagemaker/Benchmark_Log/",
+  "mode": "csi",
+  "freeze_backbone": false,
+  "integrated_loader": true,
+  "task": "MotionSourceRecognition",
+  "win_len": 250,
+  "feature_size": 98,
+  "seed": 42,
+  "batch_size": 8,
+  "num_epochs": 10,
+  "model_name": "transformer", 
+  "instance_type": "ml.g4dn.xlarge",
+  "instance_count": 1,
+  "framework_version": "1.12.1",
+  "py_version": "py38",
+  "base_job_name": "wifi-sensing-supervised",
+  "batch_wait_time": 30,
+  "batch_mode": "by-task",
+  "task_class_mapping": {
+    "HumanNonhuman": 2, 
+    "MotionSourceRecognition": 4, 
+    "NTUHumanID": 15, 
+    "NTUHAR": 6, 
+    "HumanID": 4, 
+    "Widar": 22,
+    "HumanMotion": 3, 
+    "ThreeClass": 3, 
+    "DetectionandClassification": 5, 
+    "Detection": 2,
+    "demo": 2
+  },
+  "task_test_dirs": {
+    "demo": ["test/"]
+  },
+  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
+  "available_tasks": [
+    "MotionSourceRecognition", 
+    "HumanMotion", 
+    "DetectionandClassification", 
+    "HumanID", 
+    "NTUHAR",
+    "HumanNonhuman",
+    "NTUHumanID",
+    "Widar",
+    "ThreeClass",
+    "Detection"
+  ]
+} 

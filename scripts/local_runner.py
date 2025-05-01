@@ -3,20 +3,24 @@
 """
 WiFi Sensing Pipeline Runner - Local Environment
 
-This script allows you to run any of the two pipelines:
-1. Supervised learning
-2. Meta-learning
+This script serves as the main entry point for WiFi sensing benchmark.
+It incorporates functionality from train.py, run_model.py, and the original local_runner.py.
 
 Usage:
-    python local_runner.py --pipeline supervised
+    python local_runner.py --model [model_name] --task [task_name]
+    python local_runner.py --pipeline supervised --config_file [config_path]
     python local_runner.py --pipeline meta
     
 Additional parameters:
+    --model: Model architecture to train (mlp, lstm, resnet18, transformer, vit)
+    --task: Task to train the model on (MotionSourceRecognition, HumanMotion, etc.)
     --training_dir: Directory containing the training data
     --test_dirs: List of directories containing test data
     --output_dir: Directory to save output results
     --mode: Data modality to use (csi or acf)
     --config_file: JSON configuration file to override defaults
+    --epochs: Number of epochs to train
+    --batch_size: Batch size for training
 """
 
 import os
@@ -29,46 +33,89 @@ import json
 from datetime import datetime
 import importlib.util
 
+# Default paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+CONFIG_DIR = os.path.join(ROOT_DIR, "configs")
+DEFAULT_CONFIG_PATH = os.path.join(CONFIG_DIR, "local_default_config.json")
 
-#==============================================================================
-# CONFIGURATION SECTION - MODIFY PARAMETERS HERE
-#==============================================================================
+# Load default configuration from JSON file
+def load_default_config():
+    """Load the default configuration from the JSON config file"""
+    try:
+        with open(DEFAULT_CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+        print(f"Loaded default configuration from {DEFAULT_CONFIG_PATH}")
+        return config
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load default config file: {e}")
+        print("Using hardcoded default values instead.")
+        # Fallback to hardcoded defaults
+        return {
+            "pipeline": "supervised",
+            "training_dir": "wifi_benchmark_dataset",
+            "test_dirs": [],
+            "output_dir": "./results",
+            "mode": "csi",
+            "freeze_backbone": False,
+            "integrated_loader": True,
+            "task": "MotionSourceRecognition",
+            "win_len": 250,
+            "feature_size": 98,
+            "seed": 42,
+            "batch_size": 8,
+            "num_epochs": 10,
+            "model_name": "transformer",
+            "task_class_mapping": {
+                "HumanNonhuman": 2, 
+                "MotionSourceRecognition": 4, 
+                "NTUHumanID": 15, 
+                "NTUHAR": 6, 
+                "HumanID": 4, 
+                "Widar": 22,
+                "HumanMotion": 3, 
+                "ThreeClass": 3, 
+                "DetectionandClassification": 5, 
+                "Detection": 2
+            },
+            "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
+            "available_tasks": [
+                "MotionSourceRecognition", 
+                "HumanMotion", 
+                "DetectionandClassification", 
+                "HumanID", 
+                "NTUHAR",
+                "HumanNonhuman",
+                "NTUHumanID",
+                "Widar",
+                "ThreeClass",
+                "Detection"
+            ]
+        }
 
-# Pipeline to run: 'supervised', or 'meta'
-PIPELINE = 'supervised'
+# Load the default configuration
+DEFAULT_CONFIG = load_default_config()
 
-# Data and Output Directories
-# For supervised learning with integrated loader, TRAINING_DIR should point directly 
-# to the folder containing .mat files or to the parent folder containing these files
-TRAINING_DIR = "C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100\\train"
-# Test directories can be a list of paths to evaluate on multiple test sets
-TEST_DIRS = ["C:\\Guozhen\\Code\\Github\\WiFiSSL\\dataset\\task\\HM3\\CSIMAT100\\test"]  # Example: ["C:\\Users\\weiha\\Desktop\\test1", "C:\\Users\\weiha\\Desktop\\test2"]
-OUTPUT_DIR = "C:\\Guozhen\\Code\\Github\\temp"
+# Extract configuration values
+AVAILABLE_MODELS = DEFAULT_CONFIG.get("available_models", ["mlp", "lstm", "resnet18", "transformer", "vit"])
+AVAILABLE_TASKS = DEFAULT_CONFIG.get("available_tasks", [])
+TASK_CLASS_MAPPING = DEFAULT_CONFIG.get("task_class_mapping", {})
 
-# Data Modality
-MODE = 'csi'  # Options: 'csi', 'acf'
-
-# Supervised Learning Options
-FREEZE_BACKBONE = False  # Freeze backbone network for supervised learning
-INTEGRATED_LOADER = True  # Use integrated data loader for supervised learning
-TASK = 'MotionSourceRecognition'  # Task type for integrated loader (e.g., ThreeClass, HumanNonhuman)
-
-# Model Parameters
-WIN_LEN = 250  # Window length for CSI data
-FEATURE_SIZE = 98  # Feature size for CSI data
-
-# Common Training Parameters
-SEED = 42
-BATCH_SIZE = 8
-EPOCH_NUMBER = 1  # Number of training epochs
-MODEL_NAME = 'Transformer'
-
-# Advanced Configuration
-CONFIG_FILE = None  # Path to JSON configuration file to override defaults
-
-#==============================================================================
-# END OF CONFIGURATION SECTION
-#==============================================================================
+# Default values from config
+PIPELINE = DEFAULT_CONFIG.get("pipeline", "supervised")
+TRAINING_DIR = DEFAULT_CONFIG.get("training_dir", "wifi_benchmark_dataset")
+TEST_DIRS = DEFAULT_CONFIG.get("test_dirs", [])
+OUTPUT_DIR = DEFAULT_CONFIG.get("output_dir", "./results")
+MODE = DEFAULT_CONFIG.get("mode", "csi")
+FREEZE_BACKBONE = DEFAULT_CONFIG.get("freeze_backbone", False)
+INTEGRATED_LOADER = DEFAULT_CONFIG.get("integrated_loader", True)
+TASK = DEFAULT_CONFIG.get("task", "MotionSourceRecognition")
+WIN_LEN = DEFAULT_CONFIG.get("win_len", 250)
+FEATURE_SIZE = DEFAULT_CONFIG.get("feature_size", 98)
+SEED = DEFAULT_CONFIG.get("seed", 42)
+BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
+EPOCH_NUMBER = DEFAULT_CONFIG.get("num_epochs", 10)
+MODEL_NAME = DEFAULT_CONFIG.get("model_name", "transformer")
 
 # Check if CUDA is available
 if torch.cuda.is_available():
@@ -174,40 +221,24 @@ def run_command(cmd, display_output=True, timeout=1800):
         
         return -1, error_msg
 
-# Configure supervised learning pipeline
-def get_supervised_config(training_dir=None, test_dirs=None, output_dir=None, mode='csi'):
-    """Get configuration for supervised learning pipeline."""
-    # Set default paths if not provided
-    if training_dir is None:
-        training_dir = TRAINING_DIR
-    if test_dirs is None:
-        test_dirs = TEST_DIRS
-    if output_dir is None:
-        output_dir = OUTPUT_DIR
+def get_supervised_config(args=None, custom_config=None):
+    """
+    Get configuration for supervised learning pipeline.
     
-    # Define number of classes based on task
-    task_class_mapping = {
-        'HumanNonhuman': 2, 
-        'MotionSourceRecognition': 4, 
-        'NTUHumanID': 15, 
-        'NTUHAR': 6, 
-        'HumanID': 4, 
-        'Widar': 22,
-        'HumanMotion': 3, 
-        'ThreeClass': 3, 
-        'DetectionandClassification': 5, 
-        'Detection': 2
-    }
-    
-    # Get number of classes based on task
-    num_classes = task_class_mapping.get(TASK, 2)  # Default to 2 if task not found
-    
+    Args:
+        args: Command line arguments
+        custom_config: Custom configuration dictionary
+        
+    Returns:
+        Configuration dictionary
+    """
+    # Start with default configuration
     config = {
         # Data parameters
-        'training_dir': training_dir,
-        'test_dirs': test_dirs,
-        'output_dir': output_dir,
-        'results_subdir': 'supervised',
+        'training_dir': TRAINING_DIR,
+        'test_dirs': TEST_DIRS,
+        'output_dir': OUTPUT_DIR,
+        'results_subdir': f"{MODEL_NAME}_{TASK.lower()}",
         'train_ratio': 0.8,
         'val_ratio': 0.2,
         
@@ -220,8 +251,8 @@ def get_supervised_config(training_dir=None, test_dirs=None, output_dir=None, mo
         'patience': 15,
         
         # Model parameters
-        'mode': mode,
-        'num_classes': num_classes,  # Now set based on task
+        'mode': MODE,
+        'num_classes': TASK_CLASS_MAPPING.get(TASK, 2),  # Default to 2 if task not found
         'freeze_backbone': FREEZE_BACKBONE,
         
         # Integrated loader options
@@ -236,193 +267,277 @@ def get_supervised_config(training_dir=None, test_dirs=None, output_dir=None, mo
         'feature_size': FEATURE_SIZE
     }
     
+    # Override with custom config if provided
+    if custom_config:
+        for key, value in custom_config.items():
+            config[key] = value
+    
+    # Override with command line arguments if provided
+    if args:
+        if hasattr(args, 'model') and args.model:
+            config['model_name'] = args.model
+        
+        if hasattr(args, 'task') and args.task:
+            config['task'] = args.task
+            # Update num_classes based on task
+            config['num_classes'] = TASK_CLASS_MAPPING.get(args.task, 2)
+            # Update results_subdir based on model and task
+            config['results_subdir'] = f"{config['model_name']}_{args.task.lower()}"
+        
+        if hasattr(args, 'training_dir') and args.training_dir:
+            config['training_dir'] = args.training_dir
+        
+        if hasattr(args, 'test_dirs') and args.test_dirs:
+            config['test_dirs'] = args.test_dirs
+        
+        if hasattr(args, 'output_dir') and args.output_dir:
+            config['output_dir'] = args.output_dir
+        
+        if hasattr(args, 'batch_size') and args.batch_size:
+            config['batch_size'] = args.batch_size
+        
+        if hasattr(args, 'epochs') and args.epochs:
+            config['num_epochs'] = args.epochs
+        
+        if hasattr(args, 'mode') and args.mode:
+            config['mode'] = args.mode
+    
     return config
 
-
-def get_meta_config(training_dir=None, output_dir=None):
+def get_meta_config(args=None, custom_config=None):
     """Get configuration for meta-learning pipeline."""
-    # Set default paths if not provided
-    if training_dir is None:
-        training_dir = TRAINING_DIR
-    if output_dir is None:
-        output_dir = OUTPUT_DIR
-    
-    return {
-        # Data parameters
-        'training_dir': training_dir,
-        'output_dir': output_dir,
+    # This is a placeholder for meta-learning configuration
+    # Will be implemented by other team members
+    config = {
+        'training_dir': TRAINING_DIR,
+        'output_dir': OUTPUT_DIR,
         'results_subdir': 'meta',
-        
-        # Training parameters
-        'batch_size': BATCH_SIZE,
-        'learning_rate': 1e-4,
-        'meta_lr': 0.01,
-        'weight_decay': 1e-5,
-        'num_epochs': EPOCH_NUMBER,
-        'patience': 15,
-        
-        # Meta-learning parameters
-        'n_way': 3,  # Number of classes per task
-        'k_shot': 5,  # Number of examples per class
-        'q_query': 5,  # Number of query examples
-        'meta_batch_size': 4,  # Number of tasks per meta-batch
-        
-        # Model parameters
-        'mode': MODE,  # Only 'csi' mode is currently supported for meta-learning
-        
-        # Other parameters
-        'seed': SEED,
-        'device': DEVICE,
-        'model_name': MODEL_NAME,
-        'win_len': WIN_LEN,
-        'feature_size': FEATURE_SIZE
+        # Other meta-learning parameters will be added here
     }
+    
+    # Override with custom config if provided
+    if custom_config:
+        for key, value in custom_config.items():
+            config[key] = value
+    
+    # Override with command line arguments if provided
+    if args:
+        if hasattr(args, 'training_dir') and args.training_dir:
+            config['training_dir'] = args.training_dir
+        
+        if hasattr(args, 'output_dir') and args.output_dir:
+            config['output_dir'] = args.output_dir
+    
+    return config
 
+def create_or_load_config(args):
+    """
+    Create a new config or load from a file.
+    
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        Configuration dictionary
+    """
+    # Check if a config file is specified
+    if args.config_file and os.path.exists(args.config_file):
+        print(f"Loading configuration from {args.config_file}")
+        with open(args.config_file, 'r') as f:
+            config = json.load(f)
+            return config
+    
+    # If model is specified, look for model-specific config
+    if args.model:
+        model_config = os.path.join(CONFIG_DIR, f"{args.model}_config.json")
+        if os.path.exists(model_config):
+            print(f"Using existing config file: {model_config}")
+            with open(model_config, 'r') as f:
+                config = json.load(f)
+                
+            # Override config with command line arguments
+            if args.task:
+                config['task'] = args.task
+                # Update results_subdir based on model and task
+                config['results_subdir'] = f"{args.model}_{args.task.lower()}"
+                # Update num_classes based on task
+                config['num_classes'] = TASK_CLASS_MAPPING.get(args.task, 2)
+                
+            if args.epochs:
+                config['num_epochs'] = args.epochs
+                
+            if args.batch_size:
+                config['batch_size'] = args.batch_size
+                
+            if args.output_dir:
+                config['output_dir'] = args.output_dir
+                
+            return config
+        
+        # If task is specified, look for model+task specific config
+        if args.task:
+            model_task_config = os.path.join(CONFIG_DIR, f"{args.model}_{args.task.lower()}_config.json")
+            if os.path.exists(model_task_config):
+                print(f"Using existing config file: {model_task_config}")
+                with open(model_task_config, 'r') as f:
+                    config = json.load(f)
+                    
+                # Override config with command line arguments
+                if args.epochs:
+                    config['num_epochs'] = args.epochs
+                    
+                if args.batch_size:
+                    config['batch_size'] = args.batch_size
+                    
+                if args.output_dir:
+                    config['output_dir'] = args.output_dir
+                    
+                return config
+    
+    # Otherwise, create a new configuration based on the pipeline
+    if args.pipeline == 'meta':
+        return get_meta_config(args)
+    else:  # Default to supervised
+        return get_supervised_config(args)
 
 def run_supervised_direct(config):
-    """Run supervised learning pipeline directly."""
-    try:
-        # Import required modules from train_supervised
-        import importlib.util
-        import sys
+    """
+    Run supervised learning pipeline by directly calling the train_supervised.py script
+    
+    Args:
+        config: Configuration dictionary
         
-        # Import necessary modules from train_supervised
-        spec = importlib.util.spec_from_file_location("train_supervised", "scripts/train_supervised.py")
-        train_supervised = importlib.util.module_from_spec(spec)
-        sys.modules["train_supervised"] = train_supervised
-        spec.loader.exec_module(train_supervised)
-        
-        # Create an argparse namespace object to pass to the main function
-        args = type('Args', (), {})()
-        
-        # Set required arguments from config
-        setattr(args, 'data_dir', config.get('training_dir', TRAINING_DIR))
-        setattr(args, 'task_name', config.get('task', TASK))
-        setattr(args, 'model_type', config.get('model_name', MODEL_NAME).lower())
-        setattr(args, 'batch_size', config.get('batch_size', BATCH_SIZE))
-        setattr(args, 'num_epochs', config.get('num_epochs', EPOCH_NUMBER))
-        setattr(args, 'learning_rate', config.get('learning_rate', 0.001))
-        setattr(args, 'weight_decay', config.get('weight_decay', 1e-5))
-        setattr(args, 'win_len', config.get('win_len', WIN_LEN))
-        setattr(args, 'feature_size', config.get('feature_size', FEATURE_SIZE))
-        setattr(args, 'data_key', 'CSI_amps')
-        setattr(args, 'save_dir', os.path.join(config.get('output_dir', OUTPUT_DIR), config.get('results_subdir', 'supervised')))
-        setattr(args, 'warmup_epochs', config.get('warmup_epochs', 5))
-        setattr(args, 'patience', config.get('patience', 15))
-        setattr(args, 'in_channels', config.get('in_channels', 1))
-        setattr(args, 'emb_dim', config.get('emb_dim', 128))
-        setattr(args, 'dropout', config.get('dropout', 0.1))
-        
-        # Create save directory if it doesn't exist
-        os.makedirs(args.save_dir, exist_ok=True)
-        
-        # Call main function with prepared arguments
-        train_supervised.main(args)
-        
-    except Exception as e:
-        print(f"Error running pipeline: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    return True
-
+    Returns:
+        Return code from the process
+    """
+    # Build command with all necessary arguments
+    cmd = [
+        "python", os.path.join(SCRIPT_DIR, "train_supervised.py"),
+        f"--data_dir={config.get('training_dir', TRAINING_DIR)}",
+        f"--task_name={config.get('task', TASK)}",
+        f"--model_type={config.get('model_name', MODEL_NAME)}",
+        f"--batch_size={config.get('batch_size', BATCH_SIZE)}",
+        f"--num_epochs={config.get('num_epochs', EPOCH_NUMBER)}",
+        f"--learning_rate={config.get('learning_rate', 1e-4)}",
+        f"--weight_decay={config.get('weight_decay', 1e-5)}",
+        f"--warmup_epochs={config.get('warmup_epochs', 5)}",
+        f"--patience={config.get('patience', 15)}",
+        f"--win_len={config.get('win_len', WIN_LEN)}",
+        f"--feature_size={config.get('feature_size', FEATURE_SIZE)}",
+        f"--save_dir={config.get('output_dir', OUTPUT_DIR)}"
+    ]
+    
+    # Add advanced parameters if they exist in the config
+    if 'in_channels' in config:
+        cmd.append(f"--in_channels={config['in_channels']}")
+    if 'emb_dim' in config:
+        cmd.append(f"--emb_dim={config['emb_dim']}")
+    if 'dropout' in config:
+        cmd.append(f"--dropout={config['dropout']}")
+    
+    # Run the command
+    print(f"Running supervised learning with: {' '.join(cmd)}")
+    return_code, output = run_command(' '.join(cmd))
+    
+    # Check the result
+    if return_code != 0:
+        print(f"Error running supervised learning: {output}")
+    else:
+        print("Supervised learning completed successfully.")
+    
+    return return_code
 
 def run_meta_learning(config):
-    """Run meta-learning pipeline directly using Python API"""
-    print("Running meta-learning pipeline directly...")
+    """
+    Run meta-learning pipeline - placeholder for future implementation
     
-    # Import here to avoid circular imports
-    from meta_learning import main
-    
-    # Convert config dict to Namespace for compatibility
-    args = argparse.Namespace(**config)
-    
-    # Call main function
-    return main(args)
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Return code from the process
+    """
+    print("Meta-learning pipeline will be implemented by another team member.")
+    print("Current configuration:", json.dumps(config, indent=2))
+    return 0
 
+def save_config(config, pipeline='supervised'):
+    """
+    Save configuration to a file
+    
+    Args:
+        config: Configuration dictionary
+        pipeline: Pipeline type ('supervised' or 'meta')
+        
+    Returns:
+        Path to the saved config file
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    
+    # Generate config filename
+    if pipeline == 'meta':
+        config_filename = os.path.join(CONFIG_DIR, f"meta_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    else:
+        model_name = config.get('model_name', MODEL_NAME)
+        task_name = config.get('task', TASK).lower()
+        config_filename = os.path.join(CONFIG_DIR, f"{model_name}_{task_name}_config.json")
+    
+    # Save config
+    with open(config_filename, 'w') as f:
+        json.dump(config, f, indent=2)
+    
+    print(f"Configuration saved to {config_filename}")
+    return config_filename
 
 def main():
-    """Main function to execute WiFi sensing pipelines"""
-    
+    """Main entry point for the WiFi sensing pipeline runner"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline')
-    parser.add_argument('--pipeline', type=str, default=PIPELINE, 
-                      choices=['supervised', 'meta'],
-                      help='Pipeline to run')
-    parser.add_argument('--training_dir', type=str, default=TRAINING_DIR,
-                      help='Directory containing training data')
-    parser.add_argument('--test_dirs', type=str, nargs='+', default=TEST_DIRS,
-                      help='List of directories containing test data. Can specify multiple paths')
-    parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR,
-                      help='Directory to save output results')
-    parser.add_argument('--mode', type=str, default=MODE,
-                      choices=['csi', 'acf'],
-                      help='Data modality to use')
-    parser.add_argument('--config_file', type=str, default=CONFIG_FILE,
-                      help='JSON configuration file to override defaults')
+    
+    # Pipeline selection
+    parser.add_argument('--pipeline', type=str, default=PIPELINE, choices=['supervised', 'meta'],
+                        help='Pipeline to run (supervised or meta)')
+    
+    # Model and task selection
+    parser.add_argument('--model', type=str, choices=AVAILABLE_MODELS,
+                        help='Model architecture to train')
+    parser.add_argument('--task', type=str,
+                        help='Task to train on')
+    
+    # Data directories
+    parser.add_argument('--training_dir', type=str,
+                        help='Directory containing training data')
+    parser.add_argument('--test_dirs', type=str, nargs='+',
+                        help='Directories containing test data')
+    parser.add_argument('--output_dir', type=str,
+                        help='Directory to save results')
+    
+    # Training parameters
+    parser.add_argument('--epochs', type=int,
+                        help='Number of epochs to train')
+    parser.add_argument('--batch_size', type=int,
+                        help='Batch size for training')
+    parser.add_argument('--mode', type=str, choices=['csi', 'acf'],
+                        help='Data modality (csi or acf)')
+    
+    # Configuration
+    parser.add_argument('--config_file', type=str,
+                        help='JSON configuration file to override defaults')
     
     args = parser.parse_args()
     
-    # Create output directory if it doesn't exist
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Load or create configuration
+    config = create_or_load_config(args)
     
-    # Load optional config file if provided
-    config = {}
-    if args.config_file and os.path.exists(args.config_file):
-        try:
-            with open(args.config_file, 'r') as f:
-                config = json.load(f)
-            print(f"Loaded configuration from {args.config_file}")
-        except Exception as e:
-            print(f"Error loading config file: {str(e)}")
+    # Save configuration for future reference
+    config_file = save_config(config, args.pipeline)
     
-    # Get pipeline config based on selected pipeline
-    if args.pipeline == 'supervised':
-        pipe_config = get_supervised_config(args.training_dir, args.test_dirs, args.output_dir, args.mode)
-    elif args.pipeline == 'meta':
-        pipe_config = get_meta_config(args.training_dir, args.output_dir)
-        # Meta-learning currently only supports CSI mode
-        if args.mode != 'csi':
-            print("Warning: Meta-learning only supports CSI mode. Switching to CSI.")
-            pipe_config['mode'] = 'csi'
-    else:
-        raise ValueError(f"Unknown pipeline: {args.pipeline}")
-    
-    # Override with values from config file
-    for key, value in config.items():
-        pipe_config[key] = value
-    
-    # Print configuration
-    print("\nConfiguration:")
-    for key, value in pipe_config.items():
-        print(f"  {key}: {value}")
-    print()
-    
-    # Save configuration for reproducibility
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config_path = os.path.join(args.output_dir, f"config_{args.pipeline}_{timestamp}.json")
-    with open(config_path, 'w') as f:
-        json.dump(pipe_config, f, indent=2)
-    print(f"Configuration saved to {config_path}")
-    
-    # Run the selected pipeline
-    start_time = time.time()
-    try:
-        if args.pipeline == 'supervised':
-            run_supervised_direct(pipe_config)
-        elif args.pipeline == 'meta':
-            run_meta_learning(pipe_config)
-    except Exception as e:
-        print(f"Error running pipeline: {str(e)}")
-        import traceback
-        traceback.print_exc()
-    
-    # Print elapsed time
-    elapsed_time = time.time() - start_time
-    print(f"\nPipeline execution completed in {elapsed_time:.2f} seconds.")
-    
-    return 0
-
+    # Run appropriate pipeline
+    if args.pipeline == 'meta':
+        return run_meta_learning(config)
+    else:  # Default to supervised
+        return run_supervised_direct(config)
 
 if __name__ == "__main__":
     sys.exit(main())

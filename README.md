@@ -12,8 +12,7 @@ A comprehensive benchmark and training system for WiFi sensing using CSI data.
 │   ├── transformer_config.json
 │   └── vit_config.json
 ├── scripts/                  # Training and utility scripts
-│   ├── run_model.py          # Main model training wrapper
-│   ├── local_runner.py       # Execution runner script
+│   ├── local_runner.py       # Main entry point for training
 │   └── train_supervised.py   # Implementation of training loop
 ├── model/                    # Model implementations
 │   └── supervised/           # Supervised learning models
@@ -24,21 +23,14 @@ A comprehensive benchmark and training system for WiFi sensing using CSI data.
 ├── wifi_benchmark_dataset/   # Dataset directory
 │   └── tasks/                # Different WiFi sensing tasks
 └── results/                  # Training results and models
-└── train.py                  # Training shortcut script
 ```
 
 ## Training Models
 
-You can easily train different models using our training shortcut script:
+You can easily train different models using our main entry point script:
 
 ```bash
-python train.py --model [model_name] --task [task_name]
-```
-
-Or use the full path to the wrapper script:
-
-```bash
-python scripts/run_model.py --model [model_name] --task [task_name]
+python scripts/local_runner.py --model [model_name] --task [task_name]
 ```
 
 ### Available Models
@@ -56,25 +48,52 @@ python scripts/run_model.py --model [model_name] --task [task_name]
 - `DetectionandClassification`
 - `HumanID`
 - `NTUHAR`
+- `HumanNonhuman`
+- `NTUHumanID`
+- `Widar`
+- `ThreeClass`
+- `Detection`
 
-### Example
+### Examples
 
 ```bash
 # Train an LSTM model for MotionSourceRecognition
-python train.py --model lstm --task MotionSourceRecognition
+python scripts/local_runner.py --model lstm --task MotionSourceRecognition
 
 # Train a transformer model with custom parameters
-python train.py --model transformer --task HumanID --epochs 20 --batch_size 64
+python scripts/local_runner.py --model transformer --task HumanID --epochs 20 --batch_size 64
+```
+
+### Using Configuration Files
+
+You can also specify a configuration file:
+
+```bash
+python scripts/local_runner.py --config_file configs/transformer_humanmotion_config.json
+```
+
+The first time you run a model+task combination, a configuration file will be automatically created in the `configs/` directory, which you can reuse or modify for future runs.
+
+## Pipeline Options
+
+The benchmark supports two training pipelines:
+
+1. **Supervised Learning**: The default pipeline for training models
+2. **Meta-Learning**: A more advanced pipeline for few-shot learning (under development)
+
+To specify a pipeline:
+
+```bash
+python scripts/local_runner.py --pipeline supervised --model vit --task HumanMotion
+python scripts/local_runner.py --pipeline meta  # Meta-learning pipeline is under development
 ```
 
 ## Configuration
 
-Model configurations are stored in the `configs/` directory. Each model has its own configuration file with parameters optimized for that architecture.
-
-You can directly modify these configs, or override key parameters from the command line:
+You can override default configurations with command-line arguments:
 
 ```bash
-python train.py --model lstm --task MotionSourceRecognition --epochs 20 --batch_size 64 --output_dir ./custom_results
+python scripts/local_runner.py --model lstm --task MotionSourceRecognition --epochs 20 --batch_size 64 --output_dir ./custom_results
 ```
 
 ## Results

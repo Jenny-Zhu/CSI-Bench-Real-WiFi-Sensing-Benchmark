@@ -34,62 +34,105 @@ from sagemaker.inputs import TrainingInput
 import boto3
 import re
 
-#==============================================================================
-# CONFIGURATION SECTION - MODIFY PARAMETERS HERE
-#==============================================================================
+# Default paths
+CODE_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory containing the code
+CONFIG_DIR = os.path.join(CODE_DIR, "configs")
+DEFAULT_CONFIG_PATH = os.path.join(CONFIG_DIR, "sagemaker_default_config.json")
 
-# S3 Base Paths
-S3_DATA_BASE = "s3://rnd-sagemaker/Data/Benchmark/"
-S3_OUTPUT_BASE = "s3://rnd-sagemaker/Benchmark_Log/"
+# Load default configuration from JSON file
+def load_default_config():
+    """Load the default configuration from the JSON config file"""
+    try:
+        with open(DEFAULT_CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+        print(f"Loaded default configuration from {DEFAULT_CONFIG_PATH}")
+        return config
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load default config file: {e}")
+        print("Using hardcoded default values instead.")
+        # Fallback to hardcoded defaults
+        return {
+            "pipeline": "supervised",
+            "s3_data_base": "s3://rnd-sagemaker/Data/Benchmark/",
+            "s3_output_base": "s3://rnd-sagemaker/Benchmark_Log/",
+            "mode": "csi",
+            "freeze_backbone": False,
+            "integrated_loader": True,
+            "task": "MotionSourceRecognition",
+            "win_len": 250,
+            "feature_size": 98,
+            "seed": 42,
+            "batch_size": 8,
+            "num_epochs": 10,
+            "model_name": "ViT", 
+            "instance_type": "ml.g4dn.xlarge",
+            "instance_count": 1,
+            "framework_version": "1.12.1",
+            "py_version": "py38",
+            "base_job_name": "wifi-sensing-supervised",
+            "batch_wait_time": 30,
+            "batch_mode": "by-task",
+            "task_class_mapping": {
+                "HumanNonhuman": 2, 
+                "MotionSourceRecognition": 4, 
+                "NTUHumanID": 15, 
+                "NTUHAR": 6, 
+                "HumanID": 4, 
+                "Widar": 22,
+                "HumanMotion": 3, 
+                "ThreeClass": 3, 
+                "DetectionandClassification": 5, 
+                "Detection": 2,
+                "demo": 2
+            },
+            "task_test_dirs": {
+                "demo": ["test/"]
+            },
+            "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
+            "available_tasks": ["demo"]
+        }
 
-# Available tasks
-TASKS = ['demo']
+# Load the default configuration
+DEFAULT_CONFIG = load_default_config()
 
-# Available models
-MODELS = ['ViT']
-
-# Map tasks to their test directories
-TASK_TEST_DIRS = {
-    'demo': ["test/"]
-}
+# Extract configuration values
+S3_DATA_BASE = DEFAULT_CONFIG.get("s3_data_base", "s3://rnd-sagemaker/Data/Benchmark/")
+S3_OUTPUT_BASE = DEFAULT_CONFIG.get("s3_output_base", "s3://rnd-sagemaker/Benchmark_Log/")
+TASKS = DEFAULT_CONFIG.get("available_tasks", ["demo"])
+MODELS = DEFAULT_CONFIG.get("available_models", ["ViT"])
+TASK_TEST_DIRS = DEFAULT_CONFIG.get("task_test_dirs", {"demo": ["test/"]})
+TASK_CLASS_MAPPING = DEFAULT_CONFIG.get("task_class_mapping", {})
 
 # SageMaker Settings
-INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for training
-INSTANCE_COUNT = 1
-FRAMEWORK_VERSION = "1.12.1"  # Match with requirements.txt
-PY_VERSION = "py38"
-BASE_JOB_NAME = "wifi-sensing-supervised"
+INSTANCE_TYPE = DEFAULT_CONFIG.get("instance_type", "ml.g4dn.xlarge")
+INSTANCE_COUNT = DEFAULT_CONFIG.get("instance_count", 1)
+FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.12.1")
+PY_VERSION = DEFAULT_CONFIG.get("py_version", "py38")
+BASE_JOB_NAME = DEFAULT_CONFIG.get("base_job_name", "wifi-sensing-supervised")
 
 # Data Modality
-MODE = 'csi'  # Options: 'csi', 'acf'
+MODE = DEFAULT_CONFIG.get("mode", "csi")
 
 # Supervised Learning Options
-FREEZE_BACKBONE = False  # Freeze backbone network for supervised learning
-INTEGRATED_LOADER = True  # Use integrated data loader for supervised learning
-DEFAULT_TASK = TASKS[0]  # Default task for supervised learning
+FREEZE_BACKBONE = DEFAULT_CONFIG.get("freeze_backbone", False)
+INTEGRATED_LOADER = DEFAULT_CONFIG.get("integrated_loader", True)
+DEFAULT_TASK = TASKS[0] if TASKS else "demo"
 
 # Model Parameters
-WIN_LEN = 250  # Window length for CSI data
-FEATURE_SIZE = 98  # Feature size for CSI data
+WIN_LEN = DEFAULT_CONFIG.get("win_len", 250)
+FEATURE_SIZE = DEFAULT_CONFIG.get("feature_size", 98)
 
 # Common Training Parameters
-SEED = 42
-BATCH_SIZE = 8
-EPOCH_NUMBER = 1  # Number of training epochs
-PATIENCE = 15  # Early stopping patience
-MODEL_NAME = 'ViT'
-
-# Advanced Configuration
-CODE_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory containing the code
-CONFIG_FILE = None  # Path to JSON configuration file to override defaults
+SEED = DEFAULT_CONFIG.get("seed", 42)
+BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
+EPOCH_NUMBER = DEFAULT_CONFIG.get("num_epochs", 10)
+PATIENCE = DEFAULT_CONFIG.get("patience", 15)
+MODEL_NAME = DEFAULT_CONFIG.get("model_name", "ViT")
 
 # Batch Settings
-BATCH_WAIT_TIME = 30  # Time in seconds to wait between job submissions
-BATCH_MODE = 'by-task'  # Default batch mode: 'by-task' or 'individual'
-
-#==============================================================================
-# END OF CONFIGURATION SECTION
-#==============================================================================
+BATCH_WAIT_TIME = DEFAULT_CONFIG.get("batch_wait_time", 30)
+BATCH_MODE = DEFAULT_CONFIG.get("batch_mode", "by-task")
+CONFIG_FILE = None  # Path to JSON configuration file to override defaults
 
 class SageMakerRunner:
     """Class to handle SageMaker training job creation and execution"""
@@ -130,23 +173,8 @@ class SageMakerRunner:
         if output_dir is None:
             output_dir = f"{S3_OUTPUT_BASE}{current_task}/"
         
-        # Define number of classes based on task
-        task_class_mapping = {
-            'HumanNonhuman': 2, 
-            'FourClass': 4, 
-            'NTUHumanID': 15, 
-            'NTUHAR': 6, 
-            'HumanID': 4, 
-            'Widar': 22,
-            'HumanMotion': 3, 
-            'ThreeClass': 3, 
-            'DetectionandClassification': 5, 
-            'Detection': 2,
-            'demo': 2  # 默认为2类，根据需要进行调整
-        }
-        
         # Get number of classes based on task
-        num_classes = task_class_mapping.get(current_task, 2)  # Default to 2 if task not found
+        num_classes = TASK_CLASS_MAPPING.get(current_task, 2)  # Default to 2 if task not found
         
         config = {
             # Data parameters
