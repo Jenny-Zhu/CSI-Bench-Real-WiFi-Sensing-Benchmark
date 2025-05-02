@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import os
 import sys
 
@@ -62,35 +64,43 @@ def main(args=None):
         # Additional model parameters
         parser.add_argument('--win_len', type=int, default=500, 
                             help='Window length for WiFi CSI data')
-        parser.add_argument('--feature_size', type=int, default=232, 
+        parser.add_argument('--feature_size', type=int, default=98, 
                             help='Feature size for WiFi CSI data')
         parser.add_argument('--in_channels', type=int, default=1, 
-                            help='Number of input channels')
+                            help='Number of input channels for convolutional models')
         parser.add_argument('--emb_dim', type=int, default=128, 
                             help='Embedding dimension for ViT model')
         parser.add_argument('--d_model', type=int, default=256, 
                             help='Model dimension for Transformer model')
         parser.add_argument('--dropout', type=float, default=0.1, 
-                            help='Dropout rate')
+                            help='Dropout rate for regularization')
+        
         args = parser.parse_args()
     
-    # Set output_dir to save_dir if not specified
+    # Set output directory if not specified
     if args.output_dir is None:
         args.output_dir = args.save_dir
     
-    # Create save directories if they don't exist
+    # Ensure directories exist
     os.makedirs(args.save_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
     
-    # Create output directory if it's different from save_dir
-    if args.output_dir != args.save_dir:
-        os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Detect environment and set appropriate paths
+    # Check if running in SageMaker
     is_sagemaker = os.path.exists('/opt/ml/model')
     
-    # Generate a unique experiment ID based on timestamp and parameters hash
-    param_hash = hashlib.md5(f"{args.learning_rate}_{args.batch_size}_{args.num_epochs}_{args.weight_decay}".encode()).hexdigest()[:8]
-    experiment_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{param_hash}"
+    # Generate a unique experiment ID based only on parameters hash
+    # This way, same parameters will generate same experiment ID and overwrite previous results
+    param_str = f"{args.learning_rate}_{args.batch_size}_{args.num_epochs}_{args.weight_decay}_{args.warmup_epochs}_{args.win_len}_{args.feature_size}"
+    if hasattr(args, 'dropout') and args.dropout is not None:
+        param_str += f"_{args.dropout}"
+    if hasattr(args, 'emb_dim') and args.emb_dim is not None:
+        param_str += f"_{args.emb_dim}"
+    if hasattr(args, 'd_model') and args.d_model is not None:
+        param_str += f"_{args.d_model}"
+    if hasattr(args, 'in_channels') and args.in_channels is not None:
+        param_str += f"_{args.in_channels}"
+    
+    experiment_id = f"params_{hashlib.md5(param_str.encode()).hexdigest()[:10]}"
     
     if is_sagemaker:
         print("Running in SageMaker environment")

@@ -193,6 +193,7 @@ class SageMakerRunner:
             
         if output_dir is None:
             # Update path structure to include both task and model in the output path
+            # Note: The experiment_id folder will be created by train_supervised.py
             # Format: base_output_path/task/model/
             output_dir = f"{S3_OUTPUT_BASE}{current_task}/{current_model}/"
         

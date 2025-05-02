@@ -32,6 +32,7 @@ import argparse
 import json
 from datetime import datetime
 import importlib.util
+import pandas as pd
 
 # Default paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -418,11 +419,12 @@ def run_supervised_direct(config):
     base_output_dir = config.get('output_dir', OUTPUT_DIR)
     
     # Update save_dir to include task/model structure
+    # Note: We no longer create the experiment_id folder here, it will be created by train_supervised.py
     # Format: base_output_dir/task/model/
-    structured_output_dir = os.path.join(base_output_dir, task_name, model_name)
+    model_output_dir = os.path.join(base_output_dir, task_name, model_name)
     
-    # Ensure output directory exists
-    os.makedirs(structured_output_dir, exist_ok=True)
+    # Ensure model directory exists
+    os.makedirs(model_output_dir, exist_ok=True)
     
     # Build command with all necessary arguments
     cmd = [
@@ -449,6 +451,8 @@ def run_supervised_direct(config):
         cmd.append(f"--emb_dim={config['emb_dim']}")
     if 'dropout' in config:
         cmd.append(f"--dropout={config['dropout']}")
+    if 'd_model' in config:
+        cmd.append(f"--d_model={config['d_model']}")
     
     # Run the command
     print(f"Running supervised learning with: {' '.join(cmd)}")
@@ -459,7 +463,20 @@ def run_supervised_direct(config):
         print(f"Error running supervised learning: {output}")
     else:
         print("Supervised learning completed successfully.")
-        print(f"Results saved to {structured_output_dir}")
+        
+        # Extract experiment_id from output if available
+        experiment_id = None
+        for line in output.split('\n'):
+            if 'Experiment ID:' in line:
+                parts = line.split(':')
+                if len(parts) > 1:
+                    experiment_id = parts[1].strip()
+                    break
+        
+        if experiment_id:
+            print(f"Results saved to {os.path.join(model_output_dir, experiment_id)}")
+        else:
+            print(f"Results saved to {model_output_dir}")
     
     return return_code
 
