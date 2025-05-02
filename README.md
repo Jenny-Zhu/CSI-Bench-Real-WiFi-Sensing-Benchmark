@@ -14,8 +14,8 @@ A comprehensive benchmark and training system for WiFi sensing using CSI data.
 ├── scripts/                  # Training and utility scripts
 │   ├── local_runner.py       # Main entry point for training
 │   ├── train_supervised.py   # Implementation of training loop
-│   ├── hyperparameter_tuning.py # 超参数调优脚本
-│   └── generate_summary_table.py # 生成性能汇总表
+│   ├── hyperparameter_tuning.py # Hyperparameter tuning script
+│   └── generate_summary_table.py # Generate performance summary tables
 ├── model/                    # Model implementations
 │   └── supervised/           # Supervised learning models
 ├── engine/                   # Training engines
@@ -27,29 +27,39 @@ A comprehensive benchmark and training system for WiFi sensing using CSI data.
 └── results/                  # Training results and models
 ```
 
-## 最新功能
+## Latest Features
 
-我们对系统进行了以下改进：
+We have made the following improvements to the system:
 
-1. **改进的存储架构**：
-   - 现在使用`results/task/model/experiment_id/`结构，其中`experiment_id`是基于参数哈希生成的唯一标识符
-   - 相同参数的实验会覆盖而不是创建新的文件夹，便于进行多次尝试
-   - 在每个模型目录下新增了`best_performance.json`文件，记录该模型在所有实验中的最佳性能
+1. **Improved Storage Architecture**:
+   - Now uses a `results/task/model/experiment_id/` structure, where `experiment_id` is a unique identifier generated based on parameter hash
+   - Experiments with the same parameters will overwrite instead of creating new folders, making it easy to conduct multiple attempts
+   - Added a `best_performance.json` file in each model directory to record the best performance of the model across all experiments
 
-2. **自动超参数调优**：
-   - 新增了`scripts/hyperparameter_tuning.py`脚本，支持三种搜索方法：
-     - 网格搜索：系统地搜索所有参数组合
-     - 随机搜索：在给定范围内随机采样参数组合
-     - 贝叶斯优化：使用Optuna库实现的贝叶斯优化
+2. **Automatic Hyperparameter Tuning**:
+   - Added `scripts/hyperparameter_tuning.py` script with support for three search methods:
+     - Grid search: Systematically search all parameter combinations
+     - Random search: Randomly sample parameter combinations within a given range
+     - Bayesian optimization: Implemented with the Optuna library
 
-3. **灵活的训练与评估流程**：
-   - 分离了存储结果和生成汇总表的步骤，使训练更加灵活
-   - 修改了`train_multi_model.py`，现在它只生成汇总结果JSON文件，不再自动生成汇总表
-   - 修改后的流程允许您先进行多次实验或超参数调优，然后一次性生成所有结果的汇总表
+3. **Flexible Training and Evaluation Workflow**:
+   - Separated the storage of results and generation of summary tables, making training more flexible
+   - Modified `train_multi_model.py` to only generate summary JSON files, no longer automatically generating summary tables
+   - The modified workflow allows you to run multiple experiments or hyperparameter tuning first, then generate summary tables of all results at once
 
-4. **增强的结果汇总**：
-   - 更新了`generate_summary_table.py`，它现在从每个模型的`best_performance.json`文件读取最佳性能
-   - 不再需要手动选择哪些实验包含在汇总中，系统自动使用每个模型的最佳性能
+4. **Enhanced Result Summarization**:
+   - Updated `generate_summary_table.py` to now read best performance from each model's `best_performance.json` file
+   - No longer need to manually select which experiments to include in the summary, the system automatically uses the best performance of each model
+
+5. **SageMaker Integration Improvements**:
+   - Enhanced `sagemaker_runner.py` to focus on batch task processing, with each task using a single instance to run multiple models
+   - Fixed job name length issue (SageMaker has a 63-character limit)
+   - Improved S3 path handling for better data access in SageMaker environment
+   - Added better parameter support for training script
+   - Increased default EBS volume size to 30GB to ensure sufficient space
+   - All scripts use English for comments and logging for better international readability
+
+These modifications make the system more efficient to run on AWS SageMaker, improving resource utilization and cost-effectiveness by running all models for each task on a single instance.
 
 ## Training Models
 
@@ -149,31 +159,31 @@ results/
 
 Each experiment is stored in a directory named with a parameter hash. The `best_performance.json` file in each model directory tracks the best experiment results with links to the corresponding experiment directory.
 
-## 超参数调优
+## Hyperparameter Tuning
 
-系统提供了强大的超参数调优功能，可以帮助您找到最佳的模型参数配置：
+The system provides powerful hyperparameter tuning functionality to help you find the best model parameter configurations:
 
 ```bash
-# 使用Optuna贝叶斯优化进行超参数调优
+# Hyperparameter tuning using Optuna Bayesian optimization
 python scripts/hyperparameter_tuning.py --task_name MotionSourceRecognition --model_name transformer --search_method optuna --num_trials 20
 
-# 使用网格搜索进行超参数调优
+# Hyperparameter tuning using grid search
 python scripts/hyperparameter_tuning.py --task_name HumanMotion --model_name lstm --search_method grid
 
-# 使用随机搜索进行超参数调优
+# Hyperparameter tuning using random search
 python scripts/hyperparameter_tuning.py --task_name HumanID --model_name vit --search_method random --num_trials 15
 ```
 
-### 调优选项
+### Tuning Options
 
-- **搜索方法**：
-  - `grid`：网格搜索，对所有参数组合进行穷举搜索（适用于较小的搜索空间）
-  - `random`：随机搜索，从参数空间中随机采样（适用于较大的搜索空间）
-  - `optuna`：贝叶斯优化，使用Optuna库实现（最高效，需要安装`pip install optuna`）
+- **Search Methods**:
+  - `grid`: Grid search, exhaustively searching all parameter combinations (suitable for smaller search spaces)
+  - `random`: Random search, randomly sampling from the parameter space (suitable for larger search spaces)
+  - `optuna`: Bayesian optimization implemented using the Optuna library (most efficient, requires `pip install optuna`)
 
-- **自定义参数范围**：
+- **Custom Parameter Ranges**:
   
-  您可以通过命令行参数定义自定义参数搜索范围：
+  You can define custom parameter search ranges using command line arguments:
   
   ```bash
   python scripts/hyperparameter_tuning.py --task_name MotionSourceRecognition --model_name transformer \
@@ -183,7 +193,7 @@ python scripts/hyperparameter_tuning.py --task_name HumanID --model_name vit --s
       --dropout_rates "0.1,0.3,0.5"
   ```
   
-  对于随机搜索和贝叶斯优化，您也可以指定参数的连续范围：
+  For random search and Bayesian optimization, you can also specify continuous parameter ranges:
   
   ```bash
   python scripts/hyperparameter_tuning.py --task_name MotionSourceRecognition --model_name transformer \
@@ -193,34 +203,34 @@ python scripts/hyperparameter_tuning.py --task_name HumanID --model_name vit --s
       --dropout_min 0.0 --dropout_max 0.5
   ```
 
-调优结果保存在每个模型和任务组合的`hyperparameter_tuning/`目录下，包括所有试验结果的详细CSV文件和找到的最佳参数的摘要JSON。
+Tuning results are saved in the `hyperparameter_tuning/` directory under each model and task combination, including a detailed CSV file of all trial results and a JSON summary of the best parameters found.
 
-### 生成汇总表
+### Generating Summary Tables
 
-要生成汇总不同模型和任务结果的表格，请运行：
+To generate tables summarizing the results of different models and tasks, run:
 
 ```bash
 python scripts/generate_summary_table.py --results_dir ./results
 ```
 
-这将在results目录中创建几个CSV表格：
-- `full_summary.csv`：所有模型和任务的完整指标
-- `accuracy_summary.csv`：专注于准确率指标
-- `f1_score_summary.csv`：专注于F1分数指标
-- `compact_summary.csv`：精简格式的关键指标
-- `test_accuracy_pivot.csv`：不同模型和任务的测试准确率比较
-- `test_f1_score_pivot.csv`：不同模型和任务的测试F1分数比较
+This will create several CSV tables in the results directory:
+- `full_summary.csv`: Complete metrics for all models and tasks
+- `accuracy_summary.csv`: Focused on accuracy metrics
+- `f1_score_summary.csv`: Focused on F1 score metrics
+- `compact_summary.csv`: Key metrics in a more compact format
+- `test_accuracy_pivot.csv`: Comparison of test accuracy across different models and tasks
+- `test_f1_score_pivot.csv`: Comparison of test F1 scores across different models and tasks
 
-### 多模型训练
+### Multi-Model Training
 
-您可以使用`train_multi_model.py`脚本一次训练多个模型：
+You can use the `train_multi_model.py` script to train multiple models at once:
 
 ```bash
-# 在MotionSourceRecognition任务上训练多个模型
+# Train multiple models on MotionSourceRecognition task
 python train_multi_model.py --all_models "mlp lstm transformer vit" --task_name MotionSourceRecognition
 ```
 
-完成后，您需要手动运行汇总表生成脚本：
+After completion, you will need to manually run the summary table generation script:
 
 ```bash
 python scripts/generate_summary_table.py --results_dir ./results
@@ -231,7 +241,7 @@ python scripts/generate_summary_table.py --results_dir ./results
 - Python 3.7+
 - PyTorch 1.8+
 - NumPy, Pandas, Matplotlib, Seaborn
-- Optuna (用于贝叶斯优化的超参数调优)
+- Optuna (for Bayesian optimization hyperparameter tuning)
 
 ## SageMaker Integration
 
@@ -243,6 +253,8 @@ For large-scale training on AWS SageMaker, we provide a specialized runner that 
 - Automated task-based batch processing
 - Customizable instance types and training parameters
 - Comprehensive job tracking and result summarization
+- Optimized S3 path handling for data access
+- Automatic fix for SageMaker's 63-character job name limit
 
 ### Usage
 
@@ -274,6 +286,34 @@ python sagemaker_runner.py --tasks MotionSourceRecognition HumanID --models vit 
 - `--mode`: Data modality ('csi' or 'acf')
 - `--instance-type`: SageMaker instance type (default: ml.g4dn.xlarge)
 - `--batch-wait`: Wait time between batch job submissions in seconds
+- `--volume-size`: Size of the EBS volume in GB (default: 30)
+
+### SageMaker Configuration
+
+The SageMaker configuration can be customized by editing the `configs/sagemaker_default_config.json` file. This includes:
+
+- S3 paths for data and output
+- Default instance types
+- Available tasks and models
+- Training parameters
+
+### Data Organization for SageMaker
+
+When using SageMaker, your data should be organized in S3 as follows:
+
+```
+s3://rnd-sagemaker/Data/Benchmark/
+  ├── tasks/
+  │   ├── TaskName1/
+  │   │   ├── train/
+  │   │   │   └── data files (.h5)
+  │   │   ├── val/
+  │   │   │   └── data files (.h5)
+  │   │   └── test/
+  │   │       └── data files (.h5)
+  │   └── ...
+  └── ...
+```
 
 ### Output Structure
 
@@ -292,3 +332,33 @@ s3://rnd-sagemaker/Benchmark_Log/
   │   └── ...
   └── ...
 ```
+
+### Monitoring SageMaker Jobs
+
+You can monitor your SageMaker jobs in several ways:
+
+1. **SageMaker Console**: 
+   - View all training jobs in the AWS SageMaker console
+   - Monitor metrics in real-time
+   - Check logs for errors or progress
+
+2. **CloudWatch Logs**:
+   - Detailed logs are available in CloudWatch
+   - Search for specific error messages
+   - Set up alerts for job completion or failures
+
+3. **Local Job Summaries**:
+   - The `batch_summaries/` directory contains summaries of all submitted jobs
+   - Each batch has both text and JSON format summaries
+   - Reference these files to track job names and S3 output locations
+
+### Debugging SageMaker Jobs
+
+If you encounter issues with SageMaker training:
+
+1. Check CloudWatch logs for error messages
+2. Verify your S3 data paths and permissions
+3. Confirm that your IAM role has sufficient permissions
+4. Try running with a smaller dataset locally first to validate your pipeline
+
+The improved debugging information in `train_multi_model.py` will help identify data loading issues by printing detailed information about the dataset structure and sample dimensions.

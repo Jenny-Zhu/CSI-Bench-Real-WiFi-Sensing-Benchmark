@@ -60,7 +60,7 @@ def get_args():
     # Required arguments
     parser.add_argument('--models', type=str, default='vit', 
                         help='Comma-separated list of models to train. E.g. "mlp,lstm,resnet18"')
-    parser.add_argument('--data_dir', type=str, default='wifi_benchmark_dataset',
+    parser.add_argument('--dataset_root', type=str, default='wifi_benchmark_dataset',
                         help='Root directory of the dataset')
     parser.add_argument('--task_name', type=str, default='MotionSourceRecognition',
                         help='Name of the task to train on')
@@ -68,6 +68,10 @@ def get_args():
     # Data parameters
     parser.add_argument('--data_key', type=str, default='CSI_amps',
                         help='Key for CSI data in h5 files')
+    parser.add_argument('--file_format', type=str, default='h5',
+                        help='Format of the data files (h5, tfrecord, etc.)')
+    parser.add_argument('--num_workers', type=int, default=4,
+                        help='Number of worker threads for data loading')
     
     # Model parameters
     parser.add_argument('--win_len', type=int, default=250, 
@@ -101,7 +105,28 @@ def get_args():
     parser.add_argument('--output_dir', type=str, default=None,
                         help='Directory to save results (defaults to save_dir if not specified)')
     
+    # Add backward compatibility for data_dir parameter
+    parser.add_argument('--data_dir', type=str, default=None,
+                        help='Root directory of the dataset (deprecated, use dataset_root instead)')
+    
+    # 调试参数
+    parser.add_argument('--debug', action='store_true', help='启用详细调试输出')
+    
     args = parser.parse_args()
+    
+    # 如果启用调试模式，设置日志级别为DEBUG
+    if hasattr(args, 'debug') and args.debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled - verbose logging activated")
+        # 打印所有参数
+        logger.debug("All command line arguments:")
+        for arg, value in sorted(vars(args).items()):
+            logger.debug(f"  {arg}: {value}")
+    
+    # For backward compatibility: if data_dir is provided but dataset_root is not, use data_dir
+    if args.data_dir is not None and args.dataset_root == 'wifi_benchmark_dataset':
+        logger.warning("Using data_dir instead of dataset_root (data_dir is deprecated)")
+        args.dataset_root = args.data_dir
     
     # Parse all models to train
     if ',' in args.models:
@@ -389,19 +414,150 @@ def main():
     logger.info(f"Models to train: {args.all_models}")
     
     # Load data once for all models
-    logger.info(f"Loading data from {args.data_dir}")
-    data = load_benchmark_supervised(
-        data_dir=args.data_dir,
-        task_name=args.task_name,
-        batch_size=args.batch_size,
-        data_key=args.data_key
-    )
+    logger.info(f"Loading data from {args.dataset_root}")
     
-    if not data or 'loaders' not in data:
-        logger.error(f"Failed to load data for task {args.task_name}")
+    # Special handling for S3 paths in SageMaker environment
+    is_sagemaker = os.path.exists('/opt/ml/model')
+    logger.info(f"Running in SageMaker environment: {is_sagemaker}")
+    
+    if is_sagemaker:
+        # In SageMaker, use /opt/ml/input/data/training as the dataset root
+        original_path = args.dataset_root
+        dataset_root = '/opt/ml/input/data/training'
+        logger.info(f"SageMaker environment detected. Using local path: {dataset_root}")
+        logger.info(f"Original S3 path: {original_path}")
+        
+        # 在SageMaker环境中，检查可能的目录结构
+        # 1. 首先检查/opt/ml/input/data/training/tasks/TaskName结构
+        tasks_task_path = os.path.join(dataset_root, 'tasks', args.task_name)
+        # 2. 检查/opt/ml/input/data/training/TaskName结构
+        direct_task_path = os.path.join(dataset_root, args.task_name)
+        # 3. 检查/opt/ml/input/data/training本身是否就是任务目录
+        root_as_task_path = dataset_root
+        
+        if os.path.exists(tasks_task_path):
+            logger.info(f"Found task at path: {tasks_task_path}")
+            # 这是预期的结构：/opt/ml/input/data/training/tasks/TaskName
+            task_dir = tasks_task_path
+        elif os.path.exists(direct_task_path):
+            logger.info(f"Found task directly at: {direct_task_path}")
+            # 替代结构：/opt/ml/input/data/training/TaskName
+            task_dir = direct_task_path
+        elif os.path.exists(os.path.join(root_as_task_path, 'train')):
+            # 检查是否训练目录直接在根目录下
+            logger.info(f"Root directory contains train subfolder, might be the task directory itself")
+            task_dir = root_as_task_path
+        else:
+            # 记录目录内容以便调试
+            logger.info(f"Contents of {dataset_root}: {os.listdir(dataset_root)}")
+            if os.path.exists(os.path.join(dataset_root, 'tasks')):
+                logger.info(f"Contents of {os.path.join(dataset_root, 'tasks')}: {os.listdir(os.path.join(dataset_root, 'tasks'))}")
+            task_dir = None  # 未找到任务目录
+    else:
+        dataset_root = args.dataset_root
+        task_dir = None  # 初始化为None，稍后决定
+    
+    logger.info(f"Actual dataset root path: {dataset_root}")
+    
+    # 如果在SageMaker环境中已经找到任务目录，无需再次搜索
+    if not is_sagemaker or task_dir is None:
+        # 在非SageMaker环境中，或者在SageMaker环境中还未找到任务目录时
+        if os.path.exists(dataset_root):
+            logger.info(f"Dataset root exists: {dataset_root}")
+            # 检查任务目录
+            direct_task_path = os.path.join(dataset_root, args.task_name)
+            if os.path.exists(direct_task_path):
+                logger.info(f"Task directory found at {direct_task_path}")
+                task_dir = direct_task_path
+            else:
+                # 尝试tasks/task_name
+                tasks_dir = os.path.join(dataset_root, 'tasks')
+                if os.path.exists(tasks_dir):
+                    tasks_task_path = os.path.join(tasks_dir, args.task_name)
+                    if os.path.exists(tasks_task_path):
+                        logger.info(f"Task directory found at {tasks_task_path}")
+                        task_dir = tasks_task_path
+                    else:
+                        logger.warning(f"Task directory not found at {tasks_task_path}")
+                        task_dir = None
+                else:
+                    logger.warning(f"Neither {direct_task_path} nor {os.path.join(tasks_dir, args.task_name)} exists")
+                    task_dir = None
+        else:
+            logger.warning(f"Dataset root path {dataset_root} does not exist")
+            task_dir = None
+    
+    # 如果找到了任务目录，检查其内容
+    if task_dir and os.path.exists(task_dir):
+        logger.info(f"Final task directory selected: {task_dir}")
+        logger.info(f"Content of task directory {task_dir}: {os.listdir(task_dir)}")
+        
+        # 进一步检查文件夹结构
+        if os.path.exists(os.path.join(task_dir, 'metadata')):
+            logger.info(f"Metadata directory found: {os.path.join(task_dir, 'metadata')}")
+        if os.path.exists(os.path.join(task_dir, 'splits')):
+            logger.info(f"Splits directory found: {os.path.join(task_dir, 'splits')}")
+            logger.info(f"Contents of splits: {os.listdir(os.path.join(task_dir, 'splits'))}")
+        if os.path.exists(os.path.join(task_dir, 'train')):
+            logger.info(f"Train directory found: {os.path.join(task_dir, 'train')}")
+            
+    try:
+        data = load_benchmark_supervised(
+            dataset_root=dataset_root,
+            task_name=args.task_name,
+            batch_size=args.batch_size,
+            data_key=args.data_key,
+            file_format=args.file_format,
+            num_workers=args.num_workers
+        )
+        
+        # Check if data loaded successfully
+        if not data or 'loaders' not in data:
+            logger.error(f"Failed to load data for task {args.task_name}")
+            sys.exit(1)
+        
+        logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
+        
+        # 增加更详细的数据集信息
+        logger.info(f"Available loaders: {list(data['loaders'].keys())}")
+        
+        # 检查数据集大小
+        if 'datasets' in data:
+            for split_name, dataset in data['datasets'].items():
+                logger.info(f"Dataset '{split_name}' size: {len(dataset)}")
+        
+        # 检查标签映射
+        if 'label_mapper' in data:
+            label_mapper = data['label_mapper']
+            logger.info(f"Label mapping: {label_mapper.class_to_idx}")
+        
+        # Print shape of first batch in train loader for debugging
+        if 'train' in data['loaders']:
+            try:
+                train_loader = data['loaders']['train']
+                logger.info(f"Train loader batch size: {train_loader.batch_size}")
+                logger.info(f"Train loader length: {len(train_loader)}")
+                
+                # 获取第一个批次
+                sample_batch = next(iter(train_loader))
+                if isinstance(sample_batch, (list, tuple)) and len(sample_batch) >= 2:
+                    x, y = sample_batch[0], sample_batch[1]
+                    logger.info(f"Sample batch shapes - X: {x.shape}, y: {y.shape}")
+                    logger.info(f"X data type: {x.dtype}, device: {x.device}")
+                    logger.info(f"X stats - min: {x.min().item()}, max: {x.max().item()}, mean: {x.mean().item()}")
+                    logger.info(f"Y labels: {y.tolist()}")
+                else:
+                    logger.info(f"Sample batch type: {type(sample_batch)}")
+                    logger.info(f"Sample batch content: {sample_batch}")
+            except Exception as e:
+                logger.warning(f"Could not get sample batch info: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
+    except Exception as e:
+        logger.error(f"Error loading data: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         sys.exit(1)
-    
-    logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
     
     # Train each model
     all_results = {}

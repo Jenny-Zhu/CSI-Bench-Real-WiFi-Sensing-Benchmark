@@ -19,6 +19,9 @@
   "base_job_name": "wifi-sensing-supervised",
   "batch_wait_time": 30,
   "batch_mode": "by-task",
+  "ebs_volume_size": 30,
+  "file_format": "h5",
+  "num_workers": 4,
   "task_class_mapping": {
     "HumanNonhuman": 2, 
     "MotionSourceRecognition": 4, 
@@ -33,6 +36,15 @@
   },
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
   "available_tasks": [
-    "MotionSourceRecognition"
+    "MotionSourceRecognition",
+    "HumanMotion",
+    "DetectionandClassification",
+    "HumanID",
+    "NTUHAR",
+    "HumanNonhuman",
+    "NTUHumanID",
+    "Widar",
+    "ThreeClass",
+    "Detection"
   ]
 } 

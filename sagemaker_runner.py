@@ -103,6 +103,7 @@ INSTANCE_COUNT = DEFAULT_CONFIG.get("instance_count", 1)
 FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.12.1")
 PY_VERSION = DEFAULT_CONFIG.get("py_version", "py38")
 BASE_JOB_NAME = DEFAULT_CONFIG.get("base_job_name", "wifi-sensing-supervised")
+EBS_VOLUME_SIZE = DEFAULT_CONFIG.get("ebs_volume_size", 30)  # Set default to 30GB
 
 # Data modality
 MODE = DEFAULT_CONFIG.get("mode", "csi")
@@ -131,17 +132,50 @@ class SageMakerRunner:
         """Initialize SageMaker session and role"""
         self.session = sagemaker.Session()
         self.role = role or sagemaker.get_execution_role()
-        self.timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        self.timestamp = datetime.now().strftime("%Y%m%d-%H%M")  # Shorter format for job names
         
         # Verify default configuration
         self.default_config = DEFAULT_CONFIG
         
         # Verify the rnd-sagemaker bucket exists
         s3 = boto3.resource('s3')
-        bucket_name = "rnd-sagemaker"
+        bucket_name = S3_DATA_BASE.split('/')[2]  # Extract bucket name from S3 path
         if bucket_name not in [bucket.name for bucket in s3.buckets.all()]:
             print(f"Error: The bucket '{bucket_name}' does not exist. Please create it first.")
             sys.exit(1)
+        
+        # 检查S3路径是否存在
+        s3_client = boto3.client('s3')
+        bucket = S3_DATA_BASE.split('/')[2]
+        prefix = '/'.join(S3_DATA_BASE.split('/')[3:])
+        if not prefix.endswith('/'):
+            prefix += '/'
+        
+        try:
+            # 尝试列出S3路径的内容
+            response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter='/')
+            
+            if 'CommonPrefixes' in response:
+                print(f"Contents of S3 path {S3_DATA_BASE}:")
+                for obj in response['CommonPrefixes']:
+                    folder = obj['Prefix'].split('/')[-2]
+                    print(f"  - {folder}/")
+                    
+                # 检查是否存在tasks目录
+                tasks_prefix = prefix + 'tasks/'
+                tasks_resp = s3_client.list_objects_v2(Bucket=bucket, Prefix=tasks_prefix, Delimiter='/')
+                
+                if 'CommonPrefixes' in tasks_resp:
+                    print(f"Tasks available in {S3_DATA_BASE}tasks/:")
+                    for obj in tasks_resp['CommonPrefixes']:
+                        task_name = obj['Prefix'].split('/')[-2]
+                        print(f"  - {task_name}/")
+                else:
+                    print(f"Warning: No tasks found in {S3_DATA_BASE}tasks/")
+            else:
+                print(f"Warning: S3 path {S3_DATA_BASE} appears to be empty")
+        except Exception as e:
+            print(f"Warning: Error checking S3 path {S3_DATA_BASE}: {e}")
         
         print(f"SageMaker Runner initialized:")
         print(f"  S3 Data Base: {S3_DATA_BASE}")
@@ -230,9 +264,11 @@ class SageMakerRunner:
             # Build hyperparameters dictionary
             hyperparameters = {
                 # Data parameters
-                "data_dir": S3_DATA_BASE,
+                "dataset_root": S3_DATA_BASE,  # Changed from data_dir to dataset_root
                 "task_name": task_name,
                 "mode": mode,
+                "file_format": "h5",  # Add file format parameter
+                "num_workers": 4,     # Add number of workers parameter
                 
                 # Model list - note this is a new parameter not supported by the standard script
                 "models": ",".join(models_to_run),  # Comma-separated list of models
@@ -251,24 +287,34 @@ class SageMakerRunner:
                 "seed": SEED,
                 "save_dir": "/opt/ml/model",  # Use SageMaker model directory
                 "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
-                "data_key": 'CSI_amps'  # Add data_key parameter
+                "data_key": 'CSI_amps',  # Add data_key parameter
+                
+                # 调试参数 - 启用详细日志记录
+                "debug": True
             }
             
-            # Create job name
-            job_name = f"{BASE_JOB_NAME}-{task_name.lower()}-multi-models-{batch_timestamp}"
-            job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)  # Replace invalid chars with hyphens
+            # 从配置文件添加额外参数（如果有）
+            for key, value in DEFAULT_CONFIG.items():
+                if key not in hyperparameters and key not in [
+                    "s3_data_base", "s3_output_base", "instance_type", 
+                    "instance_count", "framework_version", "py_version",
+                    "base_job_name", "batch_wait_time", "task_class_mapping",
+                    "available_models", "available_tasks", "batch_mode"
+                ]:
+                    hyperparameters[key] = value
+            
+            # Shorten task name for job naming (use first 8 chars or full name if shorter)
+            short_task = task_name.lower()[:8]
+            # Create job name with shortened format for timestamp and task name
+            job_name = f"{BASE_JOB_NAME}-{short_task}-multi-{batch_timestamp}"
             
             # Ensure job name meets SageMaker's requirements (max 63 chars)
             if len(job_name) > 63:
-                # Shorten task name if needed
-                short_task = task_name.lower()[:8]
-                # Use shorter timestamp format (MMDD-HHMM)
-                short_timestamp = batch_timestamp[5:7] + batch_timestamp[8:10] + "-" + batch_timestamp[11:13] + batch_timestamp[14:16]
-                job_name = f"{BASE_JOB_NAME}-{short_task}-multi-{short_timestamp}"
-                # Final check to ensure we're under 63 chars
-                if len(job_name) > 63:
-                    # If still too long, further shorten
-                    job_name = f"wifi-{short_task}-multi-{short_timestamp}"
+                # If still too long, further shorten
+                job_name = f"wifi-{short_task}-multi-{batch_timestamp[-8:]}"
+            
+            # Make sure job name is valid for SageMaker (only alphanumeric and hyphens)
+            job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
             
             # Output path
             s3_output_path = f"{S3_OUTPUT_BASE}{task_name}/"
@@ -276,6 +322,7 @@ class SageMakerRunner:
                 s3_output_path += '/'
             
             print(f"Creating training job for task '{task_name}' running models: {', '.join(models_to_run)}")
+            print(f"Job name: {job_name}")
             print(f"Output path: {s3_output_path}")
             
             # Create PyTorch estimator
@@ -299,13 +346,28 @@ class SageMakerRunner:
                     {'Name': 'train:accuracy', 'Regex': 'Train Accuracy: ([0-9\\.]+)'},
                     {'Name': 'validation:loss', 'Regex': 'Val Loss: ([0-9\\.]+)'},
                     {'Name': 'validation:accuracy', 'Regex': 'Val Accuracy: ([0-9\\.]+)'}
-                ]
+                ],
+                volume_size=EBS_VOLUME_SIZE  # Increase EBS volume size
             )
             
-            # Prepare data inputs
+            # Prepare data inputs with more explicit configuration
             data_channels = {
-                'training': S3_DATA_BASE
+                'training': TrainingInput(
+                    s3_data_type='S3Prefix',
+                    s3_data=S3_DATA_BASE,
+                    distribution='FullyReplicated',
+                    content_type='application/x-directory',
+                    input_mode='File'
+                )
             }
+            
+            # 添加调试信息
+            print(f"S3 data path for training: {S3_DATA_BASE}")
+            print(f"Training input configuration: {data_channels['training']}")
+            
+            # 在实际的SageMaker环境中，数据将被下载到以下路径:
+            print(f"In SageMaker environment, data will be downloaded to: /opt/ml/input/data/training/")
+            print(f"Expected task path in SageMaker: /opt/ml/input/data/training/tasks/{task_name}/")
             
             # Start training job
             print(f"Starting SageMaker training job...")
@@ -380,7 +442,7 @@ class SageMakerRunner:
             
             for job_info in jobs:
                 f.write(f"Job: {job_info['job_name']}\n")
-                f.write(f"  Input: {job_info['inputs']['training']}\n")
+                f.write(f"  Input: {job_info['inputs']['training'].s3_data}\n")
                 f.write(f"  Output: {job_info['config']['output_dir']}\n")
                 f.write(f"  Task: {job_info['config']['task_name']}\n")
                 
@@ -403,7 +465,7 @@ class SageMakerRunner:
             summary_data["jobs"][job_key] = {
                 "job_name": job_info['job_name'],
                 "task": job_info['config']['task_name'],
-                "input": job_info['inputs']['training'],
+                "input": str(job_info['inputs']['training'].s3_data),
                 "output": job_info['config']['output_dir']
             }
             
@@ -431,6 +493,8 @@ def main():
                       help='SageMaker instance type for training')
     parser.add_argument('--batch-wait', dest='batch_wait', type=int, default=BATCH_WAIT_TIME,
                       help='Wait time between batch job submissions in seconds')
+    parser.add_argument('--volume-size', dest='volume_size', type=int, default=EBS_VOLUME_SIZE,
+                      help='Size of the EBS volume in GB')
     
     args = parser.parse_args()
     
