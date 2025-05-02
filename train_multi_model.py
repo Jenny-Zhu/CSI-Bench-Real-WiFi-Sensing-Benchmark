@@ -619,7 +619,7 @@ def main():
         # 检查标签映射
         if 'label_mapper' in data:
             label_mapper = data['label_mapper']
-            logger.info(f"Label mapping: {label_mapper.class_to_idx}")
+            logger.info(f"Label mapping: {label_mapper.label_to_idx}")
         
         # Print shape of first batch in train loader for debugging
         if 'train' in data['loaders']:

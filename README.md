@@ -362,3 +362,46 @@ If you encounter issues with SageMaker training:
 4. Try running with a smaller dataset locally first to validate your pipeline
 
 The improved debugging information in `train_multi_model.py` will help identify data loading issues by printing detailed information about the dataset structure and sample dimensions.
+
+### Known Issues and Solutions
+
+#### Recent Fixes
+
+1. **LabelMapper Attribute Error**
+   - Fixed issue where the code was incorrectly trying to access `class_to_idx` attribute instead of `label_to_idx`
+   - If you encounter attribute errors with label mapping, ensure you're using the correct attribute names
+
+2. **Data Path Resolution**
+   - The system now supports multiple methods to find the correct data path in SageMaker environment:
+     - `--adaptive_path`: Automatically adapts to the SageMaker directory structure
+     - `--try_all_paths`: Tries multiple combinations of paths to locate datasets
+   - These flags are enabled by default in the SageMaker runner
+
+3. **Enhanced Logging**
+   - Improved debug logging to show detailed information about the SageMaker environment
+   - Use `--debug` flag to enable verbose logging in SageMaker jobs
+
+#### Best Practices for SageMaker Jobs
+
+1. **Test Locally First**
+   - Run a small-scale test locally using `local_runner.py` before submitting to SageMaker
+   - Verify that your data loading pipeline works with the same dataset structure
+
+2. **Validate File Paths**
+   - Use the AWS CLI to verify your S3 paths before submitting jobs:
+     ```bash
+     aws s3 ls s3://rnd-sagemaker/Data/Benchmark/tasks/
+     aws s3 ls s3://rnd-sagemaker/Data/Benchmark/tasks/MotionSourceRecognition/
+     ```
+
+3. **Use Debugging Flags**
+   - Always include `--debug` flag in your SageMaker jobs for verbose logging
+   - Enable `--adaptive_path` and `--try_all_paths` for robust path resolution
+
+4. **Start Small**
+   - Begin with a single task and model before scaling to multiple tasks
+   - Use a smaller number of epochs for initial testing 
+
+5. **Check Instance Types**
+   - Ensure your SageMaker instance type has sufficient GPU memory for your models
+   - `ml.g4dn.xlarge` works well for most models, but larger models may require `ml.g4dn.2xlarge`
