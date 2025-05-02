@@ -36,15 +36,6 @@
   },
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
   "available_tasks": [
-    "MotionSourceRecognition",
-    "HumanMotion",
-    "DetectionandClassification",
-    "HumanID",
-    "NTUHAR",
-    "HumanNonhuman",
-    "NTUHumanID",
-    "Widar",
-    "ThreeClass",
-    "Detection"
+    "MotionSourceRecognition"
   ]
 } 
