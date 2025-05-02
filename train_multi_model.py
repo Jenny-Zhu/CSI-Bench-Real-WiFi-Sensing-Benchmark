@@ -19,6 +19,9 @@ import torch.nn as nn
 from tqdm import tqdm
 import logging
 
+# 打印原始命令行参数，帮助诊断
+print("Original command line arguments:", sys.argv)
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -110,12 +113,19 @@ def get_args():
                         help='Root directory of the dataset (deprecated, use dataset_root instead)')
     
     # 调试参数
-    parser.add_argument('--debug', action='store_true', help='启用详细调试输出')
+    parser.add_argument('--debug', action='store_true', default=False,
+                        help='启用详细调试输出')
+    
+    # 添加适应性路径参数
+    parser.add_argument('--adaptive_path', action='store_true', default=False,
+                        help='自动适应数据路径结构')
+    parser.add_argument('--try_all_paths', action='store_true', default=False,
+                        help='尝试所有可能的路径组合')
     
     args = parser.parse_args()
     
     # 如果启用调试模式，设置日志级别为DEBUG
-    if hasattr(args, 'debug') and args.debug:
+    if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled - verbose logging activated")
         # 打印所有参数
@@ -500,6 +510,86 @@ def main():
             logger.info(f"Contents of splits: {os.listdir(os.path.join(task_dir, 'splits'))}")
         if os.path.exists(os.path.join(task_dir, 'train')):
             logger.info(f"Train directory found: {os.path.join(task_dir, 'train')}")
+    
+    # 自适应路径处理逻辑
+    if args.adaptive_path:
+        logger.info("Adaptive path mode enabled - will search for alternative data paths")
+        # 在SageMaker环境中尝试不同的常见路径结构
+        possible_paths = []
+        
+        # 考虑常见的路径变体
+        possible_paths.append(dataset_root)  # 直接使用下载路径
+        possible_paths.append(os.path.join(dataset_root, 'tasks'))  # tasks子目录
+        possible_paths.append(os.path.join(dataset_root, 'Benchmark'))  # Benchmark子目录
+        possible_paths.append(os.path.join(dataset_root, 'Data', 'Benchmark'))  # Data/Benchmark路径
+        
+        # 检查每个可能的路径
+        for path in possible_paths:
+            if os.path.exists(path):
+                logger.info(f"Found valid path: {path}")
+                # 检查是否包含任务目录
+                task_path = os.path.join(path, args.task_name)
+                tasks_path = os.path.join(path, 'tasks', args.task_name)
+                
+                if os.path.exists(task_path):
+                    logger.info(f"Found task directory at {task_path}")
+                    dataset_root = path
+                    break
+                elif os.path.exists(tasks_path):
+                    logger.info(f"Found task directory at {tasks_path}")
+                    dataset_root = path
+                    break
+    
+    # 尝试所有路径组合（更彻底的搜索）
+    if args.try_all_paths and is_sagemaker:
+        logger.info("Try all paths mode enabled - will try multiple dataset_root options")
+        # 创建备份的原始路径
+        original_dataset_root = dataset_root
+        
+        # 定义可能的数据集根目录
+        dataset_roots_to_try = [
+            dataset_root,  # 原始路径
+            os.path.dirname(dataset_root),  # 上级目录
+            '/opt/ml/input/data',  # SageMaker数据根目录
+            '/opt/ml/input',  # 更上一级
+        ]
+        
+        # 将原始S3路径的各种变体添加到尝试列表
+        if original_path.startswith('s3://'):
+            s3_parts = original_path.replace('s3://', '').split('/')
+            if len(s3_parts) > 1:
+                # 尝试几种可能的映射方式
+                dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[1]))  # bucket下的第一级目录
+                if len(s3_parts) > 2:
+                    dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[2]))  # bucket下的第二级目录
+                    dataset_roots_to_try.append(os.path.join(dataset_root, '/'.join(s3_parts[1:3])))  # 前两级目录组合
+        
+        # 记录所有尝试的路径
+        for root in dataset_roots_to_try:
+            if os.path.exists(root):
+                logger.info(f"Testing dataset_root: {root}")
+                try:
+                    task_found = False
+                    # 检查是否直接包含任务目录
+                    if os.path.exists(os.path.join(root, args.task_name)):
+                        logger.info(f"  - Found task directory directly: {os.path.join(root, args.task_name)}")
+                        task_found = True
+                    
+                    # 检查是否包含tasks/任务目录
+                    if os.path.exists(os.path.join(root, 'tasks', args.task_name)):
+                        logger.info(f"  - Found task in tasks/ subdirectory: {os.path.join(root, 'tasks', args.task_name)}")
+                        task_found = True
+                    
+                    # 尝试列出该目录下的内容
+                    if not task_found:
+                        logger.info(f"  - Directory contents: {os.listdir(root)}")
+                        # 检查是否有tasks目录
+                        if 'tasks' in os.listdir(root):
+                            logger.info(f"    - tasks/ subdirectory contents: {os.listdir(os.path.join(root, 'tasks'))}")
+                except Exception as e:
+                    logger.info(f"  - Error exploring path: {e}")
+            else:
+                logger.info(f"Path does not exist: {root}")
             
     try:
         data = load_benchmark_supervised(

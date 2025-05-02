@@ -290,17 +290,25 @@ class SageMakerRunner:
                 "data_key": 'CSI_amps',  # Add data_key parameter
                 
                 # 调试参数 - 启用详细日志记录
-                "debug": True
+                "debug": "",  # 标志类型参数，不需要传递值
+                
+                # 添加数据迁移选项，针对SageMaker环境处理
+                "adaptive_path": "",  # 标志参数，允许自动适应数据路径
+                "try_all_paths": ""   # 尝试多种路径组合
             }
             
             # 从配置文件添加额外参数（如果有）
+            # 仅添加在train_multi_model.py中定义的参数
+            allowed_params = [
+                "dataset_root", "task_name", "mode", "file_format", "num_workers",
+                "models", "batch_size", "num_epochs", "learning_rate", "weight_decay",
+                "warmup_epochs", "patience", "win_len", "feature_size", "seed",
+                "save_dir", "output_dir", "data_key", "debug",
+                "in_channels", "emb_dim", "d_model", "dropout"
+            ]
+            
             for key, value in DEFAULT_CONFIG.items():
-                if key not in hyperparameters and key not in [
-                    "s3_data_base", "s3_output_base", "instance_type", 
-                    "instance_count", "framework_version", "py_version",
-                    "base_job_name", "batch_wait_time", "task_class_mapping",
-                    "available_models", "available_tasks", "batch_mode"
-                ]:
+                if key in allowed_params and key not in hyperparameters:
                     hyperparameters[key] = value
             
             # Shorten task name for job naming (use first 8 chars or full name if shorter)
