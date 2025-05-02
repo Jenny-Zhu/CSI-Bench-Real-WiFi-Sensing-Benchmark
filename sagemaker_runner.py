@@ -360,10 +360,10 @@ class SageMakerRunner:
             # Prepare data inputs with more explicit configuration
             data_channels = {
                 'training': TrainingInput(
-                    s3_data_type='S3Prefix',
                     s3_data=S3_DATA_BASE,
                     distribution='FullyReplicated',
                     content_type='application/x-directory',
+                    s3_data_type='S3Prefix',
                     input_mode='File'
                 )
             }
@@ -449,7 +449,14 @@ class SageMakerRunner:
             
             for job_info in jobs:
                 f.write(f"Job: {job_info['job_name']}\n")
-                f.write(f"  Input: {job_info['inputs']['training'].s3_data}\n")
+                # 安全地获取输入数据路径
+                try:
+                    # 直接访问配置信息中的S3_DATA_BASE
+                    input_path = S3_DATA_BASE
+                    f.write(f"  Input: {input_path}\n")
+                except Exception as e:
+                    f.write(f"  Input: S3 path (could not get exact path, error: {str(e)})\n")
+                    
                 f.write(f"  Output: {job_info['config']['output_dir']}\n")
                 f.write(f"  Task: {job_info['config']['task_name']}\n")
                 
@@ -472,7 +479,7 @@ class SageMakerRunner:
             summary_data["jobs"][job_key] = {
                 "job_name": job_info['job_name'],
                 "task": job_info['config']['task_name'],
-                "input": str(job_info['inputs']['training'].s3_data),
+                "input": S3_DATA_BASE,  # 使用全局变量而不是对象属性
                 "output": job_info['config']['output_dir']
             }
             
