@@ -258,6 +258,18 @@ class SageMakerRunner:
             job_name = f"{BASE_JOB_NAME}-{task_name.lower()}-multi-models-{batch_timestamp}"
             job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)  # Replace invalid chars with hyphens
             
+            # Ensure job name meets SageMaker's requirements (max 63 chars)
+            if len(job_name) > 63:
+                # Shorten task name if needed
+                short_task = task_name.lower()[:8]
+                # Use shorter timestamp format (MMDD-HHMM)
+                short_timestamp = batch_timestamp[5:7] + batch_timestamp[8:10] + "-" + batch_timestamp[11:13] + batch_timestamp[14:16]
+                job_name = f"{BASE_JOB_NAME}-{short_task}-multi-{short_timestamp}"
+                # Final check to ensure we're under 63 chars
+                if len(job_name) > 63:
+                    # If still too long, further shorten
+                    job_name = f"wifi-{short_task}-multi-{short_timestamp}"
+            
             # Output path
             s3_output_path = f"{S3_OUTPUT_BASE}{task_name}/"
             if not s3_output_path.endswith('/'):
