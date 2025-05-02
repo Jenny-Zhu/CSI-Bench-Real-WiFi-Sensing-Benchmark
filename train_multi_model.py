@@ -96,7 +96,9 @@ def get_args():
     
     # 输出参数
     parser.add_argument('--save_dir', type=str, default='/opt/ml/model',
-                        help='Directory to save checkpoints')
+                        help='Directory to save checkpoints and models')
+    parser.add_argument('--output_dir', type=str, default=None,
+                        help='Directory to save results (defaults to save_dir if not specified)')
     
     args = parser.parse_args()
     
@@ -112,6 +114,10 @@ def get_args():
             logger.error(f"不支持的模型: {model_name}. 有效的模型: {list(MODEL_TYPES.keys())}")
             sys.exit(1)
     
+    # 设置输出目录
+    if args.output_dir is None:
+        args.output_dir = args.save_dir
+        
     return args
 
 def set_seed(seed):
@@ -186,6 +192,16 @@ def train_model(model_name, data, args, device):
     model = ModelClass(**model_params).to(device)
     logger.info(f"模型已创建，包含 {sum(p.numel() for p in model.parameters())} 个参数")
     
+    # 为每个模型创建特定的保存和输出目录
+    # 格式：output_path/task/model/
+    model_save_dir = os.path.join(args.save_dir, args.task_name, model_name)
+    model_output_dir = os.path.join(args.output_dir, args.task_name, model_name)
+    
+    # 确保目录存在
+    os.makedirs(model_save_dir, exist_ok=True)
+    if model_output_dir != model_save_dir:
+        os.makedirs(model_output_dir, exist_ok=True)
+    
     # 创建配置对象
     config = argparse.Namespace(
         num_epochs=args.num_epochs,
@@ -195,20 +211,20 @@ def train_model(model_name, data, args, device):
         patience=args.patience,
         num_classes=num_classes,
         device=str(device),
-        save_dir=os.path.join(args.save_dir, model_name),
-        output_dir=os.path.join(args.save_dir, model_name),
+        save_dir=model_save_dir,
+        output_dir=model_output_dir,
         results_subdir='supervised',
         model_name=model_name,
         task_name=args.task_name
     )
     
-    # 确保保存目录存在
-    os.makedirs(config.save_dir, exist_ok=True)
-    
     # 保存配置
-    with open(os.path.join(config.save_dir, f"{model_name}_{args.task_name}_config.json"), "w") as f:
+    config_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_config.json")
+    with open(config_path, "w") as f:
         config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
         json.dump(config_dict, f, indent=4)
+    
+    logger.info(f"配置已保存到 {config_path}")
     
     # 创建训练器
     criterion = nn.CrossEntropyLoss()
@@ -223,7 +239,7 @@ def train_model(model_name, data, args, device):
         optimizer=optimizer,
         scheduler=scheduler,
         device=device,
-        save_path=config.save_dir,
+        save_path=model_save_dir,
         num_classes=num_classes,
         label_mapper=label_mapper,
         config=config
@@ -232,41 +248,66 @@ def train_model(model_name, data, args, device):
     # 训练模型
     trained_model, training_results = trainer.train()
     
-    # 评估测试集（如果有）
+    # 评估测试集
+    results = {'model_name': model_name, 'task': args.task_name}
+    results.update({
+        'best_epoch': training_results['best_epoch'],
+        'best_val_accuracy': float(training_results['best_val_accuracy'])
+    })
+    
     logger.info("\n评估测试集:")
     for key in loaders:
         if key.startswith('test'):
             logger.info(f"\n评估 {key} 集:")
             test_loss, test_acc = trainer.evaluate(loaders[key])
-            logger.info(f"{key} loss: {test_loss:.4f}, accuracy: {test_acc:.4f}")
+            logger.info(f"{key} 损失: {test_loss:.4f}, 准确率: {test_acc:.4f}")
             
-            # 绘制混淆矩阵
-            confusion_path = os.path.join(config.save_dir, f"{model_name}_{args.task_name}_{key}_confusion.png")
+            # 为该测试集绘制混淆矩阵
+            confusion_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_{key}_confusion.png")
             trainer.plot_confusion_matrix(data_loader=loaders[key], mode=key, epoch=None)
+            
+            # 添加测试结果
+            results[f'{key}_loss'] = float(test_loss)
+            results[f'{key}_accuracy'] = float(test_acc)
     
-    logger.info(f"\n训练完成。结果保存到 {config.save_dir}")
+    # 保存训练结果摘要
+    results_file = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_results.json")
+    with open(results_file, 'w') as f:
+        json.dump(results, f, indent=4)
     
-    return trained_model, training_results
+    logger.info(f"模型训练完成，结果保存至 {results_file}")
+    
+    return results
 
 def main():
-    """主函数"""
-    # 解析参数
+    """主函数：处理参数并启动多模型训练"""
+    # 解析命令行参数
     args = get_args()
     
-    # 设置所有随机种子
+    # 检测是否在SageMaker环境中运行
+    is_sagemaker = os.path.exists('/opt/ml/model')
+    if is_sagemaker:
+        logger.info("在SageMaker环境中运行")
+    else:
+        logger.info("在本地环境中运行")
+    
+    # 设置输出目录格式为 output_path/task/ 
+    task_output_dir = os.path.join(args.output_dir, args.task_name)
+    os.makedirs(task_output_dir, exist_ok=True)
+    
+    # 设置保存目录（用于模型检查点）
+    task_save_dir = os.path.join(args.save_dir, args.task_name)
+    os.makedirs(task_save_dir, exist_ok=True)
+    
+    # 设置随机种子
     set_seed(args.seed)
     
-    # 检查CUDA是否可用
+    # 选择设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"使用设备: {device}")
     
-    # 打印参数
-    logger.info("训练参数:")
-    for arg in vars(args):
-        logger.info(f"  {arg}: {getattr(args, arg)}")
-    
-    # 加载数据
-    logger.info(f"从 {args.data_dir} 加载 {args.task_name} 任务的数据...")
+    # 加载数据（只需加载一次，所有模型共享相同的数据）
+    logger.info(f"从 {args.data_dir} 加载任务 {args.task_name} 的数据...")
     data = load_benchmark_supervised(
         dataset_root=args.data_dir,
         task_name=args.task_name,
@@ -276,50 +317,39 @@ def main():
         num_workers=4
     )
     
-    logger.info(f"数据已加载，检测到 {data['num_classes']} 个类别")
+    logger.info(f"数据集包含 {data['num_classes']} 个类别")
     
-    # 循环训练所有指定的模型
-    results = {}
+    # 对每个模型进行训练
+    all_results = []
+    start_time = time.time()
+    
     for i, model_name in enumerate(args.all_models):
-        logger.info(f"\n开始训练模型 {i+1}/{len(args.all_models)}: {model_name}")
-        model_start_time = time.time()
-        
-        try:
-            model, training_results = train_model(model_name, data, args, device)
-            
-            # 记录结果
-            results[model_name] = {
-                'valid_accuracy': training_results['best_val_accuracy'],
-                'train_accuracy': training_results['train_accuracy_history'][-1],
-                'epochs': len(training_results['train_accuracy_history']),
-                'best_epoch': training_results['best_epoch'],
-                'training_time': time.time() - model_start_time
-            }
-            
-            logger.info(f"模型 {model_name} 训练完成")
-            logger.info(f"验证准确率: {results[model_name]['valid_accuracy']:.4f}")
-            logger.info(f"最佳轮次: {results[model_name]['best_epoch']}")
-            logger.info(f"训练时间: {results[model_name]['training_time']:.2f}秒")
-            
-        except Exception as e:
-            logger.error(f"训练模型 {model_name} 时出错: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
+        model_name = model_name.lower()
+        logger.info(f"模型 {i+1}/{len(args.all_models)}: {model_name.upper()}")
+        model_results = train_model(model_name, data, args, device)
+        all_results.append(model_results)
     
-    # 保存汇总结果
-    summary_file = os.path.join(args.save_dir, f"{args.task_name}_multi_model_summary.json")
+    total_time = time.time() - start_time
+    logger.info(f"全部 {len(args.all_models)} 个模型训练完成，总耗时: {total_time:.2f} 秒")
+    
+    # 保存所有模型的汇总结果
+    summary_results = {
+        'task': args.task_name,
+        'models': args.all_models,
+        'total_time': total_time,
+        'results': all_results
+    }
+    
+    # 将汇总结果保存在任务目录下
+    summary_file = os.path.join(task_output_dir, f"all_models_summary.json")
     with open(summary_file, 'w') as f:
-        summary = {
-            'task': args.task_name,
-            'models_trained': args.all_models,
-            'results': results
-        }
-        json.dump(summary, f, indent=4)
+        json.dump(summary_results, f, indent=4)
     
-    logger.info(f"\n所有模型训练完成！结果汇总已保存到 {summary_file}")
-    logger.info("\n模型性能汇总:")
-    for model_name, result in results.items():
-        logger.info(f"  {model_name}: 验证准确率={result['valid_accuracy']:.4f}, 最佳轮次={result['best_epoch']}")
+    logger.info(f"汇总结果已保存至 {summary_file}")
+    
+    # 如果在SageMaker中运行，打印额外信息
+    if is_sagemaker:
+        logger.info("训练作业完成后，SageMaker将自动上传模型和结果到S3")
 
 if __name__ == "__main__":
     main() 

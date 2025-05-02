@@ -29,11 +29,7 @@
     "HumanMotion": 3, 
     "ThreeClass": 3, 
     "DetectionandClassification": 5, 
-    "Detection": 2,
-    "demo": 2
-  },
-  "task_test_dirs": {
-    "demo": ["test/"]
+    "Detection": 2
   },
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
   "available_tasks": [

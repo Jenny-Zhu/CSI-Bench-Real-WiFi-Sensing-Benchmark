@@ -64,7 +64,7 @@ def load_default_config():
             "seed": 42,
             "batch_size": 8,
             "num_epochs": 10,
-            "model_name": "ViT", 
+            "model_name": "transformer", 
             "instance_type": "ml.g4dn.xlarge",
             "instance_count": 1,
             "framework_version": "1.12.1",
@@ -85,11 +85,9 @@ def load_default_config():
                 "Detection": 2,
                 "demo": 2
             },
-            "task_test_dirs": {
-                "demo": ["test/"]
-            },
+            "task_test_dirs": {},
             "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
-            "available_tasks": ["demo"]
+            "available_tasks": ["MotionSourceRecognition", "HumanMotion", "DetectionandClassification", "HumanID", "NTUHAR", "HumanNonhuman", "NTUHumanID", "Widar", "ThreeClass", "Detection"]
         }
 
 # Load the default configuration
@@ -98,9 +96,20 @@ DEFAULT_CONFIG = load_default_config()
 # Extract configuration values
 S3_DATA_BASE = DEFAULT_CONFIG.get("s3_data_base", "s3://rnd-sagemaker/Data/Benchmark/")
 S3_OUTPUT_BASE = DEFAULT_CONFIG.get("s3_output_base", "s3://rnd-sagemaker/Benchmark_Log/")
-TASKS = DEFAULT_CONFIG.get("available_tasks", ["demo"])
-MODELS = DEFAULT_CONFIG.get("available_models", ["ViT"])
-TASK_TEST_DIRS = DEFAULT_CONFIG.get("task_test_dirs", {"demo": ["test/"]})
+AVAILABLE_TASKS = DEFAULT_CONFIG.get("available_tasks", [
+    "MotionSourceRecognition", 
+    "HumanMotion", 
+    "DetectionandClassification", 
+    "HumanID", 
+    "NTUHAR",
+    "HumanNonhuman",
+    "NTUHumanID",
+    "Widar",
+    "ThreeClass",
+    "Detection"
+])
+AVAILABLE_MODELS = DEFAULT_CONFIG.get("available_models", ["mlp", "lstm", "resnet18", "transformer", "vit"])
+TASK_TEST_DIRS = DEFAULT_CONFIG.get("task_test_dirs", {})
 TASK_CLASS_MAPPING = DEFAULT_CONFIG.get("task_class_mapping", {})
 
 # SageMaker Settings
@@ -116,7 +125,8 @@ MODE = DEFAULT_CONFIG.get("mode", "csi")
 # Supervised Learning Options
 FREEZE_BACKBONE = DEFAULT_CONFIG.get("freeze_backbone", False)
 INTEGRATED_LOADER = DEFAULT_CONFIG.get("integrated_loader", True)
-DEFAULT_TASK = TASKS[0] if TASKS else "demo"
+TASK = DEFAULT_CONFIG.get("task", "MotionSourceRecognition")
+DEFAULT_TASK = TASK
 
 # Model Parameters
 WIN_LEN = DEFAULT_CONFIG.get("win_len", 250)
@@ -127,7 +137,7 @@ SEED = DEFAULT_CONFIG.get("seed", 42)
 BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
 EPOCH_NUMBER = DEFAULT_CONFIG.get("num_epochs", 10)
 PATIENCE = DEFAULT_CONFIG.get("patience", 15)
-MODEL_NAME = DEFAULT_CONFIG.get("model_name", "ViT")
+MODEL_NAME = DEFAULT_CONFIG.get("model_name", "transformer")
 
 # Batch Settings
 BATCH_WAIT_TIME = DEFAULT_CONFIG.get("batch_wait_time", 30)
@@ -154,8 +164,8 @@ class SageMakerRunner:
         print(f"SageMaker Runner initialized:")
         print(f"  S3 Data Base: {S3_DATA_BASE}")
         print(f"  S3 Output Base: {S3_OUTPUT_BASE}")
-        print(f"  Available Tasks: {', '.join(TASKS)}")
-        print(f"  Available Models: {', '.join(MODELS)}")
+        print(f"  Available Tasks: {', '.join(AVAILABLE_TASKS)}")
+        print(f"  Available Models: {', '.join(AVAILABLE_MODELS)}")
         print(f"  Default Batch Mode: {self.batch_mode}")
         print(f"  Timestamp: {self.timestamp}")
     
@@ -238,101 +248,96 @@ class SageMakerRunner:
             current_model
         )
         
-        # Override with values from config file if provided
-        if config_file and os.path.exists(config_file):
-            try:
-                with open(config_file, 'r') as f:
-                    file_config = json.load(f)
-                    for key, value in file_config.items():
-                        config[key] = value
-                print(f"Loaded configuration from {config_file}")
-            except Exception as e:
-                print(f"Error loading config file: {str(e)}")
+        # Create a job name with timestamp and task
+        timestamp = self.timestamp
+        job_name = f"{BASE_JOB_NAME}-{current_task.lower()}-{current_model.lower()}-{timestamp}"
+        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)  # Replace invalid chars with hyphens
         
-        # Convert config to hyperparameters dict for SageMaker
-        hyperparameters = {}
-        for key, value in config.items():
-            # Skip fields that are handled differently
-            if key in ['data_dir', 'output_dir']:
-                continue
-                
-            # Handle boolean flags properly
-            if key == 'freeze_backbone' and isinstance(value, bool):
-                if value:
-                    hyperparameters[key] = ''  # Include flag without value to set True
-                # Skip if False - absence of flag means False
-            elif key == 'integrated_loader' and isinstance(value, bool):
-                if value:
-                    hyperparameters[key] = ''  # Include flag without value to set True
-                # Skip if False - absence of flag means False
-            # Handle other lists
-            elif isinstance(value, list):
-                hyperparameters[key] = ' '.join(str(item) for item in value)
-            else:
-                hyperparameters[key] = value
+        # Create SageMaker Estimator
+        instance_type_to_use = instance_type or INSTANCE_TYPE
         
-        # 确保使用model_name而不是model_type
-        if 'model_type' in hyperparameters:
-            hyperparameters['model_name'] = hyperparameters['model_type']
-            del hyperparameters['model_type']
+        # Prepare data path (input)
+        data_path = config.get('data_dir', S3_DATA_BASE)
+        
+        # Prepare path for output (results, models)
+        # Organize as output_base/task/model/
+        s3_output_path = config.get('output_dir', f"{S3_OUTPUT_BASE}{current_task}/{current_model}/")
+        
+        # Ensure all paths end with slash for consistency
+        if not s3_output_path.endswith('/'):
+            s3_output_path += '/'
+        
+        print(f"Using data path: {data_path}")
+        print(f"Using output path: {s3_output_path}")
+        
+        # Debug: Print metrics definition
+        print(f"Metrics will be captured and reported to CloudWatch.")
         
         # Create PyTorch estimator
-        instance_type = instance_type or INSTANCE_TYPE
-        job_name = f"{BASE_JOB_NAME}-{current_task}-{current_model}-{self.timestamp}"
-        
-        # Ensure requirements.txt is included
-        dependencies = ["requirements.txt"]
-        
-        # Print information about requirements.txt
-        req_path = os.path.join(CODE_DIR, "requirements.txt")
-        if not os.path.exists(req_path):
-            print(f"Warning: requirements.txt not found at {req_path}")
-        
         estimator = PyTorch(
             entry_point="train_supervised.py",
-            source_dir=CODE_DIR,
-            dependencies=dependencies,
+            source_dir=".",  # Use current directory
             role=self.role,
-            instance_type=instance_type,
-            instance_count=INSTANCE_COUNT,
             framework_version=FRAMEWORK_VERSION,
             py_version=PY_VERSION,
-            hyperparameters=hyperparameters,
-            output_path=config['output_dir'],
+            instance_count=INSTANCE_COUNT,
+            instance_type=instance_type_to_use,
+            max_run=86400,  # 24 hours max runtime
+            keep_alive_period_in_seconds=1800,  # 30 min keep alive after training
+            output_path=s3_output_path,
             base_job_name=job_name,
-            disable_profiler=True,
-            debugger_hook_config=False,
-            environment={
-                "HOROVOD_WITH_PYTORCH": "0", 
-                "SAGEMAKER_PROGRAM": "train_supervised.py"
-            }
+            hyperparameters={
+                # Data parameters
+                "data_dir": data_path,
+                "task_name": current_task,
+                "model_type": current_model,
+                
+                # Training parameters
+                "batch_size": config.get('batch_size', BATCH_SIZE),
+                "num_epochs": config.get('num_epochs', EPOCH_NUMBER),
+                "learning_rate": config.get('learning_rate', 1e-4),
+                "weight_decay": config.get('weight_decay', 1e-5),
+                "warmup_epochs": config.get('warmup_epochs', 5),
+                "patience": config.get('patience', PATIENCE),
+                
+                # Model parameters
+                "mode": config.get('mode', MODE),
+                "win_len": config.get('win_len', WIN_LEN),
+                "feature_size": config.get('feature_size', FEATURE_SIZE),
+                "seed": config.get('seed', SEED),
+                "save_dir": "/opt/ml/model",  # Use SageMaker model directory
+                "output_dir": "/opt/ml/model"  # Set output_dir to model directory as well
+            },
+            metric_definitions=[
+                {'Name': 'train:loss', 'Regex': 'Epoch \\d+/\\d+, Training Loss: ([0-9\\.]+)'},
+                {'Name': 'train:accuracy', 'Regex': 'Epoch \\d+/\\d+, Training Accuracy: ([0-9\\.]+)'},
+                {'Name': 'validation:loss', 'Regex': 'Validation Loss: ([0-9\\.]+)'},
+                {'Name': 'validation:accuracy', 'Regex': 'Validation Accuracy: ([0-9\\.]+)'},
+                {'Name': 'best_epoch', 'Regex': 'Best epoch: (\\d+), Best validation accuracy: ([0-9\\.]+)'}
+            ]
         )
         
-        # Setup input channels for SageMaker
-        # With new data loading approach, we only need to provide the base data directory
-        inputs = {
-            "training": config['data_dir']
+        # Prepare data inputs
+        data_channels = {
+            'training': data_path
         }
         
-        # Print configuration
-        print(f"Job: {job_name}")
-        print(f"  Task: {current_task}")
-        print(f"  Model: {current_model}")
-        print(f"  Instance: {instance_type}")
-        print(f"  Data directory: {inputs['training']}")
+        # Start training job
+        print("Starting SageMaker training job...")
+        estimator.fit(inputs=data_channels, job_name=job_name, wait=False)
         
-        # Launch training job
-        print("Launching SageMaker job...")
-        estimator.fit(inputs, wait=False)
+        print(f"SageMaker job {job_name} launched successfully!")
+        print(f"You can monitor the job progress in SageMaker console.")
+        print(f"The model artifacts will be saved to s3://{s3_output_path}{job_name}/output/")
         
-        print(f"Job '{job_name}' launched successfully.")
-        
-        # Return job details
+        # Return job information
         return {
             'job_name': job_name,
             'estimator': estimator,
             'config': config,
-            'inputs': inputs
+            'timestamp': timestamp,
+            'task': current_task,
+            'model': current_model
         }
     
     def run_batch(self, tasks=None, models=None, mode='csi', instance_type=None, wait_time=BATCH_WAIT_TIME):
@@ -351,9 +356,9 @@ class SageMakerRunner:
         """
         # Use default tasks and models if none provided
         if tasks is None:
-            tasks = TASKS
+            tasks = AVAILABLE_TASKS
         if models is None:
-            models = MODELS
+            models = AVAILABLE_MODELS
             
         # Initialize results dictionary
         jobs = {}
@@ -415,162 +420,117 @@ class SageMakerRunner:
         return jobs
     
     def run_batch_by_task(self, tasks=None, models=None, mode='csi', instance_type=None, wait_time=BATCH_WAIT_TIME):
-        """
-        Run batch training jobs grouped by task - one job per task that trains all models
+        """Run batch jobs organized by task"""
+        print(f"Starting batch execution by task...")
         
-        这种方式每个任务只创建一个训练作业，在一个作业中训练多个模型，
-        减少了作业数量，使管理更加简单
+        # Use provided tasks or available tasks
+        if tasks is None or len(tasks) == 0:
+            tasks_to_run = AVAILABLE_TASKS
+        else:
+            tasks_to_run = [t for t in tasks if t in AVAILABLE_TASKS]
+            if len(tasks_to_run) < len(tasks):
+                print(f"Warning: Some tasks requested are not in available tasks list.")
         
-        Args:
-            tasks (list): List of tasks to run. If None, uses all available tasks.
-            models (list): List of models to run. If None, uses all available models.
-            mode (str): Data modality ('csi' or 'acf')
-            instance_type (str): SageMaker instance type
-            wait_time (int): Time to wait between job submissions in seconds
+        # Use provided models or available models
+        if models is None or len(models) == 0:
+            models_to_run = AVAILABLE_MODELS
+        else:
+            models_to_run = [m for m in models if m in AVAILABLE_MODELS]
+            if len(models_to_run) < len(models):
+                print(f"Warning: Some models requested are not in available models list.")
+        
+        print(f"Tasks to run ({len(tasks_to_run)}): {', '.join(tasks_to_run)}")
+        print(f"Models to run ({len(models_to_run)}): {', '.join(models_to_run)}")
+        
+        # Create a batch timestamp to group jobs
+        batch_timestamp = self.timestamp  # Use the same timestamp for all jobs in batch
+        
+        # Store all jobs
+        all_jobs = []
+        task_job_groups = {}
+        
+        # For each task, launch training for all models
+        for task_name in tasks_to_run:
+            print(f"\n----------------------------")
+            print(f"Processing task: {task_name}")
+            print(f"----------------------------")
             
-        Returns:
-            dict: Dictionary containing details of all launched jobs
-        """
-        # 使用默认任务和模型（如果未提供）
-        if tasks is None:
-            tasks = TASKS
-        if models is None:
-            models = MODELS
+            # Determine number of classes for this task
+            num_classes = TASK_CLASS_MAPPING.get(task_name, 2)
+            print(f"Task has {num_classes} classes")
             
-        # 初始化结果字典
-        jobs = {}
-        
-        # 所有作业使用相同的时间戳
-        batch_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        
-        print(f"=== Starting batch training by task: {len(tasks)} tasks (training {len(models)} models per task) ===")
-        print(f"Tasks: {', '.join(tasks)}")
-        print(f"Models: {', '.join(models)}")
-        
-        # Common data directory for all tasks
-        data_dir = S3_DATA_BASE
-        
-        # 循环遍历每个任务
-        for i, current_task in enumerate(tasks):
-            job_index = i + 1
+            # Store per-task jobs
+            task_jobs = []
             
-            print(f"\n[{job_index}/{len(tasks)}] Starting job: Task={current_task} (all models)")
-            
-            # Create task-specific output path
-            output_dir = f"{S3_OUTPUT_BASE}{current_task}/"
-            
-            try:
-                # 使用自定义脚本运行所有模型训练
-                # 这里我们创建一个额外的参数来指定要训练的所有模型
-                config = self.get_supervised_config(
-                    training_dir=data_dir,
-                    test_dirs=None,  # No specific test dirs with new approach
-                    output_dir=output_dir,
+            # Launch training jobs for each model
+            for model_name in models_to_run:
+                print(f"\nLaunching job for task '{task_name}' with model '{model_name}'...")
+                
+                # S3 output path following task/model structure
+                s3_output_path = f"{S3_OUTPUT_BASE}{task_name}/{model_name}/"
+                
+                if not s3_output_path.endswith('/'):
+                    s3_output_path += '/'
+                
+                job_info = self.run_supervised(
+                    task=task_name,
+                    model_name=model_name,
+                    output_dir=s3_output_path,
                     mode=mode,
-                    task=current_task,
-                    # 使用第一个模型作为默认，其他模型将在训练脚本中处理
-                    model_name=models[0] if models else MODEL_NAME
+                    instance_type=instance_type
                 )
                 
-                # 添加一个特殊参数，指定要训练的所有模型
-                config['all_models'] = models
+                # Add batch identifier
+                job_info['batch_id'] = batch_timestamp
+                job_info['task_group'] = task_name
                 
-                # 转换配置为超参数字典
-                hyperparameters = {}
-                for key, value in config.items():
-                    # 跳过特定字段
-                    if key in ['data_dir', 'output_dir']:
-                        continue
-                        
-                    # 正确处理布尔标志
-                    if key == 'freeze_backbone' and isinstance(value, bool):
-                        if value:
-                            hyperparameters[key] = ''  # 不带值包含标志表示True
-                        # 如果为False则跳过 - 标志不存在表示False
-                    elif key == 'integrated_loader' and isinstance(value, bool):
-                        if value:
-                            hyperparameters[key] = ''  # 不带值包含标志表示True
-                        # 如果为False则跳过 - 标志不存在表示False
-                    # 处理所有模型列表
-                    elif key == 'all_models':
-                        hyperparameters[key] = ' '.join(value)
-                    # 处理其他列表
-                    elif isinstance(value, list):
-                        hyperparameters[key] = ' '.join(str(item) for item in value)
-                    else:
-                        hyperparameters[key] = value
+                # Add to job lists
+                task_jobs.append(job_info)
+                all_jobs.append(job_info)
                 
-                # 创建PyTorch估计器
-                instance_type = instance_type or INSTANCE_TYPE
-                job_name = f"{BASE_JOB_NAME}-{current_task}-all-models-{self.timestamp}"
-                
-                # 确保包含requirements.txt
-                dependencies = ["requirements.txt"]
-                
-                # 创建估计器
-                estimator = PyTorch(
-                    entry_point="train_multi_model.py",  # 需要一个新的训练脚本处理多个模型
-                    source_dir=CODE_DIR,
-                    dependencies=dependencies,
-                    role=self.role,
-                    instance_type=instance_type,
-                    instance_count=INSTANCE_COUNT,
-                    framework_version=FRAMEWORK_VERSION,
-                    py_version=PY_VERSION,
-                    hyperparameters=hyperparameters,
-                    output_path=config['output_dir'],
-                    base_job_name=job_name,
-                    disable_profiler=True,
-                    debugger_hook_config=False,
-                    environment={
-                        "HOROVOD_WITH_PYTORCH": "0", 
-                        "SAGEMAKER_PROGRAM": "train_multi_model.py"
-                    }
-                )
-                
-                # 设置SageMaker的输入通道
-                inputs = {
-                    "training": config['data_dir']
-                }
-                
-                # 打印配置
-                print(f"Job: {job_name}")
-                print(f"  Task: {current_task}")
-                print(f"  Models: {', '.join(models)}")
-                print(f"  Instance: {instance_type}")
-                print(f"  Data directory: {inputs['training']}")
-                
-                # 启动训练作业
-                print("Launching SageMaker job...")
-                estimator.fit(inputs, wait=False)
-                
-                print(f"Job '{job_name}' launched successfully.")
-                
-                # 存储作业详情
-                job_key = f"{current_task}_all_models"
-                jobs[job_key] = {
-                    'job_name': job_name,
-                    'estimator': estimator,
-                    'config': config,
-                    'inputs': inputs,
-                    'models': models
-                }
-                
-                # 写入作业详情到摘要文件
-                self._update_batch_summary(jobs, batch_timestamp)
-                
-                # 在作业提交之间等待以避免限流
-                if job_index < len(tasks):  # 最后一个作业后不需要等待
-                    print(f"Waiting {wait_time}s before next job...")
-                    time.sleep(wait_time)
-                    
-            except Exception as e:
-                print(f"Error with task={current_task}: {str(e)}")
-                # 尽管有错误，仍继续下一个组合
+                # Wait between job submissions to space them out
+                if wait_time > 0 and model_name != models_to_run[-1]:
+                    print(f"Waiting {wait_time} seconds before submitting next job...")
+                    try:
+                        time.sleep(wait_time)
+                    except KeyboardInterrupt:
+                        print("\nBatch submission interrupted by user.")
+                        break
+            
+            # Store task job group
+            task_job_groups[task_name] = task_jobs
+            
+            # Wait longer between tasks
+            if wait_time > 0 and task_name != tasks_to_run[-1]:
+                print(f"Waiting {wait_time*2} seconds before starting next task...")
+                try:
+                    time.sleep(wait_time * 2)
+                except KeyboardInterrupt:
+                    print("\nBatch submission interrupted by user.")
+                    break
         
-        print(f"\n=== Batch complete: {len(jobs)}/{len(tasks)} jobs launched ===")
-        print(f"Summary saved to: batch_summaries/batch_summary_{batch_timestamp}.txt")
-        return jobs
+        # Return batch information
+        batch_info = {
+            'batch_timestamp': batch_timestamp,
+            'batch_mode': 'by-task',
+            'tasks': tasks_to_run,
+            'models': models_to_run,
+            'instance_type': instance_type or INSTANCE_TYPE,
+            'jobs': all_jobs,
+            'task_groups': task_job_groups
+        }
+        
+        # Call update batch summary to create initial status report
+        self._update_batch_summary(all_jobs, batch_timestamp)
+        
+        print(f"\nBatch execution initiated!")
+        print(f"Tasks: {len(tasks_to_run)}")
+        print(f"Models: {len(models_to_run)}")
+        print(f"Total jobs: {len(all_jobs)}")
+        print(f"Batch ID: {batch_timestamp}")
+        print(f"You can monitor the jobs in SageMaker console.")
+        
+        return batch_info
     
     def _update_batch_summary(self, jobs, batch_timestamp):
         """Update batch summary file with job details"""
@@ -730,8 +690,8 @@ class SageMakerRunner:
 def main():
     """Main function to execute from command line"""
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
-    parser.add_argument('--task', type=str, default=DEFAULT_TASK, choices=TASKS,
-                      help=f'Task to run (default: {DEFAULT_TASK}). Available tasks: {", ".join(TASKS)}')
+    parser.add_argument('--task', type=str, default=DEFAULT_TASK, choices=AVAILABLE_TASKS,
+                      help=f'Task to run (default: {DEFAULT_TASK}). Available tasks: {", ".join(AVAILABLE_TASKS)}')
     parser.add_argument('--tasks', type=str, nargs='+',
                       help='List of tasks to run. Use space to separate multiple tasks')
     parser.add_argument('--models', type=str, nargs='+',
@@ -747,51 +707,55 @@ def main():
                       help='JSON configuration file to override defaults')
     parser.add_argument('--instance-type', dest='instance_type', type=str, default=INSTANCE_TYPE,
                       help='SageMaker instance type for training')
-    parser.add_argument('--model', type=str, default=MODEL_NAME, choices=MODELS,
+    parser.add_argument('--model', type=str, default=MODEL_NAME, choices=AVAILABLE_MODELS,
                       help=f'Model to use (default: {MODEL_NAME})')
     parser.add_argument('--epochs', dest='num_epochs', type=int, default=None,
-                      help='Number of epochs to train')
+                      help='Number of epochs to train (default: from config)')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=None,
-                      help='Batch size for training')
-    parser.add_argument('--individual', action='store_true',
-                      help='Run individual jobs for each model (default is to run all models in one job)')
-    parser.add_argument('--wait-time', dest='wait_time', type=int, default=BATCH_WAIT_TIME,
-                      help='Time to wait between job submissions in seconds')
+                      help='Batch size for training (default: from config)')
+    parser.add_argument('--batch-mode', dest='batch_mode', type=str, default=BATCH_MODE,
+                      choices=['by-task', 'individual'],
+                      help='Batch mode to use when running multiple models/tasks')
+    parser.add_argument('--batch-wait', dest='batch_wait', type=int, default=BATCH_WAIT_TIME,
+                      help='Wait time between batch job submissions in seconds')
     
     args = parser.parse_args()
     
-    # 创建runner实例
-    runner = SageMakerRunner()
+    # 创建SageMaker运行器实例
+    runner = SageMakerRunner(batch_mode=args.batch_mode)
     
     # 确定要使用的任务和模型
-    tasks = args.tasks or [args.task] if args.task else TASKS
-    models = args.models or [args.model] if args.model else MODELS
+    tasks = args.tasks or [args.task] if args.task else AVAILABLE_TASKS
+    models = args.models or [args.model] if args.model else AVAILABLE_MODELS
     
     # 判断是单任务单模型，还是多任务/多模型
-    if len(tasks) == 1 and len(models) == 1 and not args.individual:
-        # 单任务单模型，直接使用run_supervised
+    if len(tasks) == 1 and len(models) == 1:
+        # 单任务单模型，直接运行单个作业
+        print(f"Running single job: Task={tasks[0]}, Model={models[0]}")
+        
+        # 加载配置
         config = runner.create_or_load_config(args)
+        
+        # 运行单个任务
         runner.run_supervised(
-            config.get('data_dir'), 
-            None,
-            config.get('output_dir'), 
-            config.get('mode', args.mode), 
-            args.config_file,
-            args.instance_type,
-            config.get('task_name', tasks[0]),
-            config.get('model_name', models[0])
+            training_dir=args.data_dir,
+            output_dir=args.output_dir,
+            mode=args.mode,
+            config_file=args.config_file,
+            instance_type=args.instance_type,
+            task=tasks[0],
+            model_name=models[0]
         )
     else:
         # 多任务或多模型，使用批处理
-        batch_mode = 'individual' if args.individual else 'by-task'
-        print(f"Using batch mode: {batch_mode}")
+        print(f"Running batch jobs with {len(tasks)} tasks and {len(models)} models")
         runner.run_batch_auto(
             tasks=tasks,
             models=models,
             mode=args.mode,
             instance_type=args.instance_type,
-            wait_time=args.wait_time,
-            batch_mode=batch_mode
+            wait_time=args.batch_wait,
+            batch_mode=args.batch_mode
         )
 
 if __name__ == "__main__":

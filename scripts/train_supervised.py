@@ -49,6 +49,8 @@ def main(args=None):
                             help='Key for CSI data in h5 files')
         parser.add_argument('--save_dir', type=str, default='checkpoints',
                             help='Directory to save checkpoints')
+        parser.add_argument('--output_dir', type=str, default=None,
+                            help='Directory to save results (defaults to save_dir if not specified)')
         parser.add_argument('--weight_decay', type=float, default=1e-5, 
                             help='Weight decay for optimizer')
         parser.add_argument('--warmup_epochs', type=int, default=5,
@@ -70,8 +72,37 @@ def main(args=None):
                             help='Dropout rate')
         args = parser.parse_args()
     
-    # Create save directory if it doesn't exist
+    # Set output_dir to save_dir if not specified
+    if args.output_dir is None:
+        args.output_dir = args.save_dir
+    
+    # Create save directories if they don't exist
     os.makedirs(args.save_dir, exist_ok=True)
+    
+    # Create output directory if it's different from save_dir
+    if args.output_dir != args.save_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Detect environment and set appropriate paths
+    is_sagemaker = os.path.exists('/opt/ml/model')
+    
+    if is_sagemaker:
+        print("Running in SageMaker environment")
+        model_dir = '/opt/ml/model'
+        # If running in SageMaker, ensure we save in the model directory with task/model structure
+        results_dir = os.path.join(model_dir, args.task_name, args.model_type)
+        os.makedirs(results_dir, exist_ok=True)
+        # Also create the checkpoints directory under the task/model structure
+        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_type)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+    else:
+        print("Running in local environment")
+        # Use specified directories for local environment with task/model structure
+        results_dir = os.path.join(args.output_dir, args.task_name, args.model_type)
+        os.makedirs(results_dir, exist_ok=True)
+        # Create the checkpoints directory under the task/model structure
+        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_type)
+        os.makedirs(checkpoint_dir, exist_ok=True)
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -160,18 +191,21 @@ def main(args=None):
         'patience': args.patience,
         'num_classes': num_classes,
         'device': str(device),
-        'save_dir': args.save_dir,
-        'output_dir': args.save_dir,
+        'save_dir': checkpoint_dir,  # Use the checkpoint_dir for model checkpoints
+        'output_dir': results_dir,  # Use results_dir for output
         'results_subdir': 'supervised',
         'model_name': args.model_type,
         'task_name': args.task_name
     })
     
     # Save the configuration
-    with open(os.path.join(args.save_dir, f"{args.model_type}_{args.task_name}_config.json"), "w") as f:
+    config_path = os.path.join(results_dir, f"{args.model_type}_{args.task_name}_config.json")
+    with open(config_path, "w") as f:
         # Convert config to dict
         config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
         json.dump(config_dict, f, indent=4)
+    
+    print(f"Configuration saved to {config_path}")
     
     # Create trainer
     criterion = nn.CrossEntropyLoss()
@@ -186,7 +220,7 @@ def main(args=None):
         optimizer=optimizer,
         scheduler=scheduler,
         device=device,
-        save_path=args.save_dir,
+        save_path=checkpoint_dir,  # Use checkpoint_dir for model checkpoints
         num_classes=num_classes,
         label_mapper=label_mapper,
         config=config
@@ -204,10 +238,26 @@ def main(args=None):
             print(f"{key} loss: {test_loss:.4f}, accuracy: {test_acc:.4f}")
             
             # Plot confusion matrix for this test set
-            confusion_path = os.path.join(args.save_dir, f"{args.model_type}_{args.task_name}_{key}_confusion.png")
+            confusion_path = os.path.join(results_dir, f"{args.model_type}_{args.task_name}_{key}_confusion.png")
             trainer.plot_confusion_matrix(data_loader=loaders[key], mode=key, epoch=None)
     
-    print(f"\nTraining completed. Results saved to {args.save_dir}")
+    # Save training results summary
+    results_file = os.path.join(results_dir, f"{args.model_type}_{args.task_name}_results.json")
+    with open(results_file, 'w') as f:
+        # Include only serializable data
+        serializable_results = {
+            'best_epoch': training_results['best_epoch'],
+            'best_val_accuracy': float(training_results['best_val_accuracy']),  # Convert tensor to float if necessary
+            'train_loss_history': [float(x) for x in training_results['train_loss_history']],
+            'val_loss_history': [float(x) for x in training_results['val_loss_history']],
+            'train_accuracy_history': [float(x) for x in training_results['train_accuracy_history']],
+            'val_accuracy_history': [float(x) for x in training_results['val_accuracy_history']]
+        }
+        json.dump(serializable_results, f, indent=4)
+    
+    print(f"\nTraining completed. Results saved to {results_file}")
+    print(f"Model checkpoints saved to {checkpoint_dir}")
+    print(f"Final model and results saved to {results_dir}")
 
 if __name__ == "__main__":
     main()
