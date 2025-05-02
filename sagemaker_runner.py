@@ -154,6 +154,9 @@ class SageMakerRunner:
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         self.batch_mode = batch_mode
         
+        # 验证默认配置项
+        self.default_config = DEFAULT_CONFIG
+        
         # Verify the rnd-sagemaker bucket exists
         s3 = boto3.resource('s3')
         bucket_name = "rnd-sagemaker"
@@ -189,7 +192,9 @@ class SageMakerRunner:
             test_dirs = []
             
         if output_dir is None:
-            output_dir = f"{S3_OUTPUT_BASE}{current_task}/"
+            # Update path structure to include both task and model in the output path
+            # Format: base_output_path/task/model/
+            output_dir = f"{S3_OUTPUT_BASE}{current_task}/{current_model}/"
         
         # Get number of classes based on task
         num_classes = TASK_CLASS_MAPPING.get(current_task, 2)  # Default to 2 if task not found
@@ -200,7 +205,7 @@ class SageMakerRunner:
             'data_dir': training_dir,
             'task_name': current_task,
             'output_dir': output_dir,
-            'results_subdir': f'supervised/{current_model}',  # Include model in results path
+            'results_subdir': f"{current_model}_{current_task.lower()}",  # 修改为与本地代码一致的格式
             
             # Training parameters
             'batch_size': BATCH_SIZE,
@@ -221,7 +226,7 @@ class SageMakerRunner:
             # Other parameters
             'seed': SEED,
             'device': 'cuda',  # SageMaker instances will have GPU
-            'model_name': current_model.lower(),  # 修改为model_name以与本地运行脚本一致
+            'model_name': current_model.lower(),
             'win_len': WIN_LEN,
             'feature_size': FEATURE_SIZE,
             'data_key': 'CSI_amps'  # Add data_key parameter
@@ -290,7 +295,7 @@ class SageMakerRunner:
                 # Data parameters
                 "data_dir": data_path,
                 "task_name": current_task,
-                "model_type": current_model,
+                "model_name": current_model,  # 修改为model_name以与本地运行脚本一致
                 
                 # Training parameters
                 "batch_size": config.get('batch_size', BATCH_SIZE),
@@ -306,7 +311,8 @@ class SageMakerRunner:
                 "feature_size": config.get('feature_size', FEATURE_SIZE),
                 "seed": config.get('seed', SEED),
                 "save_dir": "/opt/ml/model",  # Use SageMaker model directory
-                "output_dir": "/opt/ml/model"  # Set output_dir to model directory as well
+                "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
+                "data_key": config.get('data_key', 'CSI_amps')  # 添加data_key参数
             },
             metric_definitions=[
                 {'Name': 'train:loss', 'Regex': 'Epoch \\d+/\\d+, Training Loss: ([0-9\\.]+)'},
@@ -642,7 +648,7 @@ class SageMakerRunner:
                 if hasattr(args, 'task') and args.task:
                     config['task_name'] = args.task
                     # Update results_subdir based on model and task
-                    config['results_subdir'] = f"supervised/{args.model}"
+                    config['results_subdir'] = f"{args.model}_{args.task.lower()}"
                     # Update num_classes based on task
                     config['num_classes'] = TASK_CLASS_MAPPING.get(args.task, 2)
                     
@@ -744,7 +750,7 @@ def main():
             config_file=args.config_file,
             instance_type=args.instance_type,
             task=tasks[0],
-            model_name=models[0]
+            model_name=models[0]  # 确保使用model_name参数
         )
     else:
         # 多任务或多模型，使用批处理

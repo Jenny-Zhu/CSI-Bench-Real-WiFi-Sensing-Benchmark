@@ -410,12 +410,26 @@ def run_supervised_direct(config):
     Returns:
         Return code from the process
     """
+    # Get task and model names from config
+    task_name = config.get('task', TASK)
+    model_name = config.get('model_name', MODEL_NAME)
+    
+    # Get base directories
+    base_output_dir = config.get('output_dir', OUTPUT_DIR)
+    
+    # Update save_dir to include task/model structure
+    # Format: base_output_dir/task/model/
+    structured_output_dir = os.path.join(base_output_dir, task_name, model_name)
+    
+    # Ensure output directory exists
+    os.makedirs(structured_output_dir, exist_ok=True)
+    
     # Build command with all necessary arguments
     cmd = [
         "python", os.path.join(SCRIPT_DIR, "train_supervised.py"),
         f"--data_dir={config.get('training_dir', TRAINING_DIR)}",
-        f"--task_name={config.get('task', TASK)}",
-        f"--model_type={config.get('model_name', MODEL_NAME)}",
+        f"--task_name={task_name}",
+        f"--model_name={model_name}",
         f"--batch_size={config.get('batch_size', BATCH_SIZE)}",
         f"--num_epochs={config.get('num_epochs', EPOCH_NUMBER)}",
         f"--learning_rate={config.get('learning_rate', 1e-4)}",
@@ -424,7 +438,8 @@ def run_supervised_direct(config):
         f"--patience={config.get('patience', 15)}",
         f"--win_len={config.get('win_len', WIN_LEN)}",
         f"--feature_size={config.get('feature_size', FEATURE_SIZE)}",
-        f"--save_dir={config.get('output_dir', OUTPUT_DIR)}"
+        f"--save_dir={base_output_dir}",
+        f"--output_dir={base_output_dir}"
     ]
     
     # Add advanced parameters if they exist in the config
@@ -444,6 +459,7 @@ def run_supervised_direct(config):
         print(f"Error running supervised learning: {output}")
     else:
         print("Supervised learning completed successfully.")
+        print(f"Results saved to {structured_output_dir}")
     
     return return_code
 

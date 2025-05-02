@@ -1,16 +1,18 @@
+import os
+import json
+import time
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
-import time
 import copy
-from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from torch.optim.lr_scheduler import LambdaLR
 from engine.base_trainer import BaseTrainer
+from tqdm import tqdm
 
 def warmup_schedule(epoch, warmup_epochs):
     """Warmup learning rate schedule."""
@@ -473,3 +475,76 @@ class TaskTrainer(BaseTrainer):
         report_df.to_csv(os.path.join(self.save_path, f'classification_report_{mode}{epoch_str}.csv'))
         
         return report_df
+
+    def calculate_metrics(self, data_loader, epoch=None):
+        """
+        Calculate overall performance metrics, including weighted F1 score.
+        
+        Args:
+            data_loader: Data loader for evaluation
+            epoch: Current epoch (optional)
+            
+        Returns:
+            Tuple of (weighted_f1_score, per_class_f1_scores)
+        """
+        # Set model to evaluation mode
+        self.model.eval()
+        
+        # Initialize lists to store predictions and ground truth
+        all_preds = []
+        all_targets = []
+        
+        # No gradient during evaluation
+        with torch.no_grad():
+            for batch in data_loader:
+                # Get data and move to device
+                if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                    data, targets = batch
+                else:
+                    # Handle case where batch is a dictionary
+                    data = batch['input']
+                    targets = batch['target']
+                
+                # Move to device
+                data = data.to(self.device)
+                targets = targets.to(self.device)
+                
+                # Forward pass
+                outputs = self.model(data)
+                
+                # Get predictions
+                _, preds = torch.max(outputs, 1)
+                
+                # Append to lists
+                all_preds.extend(preds.cpu().numpy())
+                all_targets.extend(targets.cpu().numpy())
+        
+        # Convert lists to numpy arrays
+        all_preds = np.array(all_preds)
+        all_targets = np.array(all_targets)
+        
+        # Calculate weighted F1 score
+        from sklearn.metrics import f1_score, classification_report
+        weighted_f1 = f1_score(all_targets, all_preds, average='weighted')
+        
+        # Calculate per-class F1 scores
+        per_class_f1 = f1_score(all_targets, all_preds, average=None)
+        
+        # Get detailed classification report
+        report = classification_report(all_targets, all_preds, output_dict=True)
+        
+        # Save the report to a CSV file if epoch is None (final evaluation)
+        if epoch is None and hasattr(self, 'save_path'):
+            import pandas as pd
+            # Convert report to DataFrame
+            report_df = pd.DataFrame(report).transpose()
+            
+            # Determine split name from data_loader (assuming it's in the dataloader's dataset attributes)
+            split_name = getattr(data_loader.dataset, 'split', 'unknown')
+            
+            # Save to CSV
+            report_path = os.path.join(self.save_path, f'classification_report_{split_name}.csv')
+            report_df.to_csv(report_path)
+            print(f"Classification report saved to {report_path}")
+        
+        return weighted_f1, per_class_f1

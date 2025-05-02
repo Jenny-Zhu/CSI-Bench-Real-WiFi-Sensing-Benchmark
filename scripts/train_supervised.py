@@ -10,6 +10,8 @@ import torch.nn as nn
 from load.supervised.benchmark_loader import load_benchmark_supervised
 from tqdm import tqdm
 import json
+import hashlib
+import time
 
 # Import model classes from models.py
 from model.supervised.models import (
@@ -39,7 +41,7 @@ def main(args=None):
                             help='Root directory of the dataset')
         parser.add_argument('--task_name', type=str, default='MotionSourceRecognition',
                             help='Name of the task to train on')
-        parser.add_argument('--model_type', type=str, default='vit', 
+        parser.add_argument('--model_name', type=str, default='vit', 
                             choices=['mlp', 'lstm', 'resnet18', 'transformer', 'vit'],
                             help='Type of model to train')
         parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
@@ -86,23 +88,47 @@ def main(args=None):
     # Detect environment and set appropriate paths
     is_sagemaker = os.path.exists('/opt/ml/model')
     
+    # Generate a unique experiment ID based on timestamp and parameters hash
+    param_hash = hashlib.md5(f"{args.learning_rate}_{args.batch_size}_{args.num_epochs}_{args.weight_decay}".encode()).hexdigest()[:8]
+    experiment_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{param_hash}"
+    
     if is_sagemaker:
         print("Running in SageMaker environment")
         model_dir = '/opt/ml/model'
-        # If running in SageMaker, ensure we save in the model directory with task/model structure
-        results_dir = os.path.join(model_dir, args.task_name, args.model_type)
+        # If running in SageMaker, ensure we save in the model directory with task/model/experiment structure
+        # Directory structure: model_dir/task_name/model_name/experiment_id/
+        results_dir = os.path.join(model_dir, args.task_name, args.model_name, experiment_id)
         os.makedirs(results_dir, exist_ok=True)
-        # Also create the checkpoints directory under the task/model structure
-        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_type)
+        # Also create the checkpoints directory under the task/model/experiment structure
+        # Directory structure: save_dir/task_name/model_name/experiment_id/
+        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_name, experiment_id)
         os.makedirs(checkpoint_dir, exist_ok=True)
     else:
         print("Running in local environment")
-        # Use specified directories for local environment with task/model structure
-        results_dir = os.path.join(args.output_dir, args.task_name, args.model_type)
+        # Use specified directories for local environment with task/model/experiment structure
+        # Directory structure: output_dir/task_name/model_name/experiment_id/
+        results_dir = os.path.join(args.output_dir, args.task_name, args.model_name, experiment_id)
         os.makedirs(results_dir, exist_ok=True)
-        # Create the checkpoints directory under the task/model structure
-        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_type)
+        # Create the checkpoints directory under the task/model/experiment structure
+        # Directory structure: save_dir/task_name/model_name/experiment_id/
+        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_name, experiment_id)
         os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # Create best_performance.json file at model level if it doesn't exist
+        model_level_dir = os.path.join(args.output_dir, args.task_name, args.model_name)
+        best_performance_path = os.path.join(model_level_dir, "best_performance.json")
+        if not os.path.exists(best_performance_path):
+            with open(best_performance_path, "w") as f:
+                json.dump({
+                    "best_test_accuracy": 0.0,
+                    "best_test_f1_score": 0.0,
+                    "best_experiment_id": None,
+                    "best_experiment_params": {}
+                }, f, indent=4)
+    
+    print(f"Experiment ID: {experiment_id}")
+    print(f"Results will be saved to: {results_dir}")
+    print(f"Model checkpoints will be saved to: {checkpoint_dir}")
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -138,8 +164,8 @@ def main(args=None):
     print(f"Detected {num_classes} classes in the dataset")
     
     # Create model based on selected type
-    print(f"Creating {args.model_type.upper()} model...")
-    ModelClass = MODEL_TYPES[args.model_type]
+    print(f"Creating {args.model_name.upper()} model...")
+    ModelClass = MODEL_TYPES[args.model_name]
     
     # Common parameters for all models
     model_params = {
@@ -147,31 +173,31 @@ def main(args=None):
     }
     
     # Add additional parameters based on model type
-    if args.model_type in ['mlp', 'vit']:
+    if args.model_name in ['mlp', 'vit']:
         model_params.update({
             'win_len': args.win_len,
             'feature_size': args.feature_size
         })
     
-    if args.model_type == 'resnet18':
+    if args.model_name == 'resnet18':
         model_params.update({
             'in_channels': args.in_channels
         })
     
-    if args.model_type == 'lstm':
+    if args.model_name == 'lstm':
         model_params.update({
             'feature_size': args.feature_size,
             'dropout': args.dropout
         })
     
-    if args.model_type == 'transformer':
+    if args.model_name == 'transformer':
         model_params.update({
             'feature_size': args.feature_size,
             'd_model': args.d_model,
             'dropout': args.dropout
         })
     
-    if args.model_type == 'vit':
+    if args.model_name == 'vit':
         model_params.update({
             'emb_dim': args.emb_dim,
             'dropout': args.dropout,
@@ -194,12 +220,12 @@ def main(args=None):
         'save_dir': checkpoint_dir,  # Use the checkpoint_dir for model checkpoints
         'output_dir': results_dir,  # Use results_dir for output
         'results_subdir': 'supervised',
-        'model_name': args.model_type,
+        'model_name': args.model_name,
         'task_name': args.task_name
     })
     
     # Save the configuration
-    config_path = os.path.join(results_dir, f"{args.model_type}_{args.task_name}_config.json")
+    config_path = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_config.json")
     with open(config_path, "w") as f:
         # Convert config to dict
         config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
@@ -231,18 +257,35 @@ def main(args=None):
     
     # Evaluate on test set(s) if available
     print("\nEvaluating on test sets:")
+    
+    # Create a dictionary to store overall performance metrics
+    overall_metrics = {
+        'model_name': args.model_name,
+        'task_name': args.task_name,
+        'best_epoch': training_results['best_epoch'],
+        'best_val_accuracy': float(training_results['best_val_accuracy'])
+    }
+    
     for key in loaders:
         if key.startswith('test'):
             print(f"\nEvaluating on {key} split:")
             test_loss, test_acc = trainer.evaluate(loaders[key])
             print(f"{key} loss: {test_loss:.4f}, accuracy: {test_acc:.4f}")
             
+            # Store overall accuracy for this test set
+            overall_metrics[f'{key}_accuracy'] = float(test_acc)
+            
+            # Calculate overall F1 score (weighted average)
+            f1_score, _ = trainer.calculate_metrics(data_loader=loaders[key])
+            overall_metrics[f'{key}_f1_score'] = float(f1_score)
+            print(f"{key} F1 score (weighted): {f1_score:.4f}")
+            
             # Plot confusion matrix for this test set
-            confusion_path = os.path.join(results_dir, f"{args.model_type}_{args.task_name}_{key}_confusion.png")
+            confusion_path = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_{key}_confusion.png")
             trainer.plot_confusion_matrix(data_loader=loaders[key], mode=key, epoch=None)
     
-    # Save training results summary
-    results_file = os.path.join(results_dir, f"{args.model_type}_{args.task_name}_results.json")
+    # Save training results summary with overall metrics
+    results_file = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_results.json")
     with open(results_file, 'w') as f:
         # Include only serializable data
         serializable_results = {
@@ -253,9 +296,65 @@ def main(args=None):
             'train_accuracy_history': [float(x) for x in training_results['train_accuracy_history']],
             'val_accuracy_history': [float(x) for x in training_results['val_accuracy_history']]
         }
+        
+        # Add overall metrics to the results
+        serializable_results.update(overall_metrics)
+        
         json.dump(serializable_results, f, indent=4)
     
+    # Save a separate summary file just for overall metrics
+    summary_file = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_summary.json")
+    with open(summary_file, 'w') as f:
+        json.dump(overall_metrics, f, indent=4)
+    
+    # Add experiment parameters to overall metrics for tracking
+    experiment_params = {
+        'learning_rate': args.learning_rate,
+        'batch_size': args.batch_size,
+        'num_epochs': args.num_epochs,
+        'weight_decay': args.weight_decay,
+        'warmup_epochs': args.warmup_epochs,
+        'patience': args.patience,
+        'win_len': args.win_len,
+        'feature_size': args.feature_size,
+        'dropout': getattr(args, 'dropout', 0.1),
+        'emb_dim': getattr(args, 'emb_dim', None),
+        'd_model': getattr(args, 'd_model', None),
+        'in_channels': getattr(args, 'in_channels', None),
+    }
+    
+    # In local environment, update the best performance record if this experiment has better results
+    if not is_sagemaker:
+        model_level_dir = os.path.join(args.output_dir, args.task_name, args.model_name)
+        best_performance_path = os.path.join(model_level_dir, "best_performance.json")
+        
+        # Read current best performance
+        with open(best_performance_path, 'r') as f:
+            best_performance = json.load(f)
+        
+        # Get the primary test accuracy for comparison
+        test_key = 'test_accuracy' if 'test_accuracy' in overall_metrics else 'test1_accuracy'
+        current_accuracy = overall_metrics.get(test_key, 0.0)
+        
+        # Update if current experiment has better accuracy
+        if current_accuracy > best_performance['best_test_accuracy']:
+            best_performance['best_test_accuracy'] = current_accuracy
+            best_performance['best_experiment_id'] = experiment_id
+            best_performance['best_experiment_params'] = experiment_params
+            
+            # If available, also update F1 score
+            f1_key = 'test_f1_score' if 'test_f1_score' in overall_metrics else 'test1_f1_score'
+            if f1_key in overall_metrics:
+                best_performance['best_test_f1_score'] = overall_metrics[f1_key]
+            
+            # Write updated best performance record
+            with open(best_performance_path, 'w') as f:
+                json.dump(best_performance, f, indent=4)
+            
+            print(f"New best performance achieved! Updated {best_performance_path}")
+    
     print(f"\nTraining completed. Results saved to {results_file}")
+    print(f"Overall performance metrics saved to {summary_file}")
     print(f"Model checkpoints saved to {checkpoint_dir}")
     print(f"Final model and results saved to {results_dir}")
 

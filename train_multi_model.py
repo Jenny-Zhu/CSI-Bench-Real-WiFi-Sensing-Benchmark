@@ -346,8 +346,9 @@ def main():
         json.dump(summary_results, f, indent=4)
     
     logger.info(f"汇总结果已保存至 {summary_file}")
+    logger.info(f"要生成性能汇总表，请运行 'python scripts/generate_summary_table.py --results_dir {args.output_dir}'")
     
-    # 如果在SageMaker中运行，打印额外信息
+    # If in SageMaker environment, print additional information
     if is_sagemaker:
         logger.info("训练作业完成后，SageMaker将自动上传模型和结果到S3")
 

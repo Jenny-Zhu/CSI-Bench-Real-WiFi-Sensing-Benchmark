@@ -98,12 +98,49 @@ python scripts/local_runner.py --model lstm --task MotionSourceRecognition --epo
 
 ## Results
 
-Training results are saved in the `results/` directory, including:
+Training results are saved in the `results/` directory with the following structure:
 
+```
+results/
+├── task_name/                 # Name of the task (e.g., MotionSourceRecognition)
+│   ├── model_name/            # Name of the model (e.g., transformer)
+│   │   ├── model_task_config.json           # Model configuration
+│   │   ├── model_task_results.json          # Training metrics and evaluation results
+│   │   ├── model_task_summary.json          # Performance summary with accuracy and F1 scores
+│   │   ├── model_task_test_confusion.png    # Confusion matrix for test data
+│   │   ├── classification_report_test.csv   # Detailed classification metrics for test data
+│   │   └── checkpoint/                      # Saved model weights
+│   ├── performance_summary.csv              # Summary table of all models for this task
+│   └── all_models_summary.json              # Combined results of all models for this task
+├── full_summary.csv                         # Comprehensive summary of all models across all tasks
+├── accuracy_summary.csv                     # Summary table focused on accuracy metrics
+└── f1_score_summary.csv                     # Summary table focused on F1 score metrics
+```
+
+Each model's results are stored in a dedicated directory with the structure: `results/task_name/model_name/`. This organization makes it easier to compare different models for the same task or track a specific model's performance across different tasks.
+
+The files include:
 - Trained model weights
 - Training metrics and logs
 - Confusion matrices
 - Classification reports
+- Summary tables with overall accuracy and F1 scores
+
+### Generating Summary Tables
+
+To generate summary tables that aggregate results across all models and tasks:
+
+```bash
+python scripts/generate_summary_table.py --results_dir ./results
+```
+
+This will create several CSV tables in the results directory:
+- `full_summary.csv`: Complete metrics for all models and tasks
+- `accuracy_summary.csv`: Focused on accuracy metrics
+- `f1_score_summary.csv`: Focused on F1 score metrics
+- `compact_summary.csv`: Key metrics in a condensed format
+- `pivot_test_accuracy.csv`: Comparison of test accuracy across models and tasks
+- `pivot_test_f1_score.csv`: Comparison of test F1 scores across models and tasks
 
 ## Requirements
 
