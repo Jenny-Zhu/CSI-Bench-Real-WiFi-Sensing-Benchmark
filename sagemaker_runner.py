@@ -211,7 +211,7 @@ class SageMakerRunner:
             # Other parameters
             'seed': SEED,
             'device': 'cuda',  # SageMaker instances will have GPU
-            'model_type': current_model.lower(),  # Updated to model_type for train_supervised.py
+            'model_name': current_model.lower(),  # 修改为model_name以与本地运行脚本一致
             'win_len': WIN_LEN,
             'feature_size': FEATURE_SIZE,
             'data_key': 'CSI_amps'  # Add data_key parameter
@@ -270,6 +270,11 @@ class SageMakerRunner:
                 hyperparameters[key] = ' '.join(str(item) for item in value)
             else:
                 hyperparameters[key] = value
+        
+        # 确保使用model_name而不是model_type
+        if 'model_type' in hyperparameters:
+            hyperparameters['model_name'] = hyperparameters['model_type']
+            del hyperparameters['model_type']
         
         # Create PyTorch estimator
         instance_type = instance_type or INSTANCE_TYPE
@@ -589,7 +594,7 @@ class SageMakerRunner:
                 f.write(f"  Input: {job_details['inputs']['training']}\n")
                 f.write(f"  Output: {job_details['config']['output_dir']}\n")
                 f.write(f"  Task: {job_details['config']['task_name']}\n")
-                f.write(f"  Model: {job_details['config']['model_type']}\n")
+                f.write(f"  Model: {job_details['config']['model_name']}\n")
                 
                 # Add information about multiple models if available
                 if 'models' in job_details:
@@ -609,7 +614,7 @@ class SageMakerRunner:
             summary_data["jobs"][job_key] = {
                 "job_name": job_details['job_name'],
                 "task": job_details['config']['task_name'],
-                "model": job_details['config']['model_type'],
+                "model": job_details['config']['model_name'],
                 "input": job_details['inputs']['training'],
                 "output": job_details['config']['output_dir']
             }
@@ -648,52 +653,137 @@ class SageMakerRunner:
         else:
             return self.run_batch(tasks, models, mode, instance_type, wait_time)
 
+    def create_or_load_config(self, args):
+        """
+        Create a new config or load from a file.
+        
+        Args:
+            args: Command line arguments
+            
+        Returns:
+            Configuration dictionary
+        """
+        # Check if a config file is specified
+        if hasattr(args, 'config_file') and args.config_file and os.path.exists(args.config_file):
+            print(f"Loading configuration from {args.config_file}")
+            with open(args.config_file, 'r') as f:
+                config = json.load(f)
+                return config
+        
+        # If model is specified, look for model-specific config
+        if hasattr(args, 'model') and args.model:
+            model_config = os.path.join(CONFIG_DIR, f"{args.model}_config.json")
+            if os.path.exists(model_config):
+                print(f"Using existing config file: {model_config}")
+                with open(model_config, 'r') as f:
+                    config = json.load(f)
+                    
+                # Override config with command line arguments
+                if hasattr(args, 'task') and args.task:
+                    config['task_name'] = args.task
+                    # Update results_subdir based on model and task
+                    config['results_subdir'] = f"supervised/{args.model}"
+                    # Update num_classes based on task
+                    config['num_classes'] = TASK_CLASS_MAPPING.get(args.task, 2)
+                    
+                if hasattr(args, 'num_epochs') and args.num_epochs:
+                    config['num_epochs'] = args.num_epochs
+                    
+                if hasattr(args, 'batch_size') and args.batch_size:
+                    config['batch_size'] = args.batch_size
+                    
+                if hasattr(args, 'output_dir') and args.output_dir:
+                    config['output_dir'] = args.output_dir
+                    
+                return config
+            
+            # If task is specified, look for model+task specific config
+            if hasattr(args, 'task') and args.task:
+                model_task_config = os.path.join(CONFIG_DIR, f"{args.model}_{args.task.lower()}_config.json")
+                if os.path.exists(model_task_config):
+                    print(f"Using existing config file: {model_task_config}")
+                    with open(model_task_config, 'r') as f:
+                        config = json.load(f)
+                        
+                    # Override config with command line arguments
+                    if hasattr(args, 'num_epochs') and args.num_epochs:
+                        config['num_epochs'] = args.num_epochs
+                        
+                    if hasattr(args, 'batch_size') and args.batch_size:
+                        config['batch_size'] = args.batch_size
+                        
+                    if hasattr(args, 'output_dir') and args.output_dir:
+                        config['output_dir'] = args.output_dir
+                        
+                    return config
+        
+        # Otherwise, use the model and task arguments to get configuration
+        return self.get_supervised_config(
+            training_dir=args.data_dir if hasattr(args, 'data_dir') and args.data_dir else None,
+            test_dirs=None,  # SageMaker不需要显式指定测试目录
+            output_dir=args.output_dir if hasattr(args, 'output_dir') and args.output_dir else None,
+            mode=args.mode if hasattr(args, 'mode') and args.mode else MODE,
+            task=args.task if hasattr(args, 'task') and args.task else DEFAULT_TASK,
+            model_name=args.model if hasattr(args, 'model') and args.model else MODEL_NAME
+        )
+
 def main():
     """Main function to execute from command line"""
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
     parser.add_argument('--task', type=str, default=DEFAULT_TASK, choices=TASKS,
                       help=f'Task to run (default: {DEFAULT_TASK}). Available tasks: {", ".join(TASKS)}')
-    parser.add_argument('--data-dir', type=str, default=None,
+    parser.add_argument('--tasks', type=str, nargs='+',
+                      help='List of tasks to run. Use space to separate multiple tasks')
+    parser.add_argument('--models', type=str, nargs='+',
+                      help='List of models to run. Use space to separate multiple models')
+    parser.add_argument('--data-dir', dest='data_dir', type=str, default=None,
                       help='S3 URI containing data (default: S3_DATA_BASE)')
-    parser.add_argument('--output-dir', type=str, default=None,
+    parser.add_argument('--output-dir', dest='output_dir', type=str, default=None,
                       help='S3 URI to save output results (default: task-specific directory)')
     parser.add_argument('--mode', type=str, default=MODE,
                       choices=['csi', 'acf'],
                       help='Data modality to use')
-    parser.add_argument('--config-file', type=str, default=CONFIG_FILE,
+    parser.add_argument('--config-file', dest='config_file', type=str, default=CONFIG_FILE,
                       help='JSON configuration file to override defaults')
-    parser.add_argument('--instance-type', type=str, default=INSTANCE_TYPE,
+    parser.add_argument('--instance-type', dest='instance_type', type=str, default=INSTANCE_TYPE,
                       help='SageMaker instance type for training')
     parser.add_argument('--model', type=str, default=MODEL_NAME, choices=MODELS,
                       help=f'Model to use (default: {MODEL_NAME})')
-    parser.add_argument('--batch', action='store_true',
-                      help='Run batch training for multiple tasks and models')
-    parser.add_argument('--batch-by-task', action='store_true',
-                      help='Run batch training grouped by task (one job per task, all models)')
-    parser.add_argument('--batch-mode', type=str, choices=['by-task', 'individual'], default=BATCH_MODE,
-                      help=f'Batch mode to use when --batch is specified (default: {BATCH_MODE})')
-    parser.add_argument('--batch-tasks', type=str, nargs='+',
-                      help='List of tasks to run in batch mode. Use space to separate multiple tasks')
-    parser.add_argument('--batch-models', type=str, nargs='+',
-                      help='List of models to run in batch mode. Use space to separate multiple models')
-    parser.add_argument('--wait-time', type=int, default=BATCH_WAIT_TIME,
+    parser.add_argument('--epochs', dest='num_epochs', type=int, default=None,
+                      help='Number of epochs to train')
+    parser.add_argument('--batch-size', dest='batch_size', type=int, default=None,
+                      help='Batch size for training')
+    parser.add_argument('--individual', action='store_true',
+                      help='Run individual jobs for each model (default is to run all models in one job)')
+    parser.add_argument('--wait-time', dest='wait_time', type=int, default=BATCH_WAIT_TIME,
                       help='Time to wait between job submissions in seconds')
     
     args = parser.parse_args()
     
-    # 创建runner实例，传递batch_mode参数
-    runner = SageMakerRunner(batch_mode=args.batch_mode)
+    # 创建runner实例
+    runner = SageMakerRunner()
     
-    # 处理批量训练逻辑
-    if args.batch or args.batch_by_task:
-        tasks = args.batch_tasks or TASKS
-        models = args.batch_models or MODELS
-        
-        # 确定批处理模式
-        # 如果显式指定了batch-by-task，则使用按任务分组模式
-        # 如果只指定了batch，则使用配置的默认模式
-        batch_mode = 'by-task' if args.batch_by_task else args.batch_mode
-        
+    # 确定要使用的任务和模型
+    tasks = args.tasks or [args.task] if args.task else TASKS
+    models = args.models or [args.model] if args.model else MODELS
+    
+    # 判断是单任务单模型，还是多任务/多模型
+    if len(tasks) == 1 and len(models) == 1 and not args.individual:
+        # 单任务单模型，直接使用run_supervised
+        config = runner.create_or_load_config(args)
+        runner.run_supervised(
+            config.get('data_dir'), 
+            None,
+            config.get('output_dir'), 
+            config.get('mode', args.mode), 
+            args.config_file,
+            args.instance_type,
+            config.get('task_name', tasks[0]),
+            config.get('model_name', models[0])
+        )
+    else:
+        # 多任务或多模型，使用批处理
+        batch_mode = 'individual' if args.individual else 'by-task'
         print(f"Using batch mode: {batch_mode}")
         runner.run_batch_auto(
             tasks=tasks,
@@ -702,18 +792,6 @@ def main():
             instance_type=args.instance_type,
             wait_time=args.wait_time,
             batch_mode=batch_mode
-        )
-    else:
-        # 运行单个训练作业
-        runner.run_supervised(
-            args.data_dir, 
-            None,  # test_dirs no longer needed with new approach
-            args.output_dir, 
-            args.mode, 
-            args.config_file,
-            args.instance_type,
-            args.task,
-            args.model
         )
 
 if __name__ == "__main__":
