@@ -91,8 +91,7 @@ DEFAULT_CONFIG = load_default_config()
 S3_DATA_BASE = DEFAULT_CONFIG.get("s3_data_base", "s3://rnd-sagemaker/Data/Benchmark/")
 S3_OUTPUT_BASE = DEFAULT_CONFIG.get("s3_output_base", "s3://rnd-sagemaker/Benchmark_Log/")
 AVAILABLE_TASKS = DEFAULT_CONFIG.get("available_tasks", [
-    "MotionSourceRecognition", "HumanMotion", "DetectionandClassification", 
-    "HumanID", "NTUHAR", "HumanNonhuman", "NTUHumanID", "Widar", "ThreeClass", "Detection"
+    "MotionSourceRecognition", 
 ])
 AVAILABLE_MODELS = DEFAULT_CONFIG.get("available_models", ["mlp", "lstm", "resnet18", "transformer", "vit"])
 TASK_CLASS_MAPPING = DEFAULT_CONFIG.get("task_class_mapping", {})
