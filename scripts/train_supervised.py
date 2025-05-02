@@ -9,6 +9,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import torch
 import torch.nn as nn
+import numpy as np
+import pandas as pd  # 确保导入pandas
 from load.supervised.benchmark_loader import load_benchmark_supervised
 from tqdm import tqdm
 import json
@@ -268,13 +270,47 @@ def main(args=None):
     # Evaluate on test set(s) if available
     print("\nEvaluating on test sets:")
     
-    # Create a dictionary to store overall performance metrics
+    # 统一处理训练结果，无论它是DataFrame还是字典
     overall_metrics = {
         'model_name': args.model_name,
-        'task_name': args.task_name,
-        'best_epoch': training_results['best_epoch'],
-        'best_val_accuracy': float(training_results['best_val_accuracy'])
+        'task_name': args.task_name
     }
+    
+    # 转换training_results为标准格式
+    if isinstance(training_results, pd.DataFrame):
+        # 从DataFrame中提取数据
+        train_history = {
+            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.num_epochs + 1)),
+            'train_loss_history': training_results['Train Loss'].tolist() if 'Train Loss' in training_results.columns else [],
+            'val_loss_history': training_results['Val Loss'].tolist() if 'Val Loss' in training_results.columns else [],
+            'train_accuracy_history': training_results['Train Accuracy'].tolist() if 'Train Accuracy' in training_results.columns else [],
+            'val_accuracy_history': training_results['Val Accuracy'].tolist() if 'Val Accuracy' in training_results.columns else []
+        }
+        
+        # 找到最佳验证准确率和对应的epoch
+        if 'Val Accuracy' in training_results.columns:
+            best_idx = training_results['Val Accuracy'].idxmax()
+            best_epoch = int(training_results.loc[best_idx, 'Epoch'])
+            best_val_accuracy = float(training_results.loc[best_idx, 'Val Accuracy'])
+        else:
+            best_epoch = args.num_epochs
+            best_val_accuracy = 0.0
+    else:
+        # 如果已经是字典，直接提取需要的数据
+        train_history = {
+            'train_loss_history': training_results.get('train_loss_history', []),
+            'val_loss_history': training_results.get('val_loss_history', []),
+            'train_accuracy_history': training_results.get('train_accuracy_history', []),
+            'val_accuracy_history': training_results.get('val_accuracy_history', [])
+        }
+        
+        # 从字典中获取最佳验证准确率和对应的epoch
+        best_epoch = training_results.get('best_epoch', args.num_epochs)
+        best_val_accuracy = training_results.get('best_val_accuracy', 0.0)
+    
+    # 添加最佳结果到整体指标
+    overall_metrics['best_epoch'] = best_epoch
+    overall_metrics['best_val_accuracy'] = best_val_accuracy
     
     for key in loaders:
         if key.startswith('test'):
@@ -297,25 +333,36 @@ def main(args=None):
     # Save training results summary with overall metrics
     results_file = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_results.json")
     with open(results_file, 'w') as f:
-        # Include only serializable data
-        serializable_results = {
-            'best_epoch': training_results['best_epoch'],
-            'best_val_accuracy': float(training_results['best_val_accuracy']),  # Convert tensor to float if necessary
-            'train_loss_history': [float(x) for x in training_results['train_loss_history']],
-            'val_loss_history': [float(x) for x in training_results['val_loss_history']],
-            'train_accuracy_history': [float(x) for x in training_results['train_accuracy_history']],
-            'val_accuracy_history': [float(x) for x in training_results['val_accuracy_history']]
-        }
-        
-        # Add overall metrics to the results
+        # 创建包含训练历史和整体指标的结果
+        serializable_results = {}
+        serializable_results.update(train_history)
         serializable_results.update(overall_metrics)
         
+        # 确保所有numpy类型都被转换为Python原生类型
+        def convert_to_json_serializable(obj):
+            if isinstance(obj, (np.integer, np.int64)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, pd.DataFrame):
+                return obj.to_dict()
+            elif isinstance(obj, list):
+                return [convert_to_json_serializable(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+            else:
+                return obj
+        
+        serializable_results = convert_to_json_serializable(serializable_results)
         json.dump(serializable_results, f, indent=4)
     
     # Save a separate summary file just for overall metrics
     summary_file = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_summary.json")
     with open(summary_file, 'w') as f:
-        json.dump(overall_metrics, f, indent=4)
+        # 同样确保summary也是可序列化的
+        json.dump(convert_to_json_serializable(overall_metrics), f, indent=4)
     
     # Add experiment parameters to overall metrics for tracking
     experiment_params = {

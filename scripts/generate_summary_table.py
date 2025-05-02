@@ -87,6 +87,26 @@ def extract_metrics_from_file(file_path):
         with open(file_path, 'r') as f:
             data = json.load(f)
         
+        # 将NumPy类型转换为Python原生类型，以便JSON序列化
+        def convert_to_json_serializable(obj):
+            if isinstance(obj, (np.integer, np.int64)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, pd.DataFrame):
+                return obj.to_dict()
+            elif isinstance(obj, list):
+                return [convert_to_json_serializable(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+            else:
+                return obj
+        
+        # 确保所有数据都是JSON可序列化的
+        data = convert_to_json_serializable(data)
+        
         # Check if this is a best_performance.json file or a regular summary file
         is_best_performance = "best_experiment_id" in data
         

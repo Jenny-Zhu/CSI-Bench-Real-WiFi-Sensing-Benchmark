@@ -35,6 +35,31 @@ import re
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+def convert_to_json_serializable(obj):
+    """
+    递归地将所有NumPy类型转换为Python原生类型，以便JSON序列化
+    
+    Args:
+        obj: 需要转换的对象
+        
+    Returns:
+        转换后的JSON可序列化对象
+    """
+    if isinstance(obj, (np.integer, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, pd.DataFrame):
+        return obj.to_dict()
+    elif isinstance(obj, list):
+        return [convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+    else:
+        return obj
+
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="超参数调优系统")
@@ -324,42 +349,45 @@ def run_optuna_optimization(args):
     }]
 
 def generate_summary(trials_results, model, task, output_dir, search_method):
-    """生成超参数调优结果的摘要"""
-    # 从结果创建DataFrame
-    results_df = pd.DataFrame(trials_results)
+    """生成超参数调优结果摘要"""
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     
-    # 按准确率排序（降序）
-    if 'accuracy' in results_df.columns:
-        results_df = results_df.sort_values('accuracy', ascending=False)
-    
-    # 创建摘要目录
-    summary_dir = os.path.join(output_dir, task, model, 'hyperparameter_tuning')
+    # 确保结果目录存在
+    summary_dir = os.path.join(output_dir, task, model, "hyperparameter_tuning")
     os.makedirs(summary_dir, exist_ok=True)
     
-    # 为本次调优会话生成时间戳
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # 将结果保存为CSV
-    csv_path = os.path.join(summary_dir, f"tuning_results_{search_method}_{timestamp}.csv")
-    results_df.to_csv(csv_path, index=False)
-    
-    # 创建摘要JSON
+    # 创建摘要数据
     summary = {
-        'model': model,
-        'task': task,
-        'search_method': search_method,
-        'timestamp': timestamp,
-        'num_trials': len(trials_results),
-        'best_accuracy': results_df['accuracy'].max() if 'accuracy' in results_df.columns else None,
-        'best_params': results_df.iloc[0]['params'].copy() if not results_df.empty else None,
-        'best_experiment_id': results_df.iloc[0]['experiment_id'] if not results_df.empty else None
+        "timestamp": timestamp,
+        "model": model,
+        "task": task,
+        "search_method": search_method,
+        "trials": trials_results,
+        "best_trial": None
     }
     
-    # 将摘要保存为JSON
-    json_path = os.path.join(summary_dir, f"tuning_summary_{search_method}_{timestamp}.json")
-    with open(json_path, 'w') as f:
+    # 找出最佳试验
+    if trials_results:
+        # 按测试准确率排序
+        sorted_trials = sorted(trials_results, key=lambda x: x.get("test_accuracy", 0.0), reverse=True)
+        summary["best_trial"] = sorted_trials[0]
+    
+    # 确保所有数据都是JSON可序列化的
+    summary = convert_to_json_serializable(summary)
+    
+    # 保存为JSON文件
+    summary_file = os.path.join(summary_dir, f"hparam_summary_{search_method}_{timestamp}.json")
+    with open(summary_file, "w") as f:
         json.dump(summary, f, indent=4)
     
+    # 将试验结果转换为DataFrame并保存为CSV
+    if trials_results:
+        trials_df = pd.DataFrame(trials_results)
+        csv_file = os.path.join(summary_dir, f"hparam_trials_{search_method}_{timestamp}.csv")
+        trials_df.to_csv(csv_file, index=False)
+        print(f"保存了{len(trials_results)}个试验结果到 {csv_file}")
+    
+    print(f"超参数调优结果已保存到 {summary_file}")
     return summary
 
 def main():

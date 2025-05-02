@@ -235,7 +235,27 @@ class TaskTrainerACF(BaseTrainer):
         # Plot results
         self.plot_training_results()
         
-        return self.model, results_df
+        # 获取最佳验证准确率及其对应的epoch
+        if len(self.val_accuracies) > 0:
+            best_idx = np.argmax(self.val_accuracies)
+            best_epoch = best_idx + 1
+            best_val_accuracy = self.val_accuracies[best_idx]
+        else:
+            best_epoch = num_epochs
+            best_val_accuracy = 0.0
+        
+        # 创建包含统一信息的字典作为返回值
+        training_results = {
+            'train_loss_history': self.train_losses,
+            'val_loss_history': self.val_losses,
+            'train_accuracy_history': self.train_accuracies,
+            'val_accuracy_history': self.val_accuracies,
+            'best_epoch': best_epoch,
+            'best_val_accuracy': best_val_accuracy,
+            'training_dataframe': results_df  # 包含DataFrame以兼容现有代码
+        }
+        
+        return self.model, training_results
     
     def train_epoch(self):
         """Train for one epoch
