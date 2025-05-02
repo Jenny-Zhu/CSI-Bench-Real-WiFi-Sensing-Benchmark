@@ -232,3 +232,63 @@ python scripts/generate_summary_table.py --results_dir ./results
 - PyTorch 1.8+
 - NumPy, Pandas, Matplotlib, Seaborn
 - Optuna (用于贝叶斯优化的超参数调优)
+
+## SageMaker Integration
+
+For large-scale training on AWS SageMaker, we provide a specialized runner that allows you to train models in the cloud. The SageMaker runner has been optimized to run multiple models on a single instance for each task, improving resource utilization and reducing costs.
+
+### Key Features
+
+- Run multiple models for each task on a single SageMaker instance
+- Automated task-based batch processing
+- Customizable instance types and training parameters
+- Comprehensive job tracking and result summarization
+
+### Usage
+
+You can use the SageMaker runner in a Python script or Jupyter notebook:
+
+```python
+import sagemaker_runner
+runner = sagemaker_runner.SageMakerRunner()
+runner.run_batch_by_task(
+    tasks=['MotionSourceRecognition', 'HumanID'], 
+    models=['vit', 'transformer', 'resnet18']
+)
+```
+
+Or from the command line:
+
+```bash
+python sagemaker_runner.py --tasks MotionSourceRecognition HumanID --models vit transformer resnet18
+```
+
+### Requirements
+
+- AWS account with SageMaker access
+- S3 bucket named "rnd-sagemaker" (configurable)
+- IAM role with appropriate permissions
+
+### Additional Options
+
+- `--mode`: Data modality ('csi' or 'acf')
+- `--instance-type`: SageMaker instance type (default: ml.g4dn.xlarge)
+- `--batch-wait`: Wait time between batch job submissions in seconds
+
+### Output Structure
+
+The SageMaker runner maintains the same output structure as the local training pipeline:
+
+```
+s3://rnd-sagemaker/Benchmark_Log/
+  ├── TaskName1/
+  │   ├── ModelName1/
+  │   │   ├── experiment_id_1/
+  │   │   │   ├── model.pth
+  │   │   │   ├── model_summary.json
+  │   │   │   └── training_results.csv
+  │   │   ├── ...
+  │   │   └── best_performance.json
+  │   └── ...
+  └── ...
+```

@@ -6,11 +6,11 @@ WiFi Sensing Pipeline Runner - SageMaker Environment
 This script allows you to run the supervised learning pipeline in the SageMaker environment.
 It creates a SageMaker PyTorch Estimator for submitting training jobs.
 
-主要功能:
-1. 批量执行训练任务，每个任务(task)使用单一实例运行多个模型
-2. 支持使用 JSON 配置文件覆盖默认设置
+Key features:
+1. Batch execution of training tasks, with each task(task) using a single instance to run multiple models
+2. Support for overriding default settings using JSON configuration files
 
-用法示例:
+Usage example:
 ```
 import sagemaker_runner
 runner = sagemaker_runner.SageMakerRunner()
@@ -33,23 +33,23 @@ import re
 import numpy as np
 import pandas as pd
 
-# 默认路径设置
-CODE_DIR = os.path.dirname(os.path.abspath(__file__))  # 包含代码的目录
+# Default path settings
+CODE_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory containing the code
 CONFIG_DIR = os.path.join(CODE_DIR, "configs")
 DEFAULT_CONFIG_PATH = os.path.join(CONFIG_DIR, "sagemaker_default_config.json")
 
-# 从JSON文件加载默认配置
+# Load default configuration from JSON file
 def load_default_config():
-    """从JSON配置文件加载默认配置"""
+    """Load the default configuration from the JSON config file"""
     try:
         with open(DEFAULT_CONFIG_PATH, 'r') as f:
             config = json.load(f)
-        print(f"已从 {DEFAULT_CONFIG_PATH} 加载默认配置")
+        print(f"Loaded default configuration from {DEFAULT_CONFIG_PATH}")
         return config
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"警告: 无法加载默认配置文件: {e}")
-        print("使用硬编码的默认值代替.")
-        # 回退到硬编码的默认值
+        print(f"Warning: Could not load default config file: {e}")
+        print("Using hardcoded default values instead.")
+        # Fallback to hardcoded defaults
         return {
             "s3_data_base": "s3://rnd-sagemaker/Data/Benchmark/",
             "s3_output_base": "s3://rnd-sagemaker/Benchmark_Log/",
@@ -84,10 +84,10 @@ def load_default_config():
             "available_tasks": ["MotionSourceRecognition", "HumanMotion", "DetectionandClassification", "HumanID", "NTUHAR", "HumanNonhuman", "NTUHumanID", "Widar", "ThreeClass", "Detection"]
         }
 
-# 加载默认配置
+# Load the default configuration
 DEFAULT_CONFIG = load_default_config()
 
-# 提取配置值
+# Extract configuration values
 S3_DATA_BASE = DEFAULT_CONFIG.get("s3_data_base", "s3://rnd-sagemaker/Data/Benchmark/")
 S3_OUTPUT_BASE = DEFAULT_CONFIG.get("s3_output_base", "s3://rnd-sagemaker/Benchmark_Log/")
 AVAILABLE_TASKS = DEFAULT_CONFIG.get("available_tasks", [
@@ -97,68 +97,68 @@ AVAILABLE_TASKS = DEFAULT_CONFIG.get("available_tasks", [
 AVAILABLE_MODELS = DEFAULT_CONFIG.get("available_models", ["mlp", "lstm", "resnet18", "transformer", "vit"])
 TASK_CLASS_MAPPING = DEFAULT_CONFIG.get("task_class_mapping", {})
 
-# SageMaker设置
+# SageMaker settings
 INSTANCE_TYPE = DEFAULT_CONFIG.get("instance_type", "ml.g4dn.xlarge")
 INSTANCE_COUNT = DEFAULT_CONFIG.get("instance_count", 1)
 FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.12.1")
 PY_VERSION = DEFAULT_CONFIG.get("py_version", "py38")
 BASE_JOB_NAME = DEFAULT_CONFIG.get("base_job_name", "wifi-sensing-supervised")
 
-# 数据模态
+# Data modality
 MODE = DEFAULT_CONFIG.get("mode", "csi")
 
-# 默认任务
+# Default task
 TASK = DEFAULT_CONFIG.get("task", "MotionSourceRecognition")
 
-# 模型参数
+# Model parameters
 WIN_LEN = DEFAULT_CONFIG.get("win_len", 250)
 FEATURE_SIZE = DEFAULT_CONFIG.get("feature_size", 98)
 
-# 通用训练参数
+# Common training parameters
 SEED = DEFAULT_CONFIG.get("seed", 42)
 BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
 EPOCH_NUMBER = DEFAULT_CONFIG.get("num_epochs", 10)
 PATIENCE = DEFAULT_CONFIG.get("patience", 15)
 MODEL_NAME = DEFAULT_CONFIG.get("model_name", "transformer")
 
-# 批量设置
+# Batch settings
 BATCH_WAIT_TIME = DEFAULT_CONFIG.get("batch_wait_time", 30)
 
 class SageMakerRunner:
-    """处理SageMaker训练作业创建和执行的类"""
+    """Class to handle SageMaker training job creation and execution"""
     
     def __init__(self, role=None):
-        """初始化SageMaker会话和角色"""
+        """Initialize SageMaker session and role"""
         self.session = sagemaker.Session()
         self.role = role or sagemaker.get_execution_role()
         self.timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         
-        # 验证默认配置项
+        # Verify default configuration
         self.default_config = DEFAULT_CONFIG
         
-        # 验证rnd-sagemaker存储桶是否存在
+        # Verify the rnd-sagemaker bucket exists
         s3 = boto3.resource('s3')
         bucket_name = "rnd-sagemaker"
         if bucket_name not in [bucket.name for bucket in s3.buckets.all()]:
-            print(f"错误: 存储桶 '{bucket_name}' 不存在. 请先创建.")
+            print(f"Error: The bucket '{bucket_name}' does not exist. Please create it first.")
             sys.exit(1)
         
-        print(f"SageMaker Runner 已初始化:")
-        print(f"  S3 数据基础路径: {S3_DATA_BASE}")
-        print(f"  S3 输出基础路径: {S3_OUTPUT_BASE}")
-        print(f"  可用任务: {', '.join(AVAILABLE_TASKS)}")
-        print(f"  可用模型: {', '.join(AVAILABLE_MODELS)}")
-        print(f"  时间戳: {self.timestamp}")
+        print(f"SageMaker Runner initialized:")
+        print(f"  S3 Data Base: {S3_DATA_BASE}")
+        print(f"  S3 Output Base: {S3_OUTPUT_BASE}")
+        print(f"  Available Tasks: {', '.join(AVAILABLE_TASKS)}")
+        print(f"  Available Models: {', '.join(AVAILABLE_MODELS)}")
+        print(f"  Timestamp: {self.timestamp}")
     
     def convert_to_json_serializable(self, obj):
         """
-        递归地将所有NumPy类型转换为Python原生类型，以便JSON序列化
+        Recursively convert all NumPy types to Python native types for JSON serialization
         
         Args:
-            obj: 需要转换的对象
+            obj: Object to convert
             
         Returns:
-            转换后的JSON可序列化对象
+            JSON serializable object
         """
         if isinstance(obj, (np.integer, np.int64)):
             return int(obj)
@@ -177,67 +177,67 @@ class SageMakerRunner:
     
     def run_batch_by_task(self, tasks=None, models=None, mode='csi', instance_type=None, wait_time=BATCH_WAIT_TIME):
         """
-        按任务批量运行训练作业（每个任务使用一个实例运行所有模型）
+        Run batch training jobs by task (each task using a single instance to run all models)
         
         Args:
-            tasks (list): 要运行的任务列表。如果为None，则使用所有可用任务
-            models (list): 要运行的模型列表。如果为None，则使用所有可用模型
-            mode (str): 数据模态 ('csi' 或 'acf')
-            instance_type (str): SageMaker实例类型
-            wait_time (int): 作业提交之间等待的时间（秒）
+            tasks (list): List of tasks to run. If None, use all available tasks
+            models (list): List of models to run. If None, use all available models
+            mode (str): Data modality ('csi' or 'acf')
+            instance_type (str): SageMaker instance type
+            wait_time (int): Wait time between job submissions in seconds
             
         Returns:
-            dict: 包含所有启动作业详情的字典
+            dict: Dictionary containing details of all launched jobs
         """
-        print(f"按任务批量执行开始...")
+        print(f"Starting batch execution by task...")
         
-        # 使用提供的任务或可用任务
+        # Use provided tasks or available tasks
         if tasks is None or len(tasks) == 0:
             tasks_to_run = AVAILABLE_TASKS
         else:
             tasks_to_run = [t for t in tasks if t in AVAILABLE_TASKS]
             if len(tasks_to_run) < len(tasks):
-                print(f"警告: 部分请求的任务不在可用任务列表中.")
+                print(f"Warning: Some requested tasks are not in the available tasks list.")
         
-        # 使用提供的模型或可用模型
+        # Use provided models or available models
         if models is None or len(models) == 0:
             models_to_run = AVAILABLE_MODELS
         else:
             models_to_run = [m for m in models if m in AVAILABLE_MODELS]
             if len(models_to_run) < len(models):
-                print(f"警告: 部分请求的模型不在可用模型列表中.")
+                print(f"Warning: Some requested models are not in the available models list.")
         
-        print(f"要运行的任务 ({len(tasks_to_run)}): {', '.join(tasks_to_run)}")
-        print(f"要运行的模型 ({len(models_to_run)}): {', '.join(models_to_run)}")
+        print(f"Tasks to run ({len(tasks_to_run)}): {', '.join(tasks_to_run)}")
+        print(f"Models to run ({len(models_to_run)}): {', '.join(models_to_run)}")
         
-        # 创建批处理时间戳以分组作业
-        batch_timestamp = self.timestamp  # 对批处理中的所有作业使用相同的时间戳
+        # Create a batch timestamp to group jobs
+        batch_timestamp = self.timestamp  # Use the same timestamp for all jobs in batch
         
-        # 存储所有作业
+        # Store all jobs
         all_jobs = []
         task_job_groups = {}
         
-        # 为每个任务启动单个训练实例，运行所有模型
+        # For each task, launch a single training instance to run all models
         for task_name in tasks_to_run:
             print(f"\n----------------------------")
-            print(f"处理任务: {task_name}")
+            print(f"Processing task: {task_name}")
             print(f"----------------------------")
             
-            # 确定此任务的类数
+            # Determine number of classes for this task
             num_classes = TASK_CLASS_MAPPING.get(task_name, 2)
-            print(f"任务有{num_classes}个类")
+            print(f"Task has {num_classes} classes")
             
-            # 构建超参数字典
+            # Build hyperparameters dictionary
             hyperparameters = {
-                # 数据参数
+                # Data parameters
                 "data_dir": S3_DATA_BASE,
                 "task_name": task_name,
                 "mode": mode,
                 
-                # 模型列表 - 注意这里是一个新参数，不是标准脚本支持的
-                "models": ",".join(models_to_run),  # 以逗号分隔的模型列表
+                # Model list - note this is a new parameter not supported by the standard script
+                "models": ",".join(models_to_run),  # Comma-separated list of models
                 
-                # 训练参数
+                # Training parameters
                 "batch_size": BATCH_SIZE,
                 "num_epochs": EPOCH_NUMBER,
                 "learning_rate": 1e-4,
@@ -245,40 +245,40 @@ class SageMakerRunner:
                 "warmup_epochs": 5,
                 "patience": PATIENCE,
                 
-                # 模型参数
+                # Model parameters
                 "win_len": WIN_LEN,
                 "feature_size": FEATURE_SIZE,
                 "seed": SEED,
-                "save_dir": "/opt/ml/model",  # 使用SageMaker模型目录
-                "output_dir": "/opt/ml/model",  # 将output_dir也设置为模型目录
-                "data_key": 'CSI_amps'  # 添加data_key参数
+                "save_dir": "/opt/ml/model",  # Use SageMaker model directory
+                "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
+                "data_key": 'CSI_amps'  # Add data_key parameter
             }
             
-            # 创建作业名称
+            # Create job name
             job_name = f"{BASE_JOB_NAME}-{task_name.lower()}-multi-models-{batch_timestamp}"
-            job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)  # 将无效字符替换为连字符
+            job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)  # Replace invalid chars with hyphens
             
-            # 输出路径
+            # Output path
             s3_output_path = f"{S3_OUTPUT_BASE}{task_name}/"
             if not s3_output_path.endswith('/'):
                 s3_output_path += '/'
             
-            print(f"创建任务 '{task_name}' 的训练作业，运行模型: {', '.join(models_to_run)}")
-            print(f"输出路径: {s3_output_path}")
+            print(f"Creating training job for task '{task_name}' running models: {', '.join(models_to_run)}")
+            print(f"Output path: {s3_output_path}")
             
-            # 创建PyTorch估计器
+            # Create PyTorch estimator
             instance_type_to_use = instance_type or INSTANCE_TYPE
             
             estimator = PyTorch(
-                entry_point="train_multi_model.py",  # 注意: 这里使用了一个新的训练脚本
+                entry_point="train_multi_model.py",  # Note: This uses a new training script
                 source_dir=".",
                 role=self.role,
                 framework_version=FRAMEWORK_VERSION,
                 py_version=PY_VERSION,
                 instance_count=INSTANCE_COUNT,
                 instance_type=instance_type_to_use,
-                max_run=86400 * 3,  # 72小时最大运行时间
-                keep_alive_period_in_seconds=1800,  # 训练后保持30分钟活动
+                max_run=86400 * 3,  # 72 hours max runtime
+                keep_alive_period_in_seconds=1800,  # 30 min keep alive after training
                 output_path=s3_output_path,
                 base_job_name=job_name,
                 hyperparameters=hyperparameters,
@@ -290,16 +290,16 @@ class SageMakerRunner:
                 ]
             )
             
-            # 准备数据输入
+            # Prepare data inputs
             data_channels = {
                 'training': S3_DATA_BASE
             }
             
-            # 启动训练作业
-            print(f"启动SageMaker训练作业...")
+            # Start training job
+            print(f"Starting SageMaker training job...")
             estimator.fit(inputs=data_channels, job_name=job_name, wait=False)
             
-            # 创建作业信息
+            # Create job info
             job_info = {
                 'job_name': job_name,
                 'estimator': estimator,
@@ -307,27 +307,27 @@ class SageMakerRunner:
                 'config': {
                     'task_name': task_name,
                     'output_dir': s3_output_path,
-                    'model_name': 'multi-model'  # 注意这里不再是单个模型名
+                    'model_name': 'multi-model'  # Note this is no longer a single model name
                 },
                 'models': models_to_run,
                 'batch_id': batch_timestamp,
                 'task_group': task_name
             }
             
-            # 添加到作业列表
+            # Add to job lists
             all_jobs.append(job_info)
             task_job_groups[task_name] = job_info
             
-            # 在任务之间等待更长时间
+            # Wait longer between tasks
             if wait_time > 0 and task_name != tasks_to_run[-1]:
-                print(f"等待 {wait_time} 秒后开始下一个任务...")
+                print(f"Waiting {wait_time} seconds before starting next task...")
                 try:
                     time.sleep(wait_time)
                 except KeyboardInterrupt:
-                    print("\n批处理提交被用户中断.")
+                    print("\nBatch submission interrupted by user.")
                     break
         
-        # 返回批处理信息
+        # Return batch information
         batch_info = {
             'batch_timestamp': batch_timestamp,
             'batch_mode': 'by-task',
@@ -338,47 +338,47 @@ class SageMakerRunner:
             'task_groups': task_job_groups
         }
         
-        # 更新批处理摘要以创建初始状态报告
+        # Update batch summary to create initial status report
         self._update_batch_summary(all_jobs, batch_timestamp)
         
-        print(f"\n批处理执行已启动!")
-        print(f"任务数: {len(tasks_to_run)}")
-        print(f"模型数: {len(models_to_run)}")
-        print(f"总作业数: {len(all_jobs)}")
-        print(f"批处理ID: {batch_timestamp}")
-        print(f"你可以在SageMaker控制台监控作业.")
+        print(f"\nBatch execution initiated!")
+        print(f"Tasks: {len(tasks_to_run)}")
+        print(f"Models: {len(models_to_run)}")
+        print(f"Total jobs: {len(all_jobs)}")
+        print(f"Batch ID: {batch_timestamp}")
+        print(f"You can monitor the jobs in SageMaker console.")
         
         return batch_info
     
     def _update_batch_summary(self, jobs, batch_timestamp):
-        """更新批处理摘要文件与作业详情"""
+        """Update batch summary file with job details"""
         summary_dir = os.path.join(CODE_DIR, "batch_summaries")
         os.makedirs(summary_dir, exist_ok=True)
         
-        # 创建文本和JSON摘要
+        # Create text and JSON summaries
         summary_text_file = os.path.join(summary_dir, f"batch_summary_{batch_timestamp}.txt")
         summary_json_file = os.path.join(summary_dir, f"batch_summary_{batch_timestamp}.json")
         
-        # 创建文本摘要
+        # Create text summary
         with open(summary_text_file, "w") as f:
-            f.write(f"批处理训练摘要 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Batch Training Summary - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("=" * 80 + "\n\n")
-            f.write(f"总作业数: {len(jobs)}\n")
-            f.write(f"批处理时间戳: {batch_timestamp}\n\n")
+            f.write(f"Total Jobs: {len(jobs)}\n")
+            f.write(f"Batch Timestamp: {batch_timestamp}\n\n")
             
             for job_info in jobs:
-                f.write(f"作业: {job_info['job_name']}\n")
-                f.write(f"  输入: {job_info['inputs']['training']}\n")
-                f.write(f"  输出: {job_info['config']['output_dir']}\n")
-                f.write(f"  任务: {job_info['config']['task_name']}\n")
+                f.write(f"Job: {job_info['job_name']}\n")
+                f.write(f"  Input: {job_info['inputs']['training']}\n")
+                f.write(f"  Output: {job_info['config']['output_dir']}\n")
+                f.write(f"  Task: {job_info['config']['task_name']}\n")
                 
-                # 添加有关多个模型的信息（如果可用）
+                # Add information about multiple models if available
                 if 'models' in job_info:
-                    f.write(f"  模型: {', '.join(job_info['models'])}\n")
+                    f.write(f"  Models: {', '.join(job_info['models'])}\n")
                     
                 f.write("\n")
         
-        # 创建JSON摘要（更易于程序解析）
+        # Create JSON summary (easier to parse programmatically)
         summary_data = {
             "timestamp": batch_timestamp,
             "datetime": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -395,42 +395,42 @@ class SageMakerRunner:
                 "output": job_info['config']['output_dir']
             }
             
-            # 添加有关多个模型的信息（如果可用）
+            # Add information about multiple models if available
             if 'models' in job_info:
                 summary_data["jobs"][job_key]["models"] = job_info['models']
         
-        # 确保所有数据都是JSON可序列化的
+        # Ensure all data is JSON serializable
         summary_data = self.convert_to_json_serializable(summary_data)
         
         with open(summary_json_file, "w") as f:
             json.dump(summary_data, f, indent=2)
 
 def main():
-    """从命令行执行的主函数"""
-    parser = argparse.ArgumentParser(description='在SageMaker上运行WiFi感知管道')
+    """Main function to execute from command line"""
+    parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
     parser.add_argument('--tasks', type=str, nargs='+',
-                      help='要运行的任务列表。使用空格分隔多个任务')
+                      help='List of tasks to run. Use space to separate multiple tasks')
     parser.add_argument('--models', type=str, nargs='+',
-                      help='要运行的模型列表。使用空格分隔多个模型')
+                      help='List of models to run. Use space to separate multiple models')
     parser.add_argument('--mode', type=str, default=MODE,
                       choices=['csi', 'acf'],
-                      help='要使用的数据模态')
+                      help='Data modality to use')
     parser.add_argument('--instance-type', dest='instance_type', type=str, default=INSTANCE_TYPE,
-                      help='用于训练的SageMaker实例类型')
+                      help='SageMaker instance type for training')
     parser.add_argument('--batch-wait', dest='batch_wait', type=int, default=BATCH_WAIT_TIME,
-                      help='批处理作业提交之间的等待时间（秒）')
+                      help='Wait time between batch job submissions in seconds')
     
     args = parser.parse_args()
     
-    # 创建SageMaker运行器实例
+    # Create SageMaker runner instance
     runner = SageMakerRunner()
     
-    # 确定要使用的任务和模型
+    # Determine tasks and models to use
     tasks = args.tasks or AVAILABLE_TASKS
     models = args.models or AVAILABLE_MODELS
     
-    # 启动批处理
-    print(f"运行批处理作业，包含 {len(tasks)} 个任务和 {len(models)} 个模型")
+    # Start batch execution
+    print(f"Running batch jobs with {len(tasks)} tasks and {len(models)} models")
     runner.run_batch_by_task(
         tasks=tasks,
         models=models,
