@@ -293,7 +293,13 @@ class SageMakerRunner:
                 
                 # 添加数据迁移选项，针对SageMaker环境处理
                 "adaptive_path": "",  # 标志参数，允许自动适应数据路径
-                "try_all_paths": ""   # 尝试多种路径组合
+                "try_all_paths": "",   # 尝试多种路径组合
+                
+                # 添加S3保存参数，确保结果被保存到S3
+                "save_to_s3": S3_OUTPUT_BASE,  # 在S3上保存结果
+                "direct_upload": True,   # 直接上传到S3
+                "upload_final_model": "",   # 标志参数，上传最终模型到S3
+                "skip_train_for_debug": False  # 是否跳过训练过程（用于调试）
             }
             
             # 从配置文件添加额外参数（如果有）
@@ -335,9 +341,19 @@ class SageMakerRunner:
             # Create PyTorch estimator
             instance_type_to_use = instance_type or INSTANCE_TYPE
             
+            # Note: To reduce S3 storage of source code, you can:
+            # 1. Use git_config instead of source_dir (requires code to be in a git repo)
+            # 2. Use dependencies parameter for small scripts
+            # 3. Set custom SAGEMAKER_SUBMIT_DIRECTORY environment variable
             estimator = PyTorch(
                 entry_point="train_multi_model.py",  # Note: This uses a new training script
-                source_dir=".",
+                #source_dir=".",  # Using source_dir will upload a copy to S3 as sourcedir.tar.gz
+                source_dir=".",  # Still need this for local development
+                # If your code is in a git repo, you can use this to avoid creating sourcedir.tar.gz:
+                # git_config={
+                #    'repo': 'https://github.com/your-username/your-repo.git',
+                #    'branch': 'main'
+                # },
                 role=self.role,
                 framework_version=FRAMEWORK_VERSION,
                 py_version=PY_VERSION,
@@ -354,7 +370,17 @@ class SageMakerRunner:
                     {'Name': 'validation:loss', 'Regex': 'Val Loss: ([0-9\\.]+)'},
                     {'Name': 'validation:accuracy', 'Regex': 'Val Accuracy: ([0-9\\.]+)'}
                 ],
-                volume_size=EBS_VOLUME_SIZE  # Increase EBS volume size
+                volume_size=EBS_VOLUME_SIZE,  # Increase EBS volume size
+                debugger_hook_config=False,  # Disable debugger
+                disable_profiler=True,        # Disable profiler
+                environment={
+                    'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',  # Ensure code is properly located
+                    'PYTHONPATH': '/opt/ml/code',                  # Add code directory to Python path
+                    'SAGEMAKER_MODEL_SERVER_WORKERS': '1',         # Limit number of model server workers
+                    'SM_DISABLE_PROFILER': 'true',                 # Disable profiler via env var
+                    'SM_DISABLE_DEBUGGER': 'true',                 # Disable debugger via env var
+                    'LOG_LEVEL': 'INFO'                            # Set logging level
+                }
             )
             
             # Prepare data inputs with more explicit configuration

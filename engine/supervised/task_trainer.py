@@ -81,6 +81,7 @@ class TaskTrainer(BaseTrainer):
         self.train_accuracies = []
         self.val_accuracies = []
         self.best_val_accuracy = 0.0
+        self.best_epoch = 0
     
     def setup_scheduler(self):
         """Set up learning rate scheduler."""
@@ -156,6 +157,7 @@ class TaskTrainer(BaseTrainer):
                     'epoch': epoch,
                 }, best_model_path)
                 print(f"Best model saved to {best_model_path}")
+                self.best_epoch = epoch + 1
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve == patience:
@@ -187,7 +189,7 @@ class TaskTrainer(BaseTrainer):
             'val_loss_history': self.val_losses,
             'train_accuracy_history': self.train_accuracies,
             'val_accuracy_history': self.val_accuracies,
-            'best_epoch': best_epoch,
+            'best_epoch': self.best_epoch,
             'best_val_accuracy': best_val_accuracy,
             'training_dataframe': results_df  # 包含DataFrame以兼容现有代码
         }

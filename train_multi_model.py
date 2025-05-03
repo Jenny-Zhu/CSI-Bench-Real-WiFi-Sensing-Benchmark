@@ -19,6 +19,20 @@ import torch.nn as nn
 from tqdm import tqdm
 import logging
 
+# 检测是否在SageMaker环境中运行
+is_sagemaker = os.path.exists('/opt/ml/model')
+
+# 如果在SageMaker中运行，导入S3工具
+if is_sagemaker:
+    try:
+        import boto3
+        s3_client = boto3.client('s3')
+    except ImportError:
+        print("Warning: boto3 not installed, S3 upload disabled")
+        s3_client = None
+else:
+    s3_client = None
+
 # 打印原始命令行参数，帮助诊断
 print("Original command line arguments:", sys.argv)
 
@@ -55,6 +69,144 @@ MODEL_TYPES = {
 
 # Task trainer class (extracted from scripts/train_supervised.py)
 from engine.supervised.task_trainer import TaskTrainer
+
+def upload_to_s3(local_path, s3_path):
+    """
+    将本地文件或目录上传到S3
+    
+    Args:
+        local_path: 本地文件或目录路径
+        s3_path: S3路径，格式为's3://bucket-name/path/to/destination'
+    
+    Returns:
+        bool: 上传是否成功
+    """
+    if not s3_client:
+        logger.warning("S3 client not initialized, skipping upload")
+        return False
+    
+    if not s3_path.startswith('s3://'):
+        logger.error(f"Invalid S3 path: {s3_path}")
+        return False
+    
+    try:
+        # 解析S3路径
+        s3_parts = s3_path.replace('s3://', '').split('/', 1)
+        if len(s3_parts) != 2:
+            logger.error(f"Invalid S3 path format: {s3_path}")
+            return False
+        
+        bucket_name = s3_parts[0]
+        s3_key_prefix = s3_parts[1]
+        
+        logger.info(f"Uploading {local_path} to S3 bucket {bucket_name}/{s3_key_prefix}")
+        
+        # 检查是文件还是目录
+        if os.path.isfile(local_path):
+            # 上传单个文件
+            file_key = os.path.join(s3_key_prefix, os.path.basename(local_path))
+            s3_client.upload_file(local_path, bucket_name, file_key)
+            logger.info(f"Uploaded file to s3://{bucket_name}/{file_key}")
+        else:
+            # 上传整个目录
+            for root, _, files in os.walk(local_path):
+                for file in files:
+                    local_file_path = os.path.join(root, file)
+                    
+                    # 计算相对路径
+                    relative_path = os.path.relpath(local_file_path, local_path)
+                    s3_key = os.path.join(s3_key_prefix, relative_path)
+                    
+                    # 上传文件
+                    s3_client.upload_file(local_file_path, bucket_name, s3_key)
+            
+            logger.info(f"Uploaded directory contents to s3://{bucket_name}/{s3_key_prefix}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error uploading to S3: {e}")
+        return False
+
+def cleanup_sagemaker_storage():
+    """
+    清理SageMaker环境中的不必要文件，减少存储使用
+    """
+    if not is_sagemaker:
+        # 只在SageMaker环境中运行
+        return
+    
+    logger.info("Cleaning up unnecessary files to reduce storage usage...")
+    
+    try:
+        # 删除不必要的临时文件和日志
+        dirs_to_clean = [
+            "/tmp",                        # 临时目录
+            "/opt/ml/output/profiler",     # 分析器输出
+            "/opt/ml/output/tensors",      # 调试器张量
+        ]
+        
+        # 只保留最小的日志文件
+        log_files = [
+            "/opt/ml/output/data/logs/algo-1-stdout.log",
+            "/opt/ml/output/data/logs/algo-1-stderr.log"
+        ]
+        
+        # 清理临时目录（但不全部删除）
+        import shutil
+        for cleanup_dir in dirs_to_clean:
+            if os.path.exists(cleanup_dir):
+                logger.info(f"Cleaning directory: {cleanup_dir}")
+                # 仅限读取目录内容，不递归删除
+                try:
+                    for item in os.listdir(cleanup_dir):
+                        item_path = os.path.join(cleanup_dir, item)
+                        if os.path.isdir(item_path) and not item.startswith('.'):
+                            try:
+                                shutil.rmtree(item_path)
+                            except Exception as e:
+                                logger.warning(f"Could not remove directory {item_path}: {e}")
+                        elif os.path.isfile(item_path) and not item.startswith('.'):
+                            try:
+                                os.remove(item_path)
+                            except Exception as e:
+                                logger.warning(f"Could not remove file {item_path}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error cleaning directory {cleanup_dir}: {e}")
+        
+        # 清理日志文件（保留最后10KB）
+        for log_file in log_files:
+            if os.path.exists(log_file) and os.path.getsize(log_file) > 10240:
+                try:
+                    with open(log_file, 'rb') as f:
+                        # 跳转到文件末尾前10KB的位置
+                        f.seek(-10240, 2)  # 2表示从文件末尾计算
+                        last_10kb = f.read()
+                    
+                    # 重写日志文件，只保留最后10KB
+                    with open(log_file, 'wb') as f:
+                        f.write(b"[...previous logs truncated...]\n")
+                        f.write(last_10kb)
+                    
+                    logger.info(f"Truncated log file: {log_file}")
+                except Exception as e:
+                    logger.warning(f"Could not truncate log file {log_file}: {e}")
+        
+        # 清理sourcedir缓存
+        sourcedir_cache = "/opt/ml/code/.sourcedir.tar.gz"
+        if os.path.exists(sourcedir_cache):
+            try:
+                os.remove(sourcedir_cache)
+                logger.info("Removed sourcedir cache")
+            except Exception as e:
+                logger.warning(f"Could not remove sourcedir cache: {e}")
+        
+        # 尝试触发内存清理
+        import gc
+        gc.collect()
+        
+        logger.info("Storage cleanup completed!")
+    except Exception as e:
+        logger.error(f"Error during storage cleanup: {e}")
 
 def get_args():
     """Parse command line arguments"""
@@ -121,6 +273,14 @@ def get_args():
                         help='自动适应数据路径结构')
     parser.add_argument('--try_all_paths', action='store_true', default=False,
                         help='尝试所有可能的路径组合')
+    
+    # 添加S3相关参数
+    parser.add_argument('--save_to_s3', type=str, default=None,
+                      help='S3路径用于保存结果, 格式: s3://bucket-name/path/')
+    parser.add_argument('--direct_upload', action='store_true', default=False,
+                      help='直接上传结果到S3，不使用SageMaker自动打包')
+    parser.add_argument('--upload_final_model', action='store_true', default=False,
+                      help='上传最终模型到S3')
     
     args = parser.parse_args()
     
@@ -228,6 +388,31 @@ def train_model(model_name, data, args, device):
     model = ModelClass(**model_params).to(device)
     logger.info(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
     
+    # 添加测试以检查输入张量形状
+    try:
+        # 获取一个样本批次来测试模型
+        sample_batch = next(iter(train_loader))
+        if isinstance(sample_batch, (list, tuple)) and len(sample_batch) >= 2:
+            inputs, labels = sample_batch[0], sample_batch[1]
+        else:
+            logger.error(f"Unexpected dataloader batch format: {type(sample_batch)}")
+            inputs = sample_batch
+        
+        logger.info(f"Input tensor shape: {inputs.shape}")
+        if model_name.lower() == 'lstm' or model_name.lower() == 'transformer':
+            # 这些模型对输入形状比较敏感
+            logger.info(f"Expected feature_size: {args.feature_size}")
+            logger.info(f"Actual feature dimension size: {inputs.shape[3] if len(inputs.shape) > 3 else 'N/A'}")
+        
+        # 尝试进行一次前向传播来验证形状兼容性
+        with torch.no_grad():
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            logger.info(f"Forward pass successful! Output shape: {outputs.shape}")
+    except Exception as e:
+        logger.error(f"Error during model input testing: {e}")
+        logger.warning("继续执行，但模型可能在训练阶段出现问题")
+    
     # Create specific save and output directories for each model
     # Format: output_path/task/model/
     model_save_dir = os.path.join(args.save_dir, args.task_name, model_name)
@@ -310,7 +495,13 @@ def train_model(model_name, data, args, device):
     # Add best model info
     if hasattr(trainer, 'best_val_accuracy'):
         train_history['best_val_accuracy'] = trainer.best_val_accuracy
-        train_history['best_epoch'] = trainer.best_epoch
+        # 添加安全检查，防止属性不存在
+        if hasattr(trainer, 'best_epoch'):
+            train_history['best_epoch'] = trainer.best_epoch
+        else:
+            # 如果best_epoch不存在，使用当前epoch或设置为-1
+            train_history['best_epoch'] = args.num_epochs  # 默认使用最后一个epoch
+            logger.warning(f"TaskTrainer missing best_epoch attribute, using last epoch ({args.num_epochs}) as best")
     
     # Run evaluation on each test set
     for test_name, test_loader in test_loaders.items():
@@ -427,9 +618,6 @@ def main():
     logger.info(f"Loading data from {args.dataset_root}")
     
     # Special handling for S3 paths in SageMaker environment
-    is_sagemaker = os.path.exists('/opt/ml/model')
-    logger.info(f"Running in SageMaker environment: {is_sagemaker}")
-    
     if is_sagemaker:
         # In SageMaker, use /opt/ml/input/data/training as the dataset root
         original_path = args.dataset_root
@@ -621,18 +809,31 @@ def main():
             label_mapper = data['label_mapper']
             logger.info(f"Label mapping: {label_mapper.label_to_idx}")
         
-        # Print shape of first batch in train loader for debugging
+        # 添加数据形状验证
         if 'train' in data['loaders']:
             try:
-                train_loader = data['loaders']['train']
-                logger.info(f"Train loader batch size: {train_loader.batch_size}")
-                logger.info(f"Train loader length: {len(train_loader)}")
-                
-                # 获取第一个批次
-                sample_batch = next(iter(train_loader))
+                sample_batch = next(iter(data['loaders']['train']))
                 if isinstance(sample_batch, (list, tuple)) and len(sample_batch) >= 2:
                     x, y = sample_batch[0], sample_batch[1]
                     logger.info(f"Sample batch shapes - X: {x.shape}, y: {y.shape}")
+                    
+                    # 根据数据形状自动确定哪些模型可能不兼容
+                    incompatible_models = []
+                    feature_size_actual = x.shape[3] if len(x.shape) > 3 else None
+                    
+                    # LSTM期望[batch, seq_len, feature_size]，实际为[batch, 1, win_len, feature_size]
+                    if len(x.shape) == 4 and feature_size_actual != args.feature_size:
+                        logger.warning(f"LSTM and Transformer might have compatibility issues! "
+                                     f"Expected feature_size={args.feature_size}, but got {feature_size_actual}")
+                        if feature_size_actual > 2 * args.feature_size:  # 大幅不匹配
+                            logger.warning("feature_size mismatch is significant, models may fail")
+                    
+                    # 告知用户可能存在的问题
+                    if incompatible_models:
+                        logger.warning(f"Models {incompatible_models} might not be compatible with the input data shape.")
+                        logger.warning("They will still be run, but might fail during training.")
+                    
+                    # 记录其他有用的信息
                     logger.info(f"X data type: {x.dtype}, device: {x.device}")
                     logger.info(f"X stats - min: {x.min().item()}, max: {x.max().item()}, mean: {x.mean().item()}")
                     logger.info(f"Y labels: {y.tolist()}")
@@ -649,18 +850,55 @@ def main():
         logger.error(traceback.format_exc())
         sys.exit(1)
     
+    # 记录模型运行结果以便生成摘要
+    successful_models = []
+    failed_models = []
+    
     # Train each model
     all_results = {}
     for model_name in args.all_models:
         try:
             logger.info(f"\n{'='*40}\nTraining model: {model_name}\n{'='*40}")
+            
+            # 尝试载入模型类来验证兼容性
+            try:
+                ModelClass = MODEL_TYPES[model_name.lower()]
+                logger.info(f"Model class {model_name} loaded successfully")
+            except Exception as e:
+                logger.error(f"Error loading model class for {model_name}: {e}")
+                failed_models.append((model_name, f"Model class error: {str(e)}"))
+                continue
+            
+            # 训练模型
             model, metrics = train_model(model_name, data, args, device)
-            all_results[model_name] = metrics
-            logger.info(f"Completed training for {model_name}")
+            
+            # 检查是否成功训练
+            if model is None or (isinstance(metrics, dict) and 'error' in metrics):
+                error_msg = metrics.get('error', 'Unknown error') if isinstance(metrics, dict) else 'Unknown error'
+                logger.error(f"Model {model_name} training failed: {error_msg}")
+                failed_models.append((model_name, error_msg))
+            else:
+                all_results[model_name] = metrics
+                successful_models.append(model_name)
+                logger.info(f"Completed training for {model_name}")
         except Exception as e:
             logger.error(f"Error training {model_name}: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            failed_models.append((model_name, str(e)))
+    
+    # 打印训练结果摘要
+    logger.info("\n" + "="*60)
+    logger.info("TRAINING SUMMARY")
+    logger.info("="*60)
+    logger.info(f"Task: {args.task_name}")
+    logger.info(f"Successfully trained models ({len(successful_models)}): {', '.join(successful_models)}")
+    logger.info(f"Failed models ({len(failed_models)}): {', '.join([m[0] for m in failed_models])}")
+    
+    if failed_models:
+        logger.info("\nFailure details:")
+        for model_name, error in failed_models:
+            logger.info(f"  - {model_name}: {error}")
     
     # Save overall results summary
     results_path = os.path.join(args.output_dir, args.task_name, "multi_model_results.json")
@@ -676,6 +914,20 @@ def main():
     if all_results:
         best_model = max(all_results.items(), key=lambda x: x[1].get('test_accuracy', 0.0))
         logger.info(f"\nBest model: {best_model[0]} with test accuracy {best_model[1].get('test_accuracy', 0.0):.4f}")
+    
+    # 将最终结果直接上传到S3（如果启用）
+    if args.direct_upload and args.save_to_s3 and is_sagemaker:
+        logger.info(f"Directly uploading results to S3: {args.save_to_s3}")
+        s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
+        
+        # 上传整个任务目录
+        task_dir = os.path.join(args.output_dir, args.task_name)
+        if os.path.exists(task_dir):
+            upload_to_s3(task_dir, s3_task_path)
+            logger.info(f"Results uploaded to {s3_task_path}")
+    
+    # 清理SageMaker存储以减少空间使用
+    cleanup_sagemaker_storage()
     
     logger.info("Multi-model training completed successfully!")
 

@@ -37,6 +37,8 @@ class LSTMClassifier(nn.Module):
     def __init__(self, feature_size=98, hidden_size=256, num_layers=2, num_classes=2, dropout=0.3):
         super(LSTMClassifier, self).__init__()
         
+        self.feature_size = feature_size
+        
         self.lstm = nn.LSTM(
             input_size=feature_size,
             hidden_size=hidden_size,
@@ -58,6 +60,14 @@ class LSTMClassifier(nn.Module):
         # LSTM expects: [batch, win_len, feature_size]
         x = x.squeeze(1)  # Remove channel dimension
         
+        # Check if dimensions are transposed (win_len and feature_size swapped)
+        if x.shape[2] == self.feature_size:
+            # If feature_size is in the last dimension, we're good
+            pass
+        else:
+            # If feature_size is not in the last dimension, transpose
+            x = x.transpose(1, 2)
+        
         # LSTM forward pass
         lstm_out, (hidden, cell) = self.lstm(x)
         
@@ -70,8 +80,11 @@ class LSTMClassifier(nn.Module):
 
 class ResNet18Classifier(nn.Module):
     """Modified ResNet-18 for WiFi sensing"""
-    def __init__(self, win_len=250, feature_size=98, num_classes=2):
+    def __init__(self, win_len=250, feature_size=98, num_classes=2, in_channels=1):
         super(ResNet18Classifier, self).__init__()
+        
+        # Save the in_channels parameter but don't use it in initialization
+        self.in_channels = in_channels
         
         # Load pretrained ResNet-18
         self.resnet = resnet18(pretrained=False)
@@ -91,6 +104,8 @@ class TransformerClassifier(nn.Module):
     def __init__(self, feature_size=98, d_model=256, nhead=8, 
                  num_layers=4, dropout=0.1, num_classes=2):
         super(TransformerClassifier, self).__init__()
+        
+        self.feature_size = feature_size
         
         # Input projection
         self.input_proj = nn.Linear(feature_size, d_model)
@@ -119,7 +134,15 @@ class TransformerClassifier(nn.Module):
     def forward(self, x):
         # Input shape: [batch, channels, win_len, feature_size]
         # Transform to: [batch, win_len, feature_size]
-        x = x.squeeze(1)
+        x = x.squeeze(1)  # Remove channel dimension
+        
+        # Check and fix dimensions if needed
+        if x.shape[2] == self.feature_size:
+            # If feature_size is in the last dimension, we're good
+            pass
+        else:
+            # If feature_size is not in the last dimension, transpose
+            x = x.transpose(1, 2)
         
         # Project to d_model dimensions
         x = self.input_proj(x)
