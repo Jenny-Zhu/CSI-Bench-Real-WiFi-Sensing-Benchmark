@@ -288,19 +288,23 @@ class SageMakerRunner:
                 "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
                 "data_key": 'CSI_amps',  # Add data_key parameter
                 
-                # 调试参数 - 启用详细日志记录
-                "debug": "",  # 标志类型参数，不需要传递值
-                
-                # 添加数据迁移选项，针对SageMaker环境处理
-                "adaptive_path": "",  # 标志参数，允许自动适应数据路径
-                "try_all_paths": "",   # 尝试多种路径组合
-                
-                # 添加S3保存参数，确保结果被保存到S3
+                # S3保存参数
                 "save_to_s3": S3_OUTPUT_BASE,  # 在S3上保存结果
-                "direct_upload": True,   # 直接上传到S3
-                "upload_final_model": "",   # 标志参数，上传最终模型到S3
-                "skip_train_for_debug": False  # 是否跳过训练过程（用于调试）
             }
+            
+            # 标志类型参数 - 传递空字符串而不是布尔值，这样在命令行中只会出现--flag而不是--flag True
+            flag_parameters = [
+                "debug",              # 启用详细日志记录
+                "adaptive_path",      # 自动适应数据路径
+                "try_all_paths",      # 尝试所有路径组合
+                "direct_upload",      # 直接上传到S3
+                "upload_final_model", # 上传最终模型
+                "skip_train_for_debug", # 调试时跳过训练
+            ]
+            
+            # 为所有标志类型参数设置空字符串
+            for flag in flag_parameters:
+                hyperparameters[flag] = ""
             
             # 从配置文件添加额外参数（如果有）
             # 仅添加在train_multi_model.py中定义的参数
@@ -315,6 +319,42 @@ class SageMakerRunner:
             for key, value in DEFAULT_CONFIG.items():
                 if key in allowed_params and key not in hyperparameters:
                     hyperparameters[key] = value
+            
+            # 打印完整的参数列表，用于调试命令行参数
+            print("\nCommand line arguments that will be passed to the script:")
+            cmd_args = []
+            for key, value in hyperparameters.items():
+                if isinstance(value, str) and value == "":
+                    # 标志参数只添加--key，不添加值
+                    cmd_args.append(f"--{key}")
+                elif not (isinstance(value, bool) and not value):  # Skip False values
+                    # 对于有值的参数，添加--key value
+                    cmd_args.append(f"--{key} {value}")
+            
+            # 将参数分组显示，便于阅读
+            print("\n标志参数:")
+            flag_args = [arg for arg in cmd_args if "=" not in arg and " " not in arg]
+            print("  " + "\n  ".join(flag_args))
+            
+            print("\n值参数:")
+            value_args = [arg for arg in cmd_args if "=" in arg or " " in arg]
+            print("  " + "\n  ".join(value_args))
+            
+            # 对将生成的命令行进行格式验证，确保没有明显问题
+            print("\n完整命令行:")
+            full_cmd = "train_multi_model.py " + " ".join(cmd_args)
+            print(full_cmd)
+            
+            # 检查命令行长度，过长可能会导致问题
+            if len(full_cmd) > 1000:
+                print(f"\n警告: 命令行长度 ({len(full_cmd)}) 很长，可能导致问题")
+            
+            # 验证参数
+            for param in ["dataset_root", "task_name", "models"]:
+                if param not in hyperparameters or not hyperparameters[param]:
+                    print(f"\n警告: 必需参数 {param} 缺失或为空!")
+            
+            print("\n")
             
             # Shorten task name for job naming (use first 8 chars or full name if shorter)
             short_task = task_name.lower()[:8]
@@ -519,6 +559,135 @@ class SageMakerRunner:
         with open(summary_json_file, "w") as f:
             json.dump(summary_data, f, indent=2)
 
+    def test_hyperparameters(self, task_name=TASK, models=None):
+        """
+        测试超参数解析，用于本地调试参数传递问题
+        
+        Args:
+            task_name: 任务名称
+            models: 要测试的模型列表
+        
+        Returns:
+            None, 但会打印出解析结果
+        """
+        print(f"Testing hyperparameter parsing for task: {task_name}")
+        
+        # 使用与run_batch_by_task相同的逻辑构建超参数
+        models_to_run = models or AVAILABLE_MODELS
+        
+        # 构建超参数
+        hyperparameters = {
+            # 数据参数
+            "dataset_root": S3_DATA_BASE,
+            "task_name": task_name,
+            "mode": MODE,
+            "file_format": "h5",
+            "num_workers": 4,
+            
+            # 模型列表
+            "models": ",".join(models_to_run),
+            
+            # 训练参数
+            "batch_size": BATCH_SIZE,
+            "num_epochs": EPOCH_NUMBER,
+            "learning_rate": 1e-4,
+            "weight_decay": 1e-5,
+            "warmup_epochs": 5,
+            "patience": PATIENCE,
+            
+            # 模型参数
+            "win_len": WIN_LEN,
+            "feature_size": FEATURE_SIZE,
+            "seed": SEED,
+            "save_dir": "./model",
+            "output_dir": "./output",
+            "data_key": 'CSI_amps',
+            
+            # S3参数
+            "save_to_s3": S3_OUTPUT_BASE,
+        }
+        
+        # 添加标志参数
+        flag_parameters = [
+            "debug", "adaptive_path", "try_all_paths", 
+            "direct_upload", "upload_final_model", "skip_train_for_debug"
+        ]
+        
+        for flag in flag_parameters:
+            hyperparameters[flag] = ""
+        
+        # 生成命令行并进行模拟解析
+        cmd_args = []
+        for key, value in hyperparameters.items():
+            if isinstance(value, str) and value == "":
+                cmd_args.append(f"--{key}")
+            elif not (isinstance(value, bool) and not value):
+                cmd_args.append(f"--{key}")
+                cmd_args.append(str(value))
+        
+        print("\n生成的命令行参数:")
+        print(" ".join(cmd_args))
+        
+        # 尝试使用Python的argparse模块解析参数
+        try:
+            import subprocess
+            import sys
+            
+            # 创建测试脚本
+            test_script = """
+import sys
+import argparse
+
+def test_parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset_root', type=str)
+    parser.add_argument('--task_name', type=str)
+    parser.add_argument('--models', type=str)
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--adaptive_path', action='store_true')
+    parser.add_argument('--try_all_paths', action='store_true')
+    parser.add_argument('--direct_upload', action='store_true')
+    parser.add_argument('--upload_final_model', action='store_true')
+    parser.add_argument('--skip_train_for_debug', action='store_true')
+    
+    args, unknown = parser.parse_known_args()
+    print("\\n解析结果:")
+    for arg, val in vars(args).items():
+        print(f"  {arg}: {val}")
+    if unknown:
+        print("\\n未知参数:")
+        print(f"  {unknown}")
+
+if __name__ == '__main__':
+    print("测试参数解析...")
+    print(f"参数: {sys.argv[1:]}")
+    test_parse()
+"""
+            # 保存测试脚本
+            test_file = "test_args_parse.py"
+            with open(test_file, "w") as f:
+                f.write(test_script)
+            
+            # 运行测试脚本，传入我们的参数
+            cmd = [sys.executable, test_file] + cmd_args
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            print("\n参数解析测试结果:")
+            print(result.stdout)
+            
+            if result.stderr:
+                print("\n错误输出:")
+                print(result.stderr)
+            
+            # 清理
+            try:
+                os.remove(test_file)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"测试参数解析时出错: {e}")
+
 def main():
     """Main function to execute from command line"""
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
@@ -535,6 +704,8 @@ def main():
                       help='Wait time between batch job submissions in seconds')
     parser.add_argument('--volume-size', dest='volume_size', type=int, default=EBS_VOLUME_SIZE,
                       help='Size of the EBS volume in GB')
+    parser.add_argument('--test-args', dest='test_args', action='store_true',
+                      help='Test argument parsing without running a job')
     
     args = parser.parse_args()
     
@@ -544,6 +715,13 @@ def main():
     # Determine tasks and models to use
     tasks = args.tasks or AVAILABLE_TASKS
     models = args.models or AVAILABLE_MODELS
+    
+    # 如果是测试模式，只测试参数解析
+    if args.test_args:
+        print("Running in test mode - will only test argument parsing")
+        for task in tasks:
+            runner.test_hyperparameters(task_name=task, models=models)
+        return
     
     # Start batch execution
     print(f"Running batch jobs with {len(tasks)} tasks and {len(models)} models")
