@@ -55,7 +55,7 @@ def load_benchmark_supervised(
         task_dir = os.path.join(dataset_root, task_name)
     else:
         task_dir = os.path.join(dataset_root, "tasks", task_name)
-    metadata_path = os.path.join(task_dir, 'metadata', 'subset_metadata.csv')
+    metadata_path = os.path.join(task_dir, 'metadata', 'sample_metadata.csv')
     mapping_path = os.path.join(task_dir, 'metadata', 'label_mapping.json')
     
     # Create or load label mapper
