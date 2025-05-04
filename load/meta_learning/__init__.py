@@ -1,7 +1,2 @@
-from .data_loader import (
-    load_csi_data_benchmark
-)
-
-from .model_loader import (
-    load_csi_model_benchmark
-)
+# Meta-learning data loading utilities
+# Import only what's needed to avoid circular imports

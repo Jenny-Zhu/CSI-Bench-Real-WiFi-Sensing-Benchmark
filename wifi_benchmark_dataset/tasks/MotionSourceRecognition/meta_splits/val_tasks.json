@@ -1,0 +1,1162 @@
+[
+  {
+    "task_id": "task_Fan_0",
+    "subject": "Fan",
+    "user": "4_13_2023",
+    "support": [
+      "Fan_4_13_2023_Test_1_HP_712036",
+      "Fan_4_13_2023_Test_1_HP_713036",
+      "Fan_4_13_2023_Test_1_HP_708001",
+      "Fan_4_13_2023_Test_1_HP_711051",
+      "Fan_4_13_2023_Test_1_HP_708013"
+    ],
+    "query": [
+      "Fan_4_13_2023_Test_1_HP_713039",
+      "Fan_4_13_2023_Test_1_HP_709013",
+      "Fan_4_13_2023_Test_1_HP_708055",
+      "Fan_4_13_2023_Test_1_HP_713050",
+      "Fan_4_13_2023_Test_1_HP_710018",
+      "Fan_4_13_2023_Test_1_HP_710032",
+      "Fan_4_13_2023_Test_1_HP_708038",
+      "Fan_4_13_2023_Test_1_HP_711026",
+      "Fan_4_13_2023_Test_1_HP_708060",
+      "Fan_4_13_2023_Test_1_HP_710036",
+      "Fan_4_13_2023_Test_1_HP_710004",
+      "Fan_4_13_2023_Test_1_HP_708009",
+      "Fan_4_13_2023_Test_1_HP_709016",
+      "Fan_4_13_2023_Test_1_HP_711025",
+      "Fan_4_13_2023_Test_1_HP_708035"
+    ]
+  },
+  {
+    "task_id": "task_Human_1",
+    "subject": "Human",
+    "user": "BrianK.andAndrew Two",
+    "support": [
+      "Human_BrianK.andAndrew Two_Intrusion_HP_643011",
+      "Human_BrianK.andAndrew Two_Walking_HP_664014",
+      "Human_BrianK.andAndrew Two_Walking_HP_662012",
+      "Human_BrianK.andAndrew Two_Running_HP_651005",
+      "Human_BrianK.andAndrew Two_Walking_HP_664009"
+    ],
+    "query": [
+      "Human_BrianK.andAndrew Two_Sneaking_HP_656016",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_654019",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_642010",
+      "Human_BrianK.andAndrew Two_Running_HP_650019",
+      "Human_BrianK.andAndrew Two_Running_HP_653001",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_655016",
+      "Human_BrianK.andAndrew Two_Walking_HP_663016",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_647019",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_643000",
+      "Human_BrianK.andAndrew Two_Walking_HP_662017",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_655019",
+      "Human_BrianK.andAndrew Two_Running_HP_650012",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_643026",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_643015",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_647003"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_2",
+    "subject": "IRobot",
+    "user": "4_13_2023",
+    "support": [
+      "IRobot_4_13_2023_Test_1_HP_781012",
+      "IRobot_4_13_2023_Test_2_HP_839050",
+      "IRobot_4_13_2023_Test_2_HP_840002",
+      "IRobot_4_13_2023_Test_1_HP_782007",
+      "IRobot_4_13_2023_Test_1_HP_770012"
+    ],
+    "query": [
+      "IRobot_4_13_2023_Test_1_HP_779001",
+      "IRobot_4_13_2023_Test_1_HP_795003",
+      "IRobot_4_13_2023_Test_1_HP_792007",
+      "IRobot_4_13_2023_Test_1_HP_786010",
+      "IRobot_4_13_2023_Test_1_HP_804009",
+      "IRobot_4_13_2023_Test_1_HP_823014",
+      "IRobot_4_13_2023_Test_1_HP_828012",
+      "IRobot_4_13_2023_Test_1_HP_769008",
+      "IRobot_4_13_2023_Test_1_HP_811003",
+      "IRobot_4_13_2023_Test_1_HP_818001",
+      "IRobot_4_13_2023_Test_1_HP_788006",
+      "IRobot_4_13_2023_Test_1_HP_779011",
+      "IRobot_4_13_2023_Test_1_HP_783013",
+      "IRobot_4_13_2023_Test_1_HP_776001",
+      "IRobot_4_13_2023_Test_1_HP_826009"
+    ]
+  },
+  {
+    "task_id": "task_Pet_3",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test4_HP_1579002",
+      "Pet_tito_test2_HP_1567006",
+      "Pet_tito_test3_HP_1571009",
+      "Pet_tito_test2_HP_1569009",
+      "Pet_tito_test3_HP_1573005"
+    ],
+    "query": [
+      "Pet_tito_test5_HP_1583013",
+      "Pet_tito_test7_HP_1594022",
+      "Pet_tito_test3_HP_1570022",
+      "Pet_tito_test3_HP_1571022",
+      "Pet_tito_test7_HP_1594012",
+      "Pet_tito_test7_HP_1595019",
+      "Pet_tito_test2_HP_1565001",
+      "Pet_tito_test5_HP_1586001",
+      "Pet_tito_test1_HP_1562003",
+      "Pet_tito_test2_HP_1569010",
+      "Pet_tito_test4_HP_1579010",
+      "Pet_tito_test5_HP_1584015",
+      "Pet_tito_test6_HP_1593000",
+      "Pet_tito_test2_HP_1569014",
+      "Pet_tito_test6_HP_1590005"
+    ]
+  },
+  {
+    "task_id": "task_Fan_4",
+    "subject": "Fan",
+    "user": "loc1",
+    "support": [
+      "Fan_loc1_Fan_HP_1622003",
+      "Fan_loc1_Fan_HP_1612003",
+      "Fan_loc1_Fan_HP_1616004",
+      "Fan_loc1_Fan_HP_1623011",
+      "Fan_loc1_Fan_HP_1609009"
+    ],
+    "query": [
+      "Fan_loc1_Fan_HP_1606006",
+      "Fan_loc1_Fan_HP_1605008",
+      "Fan_loc1_Fan_HP_1634007",
+      "Fan_loc1_Fan_HP_1606004",
+      "Fan_loc1_Fan_HP_1611001",
+      "Fan_loc1_Fan_HP_1631008",
+      "Fan_loc1_Fan_HP_1620012",
+      "Fan_loc1_Fan_HP_1615000",
+      "Fan_loc1_Fan_HP_1616005",
+      "Fan_loc1_Fan_HP_1609001",
+      "Fan_loc1_Fan_HP_1634010",
+      "Fan_loc1_Fan_HP_1621011",
+      "Fan_loc1_Fan_HP_1619012",
+      "Fan_loc1_Fan_HP_1608000",
+      "Fan_loc1_Fan_HP_1603008"
+    ]
+  },
+  {
+    "task_id": "task_Human_5",
+    "subject": "Human",
+    "user": "Jesse",
+    "support": [
+      "Human_Jesse_Jogging_HP_1422018",
+      "Human_Jesse_Combined_HP_1414001",
+      "Human_Jesse_Walking_HP_1432019",
+      "Human_Jesse_Walking_HP_1436020",
+      "Human_Jesse_Combined_HP_1414013"
+    ],
+    "query": [
+      "Human_Jesse_Jogging_HP_1421023",
+      "Human_Jesse_Jogging_HP_1422010",
+      "Human_Jesse_Walking_HP_1436009",
+      "Human_Jesse_Walking_HP_1436005",
+      "Human_Jesse_Combined_HP_1414029",
+      "Human_Jesse_Jogging_HP_1424019",
+      "Human_Jesse_Combined_HP_1417015",
+      "Human_Jesse_Jogging_HP_1422014",
+      "Human_Jesse_Combined_HP_1415016",
+      "Human_Jesse_Combined_HP_1416022",
+      "Human_Jesse_Combined_HP_1419003",
+      "Human_Jesse_Sneaking_HP_1431017",
+      "Human_Jesse_Sneaking_HP_1431014",
+      "Human_Jesse_Walking_HP_1434012",
+      "Human_Jesse_Sneaking_HP_1430011"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_6",
+    "subject": "IRobot",
+    "user": "4_13_2023",
+    "support": [
+      "IRobot_4_13_2023_Test_1_HP_787001",
+      "IRobot_4_13_2023_Test_1_HP_771002",
+      "IRobot_4_13_2023_Test_1_HP_769008",
+      "IRobot_4_13_2023_Test_1_HP_821000",
+      "IRobot_4_13_2023_Test_1_HP_804003"
+    ],
+    "query": [
+      "IRobot_4_13_2023_Test_1_HP_810010",
+      "IRobot_4_13_2023_Test_2_HP_839026",
+      "IRobot_4_13_2023_Test_2_HP_840012",
+      "IRobot_4_13_2023_Test_1_HP_831000",
+      "IRobot_4_13_2023_Test_1_HP_806013",
+      "IRobot_4_13_2023_Test_1_HP_812003",
+      "IRobot_4_13_2023_Test_1_HP_822013",
+      "IRobot_4_13_2023_Test_2_HP_839019",
+      "IRobot_4_13_2023_Test_1_HP_821011",
+      "IRobot_4_13_2023_Test_1_HP_777014",
+      "IRobot_4_13_2023_Test_1_HP_819004",
+      "IRobot_4_13_2023_Test_2_HP_841013",
+      "IRobot_4_13_2023_Test_1_HP_814005",
+      "IRobot_4_13_2023_Test_1_HP_778014",
+      "IRobot_4_13_2023_Test_1_HP_781006"
+    ]
+  },
+  {
+    "task_id": "task_Pet_7",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test6_HP_1593002",
+      "Pet_tito_test2_HP_1567001",
+      "Pet_tito_test7_HP_1596021",
+      "Pet_tito_test6_HP_1590016",
+      "Pet_tito_test3_HP_1570014"
+    ],
+    "query": [
+      "Pet_tito_test5_HP_1586001",
+      "Pet_tito_test7_HP_1596014",
+      "Pet_tito_test6_HP_1589006",
+      "Pet_tito_test6_HP_1592006",
+      "Pet_tito_test1_HP_1560021",
+      "Pet_tito_test3_HP_1573008",
+      "Pet_tito_test1_HP_1561016",
+      "Pet_tito_test6_HP_1591001",
+      "Pet_tito_test3_HP_1570022",
+      "Pet_tito_test2_HP_1564011",
+      "Pet_tito_test1_HP_1558024",
+      "Pet_tito_test7_HP_1599023",
+      "Pet_tito_test5_HP_1585011",
+      "Pet_tito_test1_HP_1560008",
+      "Pet_tito_test3_HP_1572017"
+    ]
+  },
+  {
+    "task_id": "task_Fan_8",
+    "subject": "Fan",
+    "user": "4_13_2023",
+    "support": [
+      "Fan_4_13_2023_Test_1_HP_710031",
+      "Fan_4_13_2023_Test_1_HP_710015",
+      "Fan_4_13_2023_Test_1_HP_711021",
+      "Fan_4_13_2023_Test_1_HP_708038",
+      "Fan_4_13_2023_Test_1_HP_711008"
+    ],
+    "query": [
+      "Fan_4_13_2023_Test_1_HP_709016",
+      "Fan_4_13_2023_Test_1_HP_708035",
+      "Fan_4_13_2023_Test_1_HP_712053",
+      "Fan_4_13_2023_Test_1_HP_708004",
+      "Fan_4_13_2023_Test_1_HP_709028",
+      "Fan_4_13_2023_Test_1_HP_712019",
+      "Fan_4_13_2023_Test_1_HP_711043",
+      "Fan_4_13_2023_Test_1_HP_713000",
+      "Fan_4_13_2023_Test_1_HP_712014",
+      "Fan_4_13_2023_Test_1_HP_709056",
+      "Fan_4_13_2023_Test_1_HP_712030",
+      "Fan_4_13_2023_Test_1_HP_712028",
+      "Fan_4_13_2023_Test_1_HP_711026",
+      "Fan_4_13_2023_Test_1_HP_708060",
+      "Fan_4_13_2023_Test_1_HP_710036"
+    ]
+  },
+  {
+    "task_id": "task_Human_9",
+    "subject": "Human",
+    "user": "BrianK.andAndrew Two",
+    "support": [
+      "Human_BrianK.andAndrew Two_Running_HP_653011",
+      "Human_BrianK.andAndrew Two_Walking_HP_661013",
+      "Human_BrianK.andAndrew Two_Running_HP_653007",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_659018",
+      "Human_BrianK.andAndrew Two_Walking_HP_660013"
+    ],
+    "query": [
+      "Human_BrianK.andAndrew Two_Intrusion_HP_642019",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_656016",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_643021",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_645020",
+      "Human_BrianK.andAndrew Two_Walking_HP_664023",
+      "Human_BrianK.andAndrew Two_Running_HP_648008",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_654011",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_654022",
+      "Human_BrianK.andAndrew Two_Running_HP_649022",
+      "Human_BrianK.andAndrew Two_Walking_HP_660017",
+      "Human_BrianK.andAndrew Two_Running_HP_653019",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_644014",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_655015",
+      "Human_BrianK.andAndrew Two_Running_HP_651000",
+      "Human_BrianK.andAndrew Two_Running_HP_652013"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_10",
+    "subject": "IRobot",
+    "user": "Bedroom",
+    "support": [
+      "IRobot_Bedroom_Test1_HP_1809078",
+      "IRobot_Bedroom_Test1_HP_1783012",
+      "IRobot_Bedroom_Test1_HP_1799088",
+      "IRobot_Bedroom_Test1_HP_1792045",
+      "IRobot_Bedroom_Test1_HP_1792009"
+    ],
+    "query": [
+      "IRobot_Bedroom_Test1_HP_1799085",
+      "IRobot_Bedroom_Test1_HP_1788084",
+      "IRobot_Bedroom_Test1_HP_1796023",
+      "IRobot_Bedroom_Test1_HP_1787042",
+      "IRobot_Bedroom_Test1_HP_1807085",
+      "IRobot_Bedroom_Test1_HP_1806015",
+      "IRobot_Bedroom_Test1_HP_1806010",
+      "IRobot_Bedroom_Test1_HP_1799004",
+      "IRobot_Bedroom_Test1_HP_1802040",
+      "IRobot_Bedroom_Test1_HP_1800019",
+      "IRobot_Bedroom_Test1_HP_1791028",
+      "IRobot_Bedroom_Test1_HP_1803008",
+      "IRobot_Bedroom_Test1_HP_1796092",
+      "IRobot_Bedroom_Test1_HP_1780051",
+      "IRobot_Bedroom_Test1_HP_1796061"
+    ]
+  },
+  {
+    "task_id": "task_Pet_11",
+    "subject": "Pet",
+    "user": "loc1",
+    "support": [
+      "Pet_loc1_Pet_HP_1744007",
+      "Pet_loc1_Pet_HP_1665014",
+      "Pet_loc1_Pet_HP_1708007",
+      "Pet_loc1_Pet_HP_1735000",
+      "Pet_loc1_Pet_HP_1733012"
+    ],
+    "query": [
+      "Pet_loc1_Pet_HP_1664011",
+      "Pet_loc1_Pet_HP_1712006",
+      "Pet_loc1_Pet_HP_1687010",
+      "Pet_loc1_Pet_HP_1659006",
+      "Pet_loc1_Pet_HP_1704006",
+      "Pet_loc1_Pet_HP_1751010",
+      "Pet_loc1_Pet_HP_1670008",
+      "Pet_loc1_Pet_HP_1669011",
+      "Pet_loc1_Pet_HP_1708010",
+      "Pet_loc1_Pet_HP_1742001",
+      "Pet_loc1_Pet_HP_1666007",
+      "Pet_loc1_Pet_HP_1752009",
+      "Pet_loc1_Pet_HP_1683007",
+      "Pet_loc1_Pet_HP_1731013",
+      "Pet_loc1_Pet_HP_1648001"
+    ]
+  },
+  {
+    "task_id": "task_Fan_12",
+    "subject": "Fan",
+    "user": "loc1",
+    "support": [
+      "Fan_loc1_Fan_HP_1620002",
+      "Fan_loc1_Fan_HP_1632011",
+      "Fan_loc1_Fan_HP_1621011",
+      "Fan_loc1_Fan_HP_1623011",
+      "Fan_loc1_Fan_HP_1617003"
+    ],
+    "query": [
+      "Fan_loc1_Fan_HP_1611007",
+      "Fan_loc1_Fan_HP_1631008",
+      "Fan_loc1_Fan_HP_1616001",
+      "Fan_loc1_Fan_HP_1605008",
+      "Fan_loc1_Fan_HP_1611006",
+      "Fan_loc1_Fan_HP_1600001",
+      "Fan_loc1_Fan_HP_1631000",
+      "Fan_loc1_Fan_HP_1609004",
+      "Fan_loc1_Fan_HP_1627004",
+      "Fan_loc1_Fan_HP_1620012",
+      "Fan_loc1_Fan_HP_1633014",
+      "Fan_loc1_Fan_HP_1603004",
+      "Fan_loc1_Fan_HP_1626005",
+      "Fan_loc1_Fan_HP_1626007",
+      "Fan_loc1_Fan_HP_1624004"
+    ]
+  },
+  {
+    "task_id": "task_Human_13",
+    "subject": "Human",
+    "user": "Jesse",
+    "support": [
+      "Human_Jesse_Combined_HP_1418012",
+      "Human_Jesse_Jogging_HP_1420003",
+      "Human_Jesse_Jogging_HP_1420011",
+      "Human_Jesse_Sneaking_HP_1430015",
+      "Human_Jesse_Combined_HP_1419000"
+    ],
+    "query": [
+      "Human_Jesse_Jogging_HP_1425016",
+      "Human_Jesse_Combined_HP_1415008",
+      "Human_Jesse_Sneaking_HP_1426002",
+      "Human_Jesse_Walking_HP_1435003",
+      "Human_Jesse_Walking_HP_1435021",
+      "Human_Jesse_Sneaking_HP_1428005",
+      "Human_Jesse_Walking_HP_1436012",
+      "Human_Jesse_Walking_HP_1434022",
+      "Human_Jesse_Jogging_HP_1421004",
+      "Human_Jesse_Combined_HP_1415010",
+      "Human_Jesse_Walking_HP_1435023",
+      "Human_Jesse_Jogging_HP_1425023",
+      "Human_Jesse_Combined_HP_1417014",
+      "Human_Jesse_Walking_HP_1437022",
+      "Human_Jesse_Jogging_HP_1423002"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_14",
+    "subject": "IRobot",
+    "user": "Bedroom",
+    "support": [
+      "IRobot_Bedroom_Test1_HP_1786091",
+      "IRobot_Bedroom_Test1_HP_1795045",
+      "IRobot_Bedroom_Test1_HP_1806034",
+      "IRobot_Bedroom_Test1_HP_1794012",
+      "IRobot_Bedroom_Test1_HP_1781051"
+    ],
+    "query": [
+      "IRobot_Bedroom_Test1_HP_1801015",
+      "IRobot_Bedroom_Test1_HP_1790052",
+      "IRobot_Bedroom_Test1_HP_1785050",
+      "IRobot_Bedroom_Test1_HP_1806011",
+      "IRobot_Bedroom_Test1_HP_1796018",
+      "IRobot_Bedroom_Test1_HP_1806089",
+      "IRobot_Bedroom_Test1_HP_1796066",
+      "IRobot_Bedroom_Test1_HP_1788067",
+      "IRobot_Bedroom_Test1_HP_1784074",
+      "IRobot_Bedroom_Test1_HP_1783045",
+      "IRobot_Bedroom_Test1_HP_1786045",
+      "IRobot_Bedroom_Test1_HP_1804060",
+      "IRobot_Bedroom_Test1_HP_1799088",
+      "IRobot_Bedroom_Test1_HP_1789013",
+      "IRobot_Bedroom_Test1_HP_1796009"
+    ]
+  },
+  {
+    "task_id": "task_Pet_15",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test3_HP_1573008",
+      "Pet_tito_test3_HP_1572004",
+      "Pet_tito_test3_HP_1574018",
+      "Pet_tito_test5_HP_1585001",
+      "Pet_tito_test7_HP_1595019"
+    ],
+    "query": [
+      "Pet_tito_test6_HP_1591022",
+      "Pet_tito_test3_HP_1573020",
+      "Pet_tito_test7_HP_1598009",
+      "Pet_tito_test3_HP_1570022",
+      "Pet_tito_test3_HP_1574011",
+      "Pet_tito_test6_HP_1593000",
+      "Pet_tito_test7_HP_1597005",
+      "Pet_tito_test5_HP_1583013",
+      "Pet_tito_test6_HP_1593021",
+      "Pet_tito_test4_HP_1578001",
+      "Pet_tito_test2_HP_1565019",
+      "Pet_tito_test1_HP_1560009",
+      "Pet_tito_test7_HP_1594023",
+      "Pet_tito_test6_HP_1591001",
+      "Pet_tito_test1_HP_1563007"
+    ]
+  },
+  {
+    "task_id": "task_Fan_16",
+    "subject": "Fan",
+    "user": "loc1",
+    "support": [
+      "Fan_loc1_Fan_HP_1612000",
+      "Fan_loc1_Fan_HP_1625004",
+      "Fan_loc1_Fan_HP_1623006",
+      "Fan_loc1_Fan_HP_1632007",
+      "Fan_loc1_Fan_HP_1618002"
+    ],
+    "query": [
+      "Fan_loc1_Fan_HP_1607004",
+      "Fan_loc1_Fan_HP_1634007",
+      "Fan_loc1_Fan_HP_1605008",
+      "Fan_loc1_Fan_HP_1632011",
+      "Fan_loc1_Fan_HP_1604005",
+      "Fan_loc1_Fan_HP_1606009",
+      "Fan_loc1_Fan_HP_1606014",
+      "Fan_loc1_Fan_HP_1616000",
+      "Fan_loc1_Fan_HP_1611006",
+      "Fan_loc1_Fan_HP_1603008",
+      "Fan_loc1_Fan_HP_1608000",
+      "Fan_loc1_Fan_HP_1617003",
+      "Fan_loc1_Fan_HP_1624008",
+      "Fan_loc1_Fan_HP_1605005",
+      "Fan_loc1_Fan_HP_1622008"
+    ]
+  },
+  {
+    "task_id": "task_Human_17",
+    "subject": "Human",
+    "user": "Jesse",
+    "support": [
+      "Human_Jesse_Jogging_HP_1421018",
+      "Human_Jesse_Sneaking_HP_1426001",
+      "Human_Jesse_Jogging_HP_1425007",
+      "Human_Jesse_Sneaking_HP_1430012",
+      "Human_Jesse_Combined_HP_1418027"
+    ],
+    "query": [
+      "Human_Jesse_Sneaking_HP_1431014",
+      "Human_Jesse_Jogging_HP_1422018",
+      "Human_Jesse_Walking_HP_1437017",
+      "Human_Jesse_Walking_HP_1437010",
+      "Human_Jesse_Walking_HP_1435003",
+      "Human_Jesse_Combined_HP_1419000",
+      "Human_Jesse_Sneaking_HP_1430018",
+      "Human_Jesse_Walking_HP_1437009",
+      "Human_Jesse_Sneaking_HP_1429017",
+      "Human_Jesse_Jogging_HP_1422014",
+      "Human_Jesse_Jogging_HP_1425008",
+      "Human_Jesse_Walking_HP_1436001",
+      "Human_Jesse_Combined_HP_1419003",
+      "Human_Jesse_Combined_HP_1418012",
+      "Human_Jesse_Walking_HP_1435021"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_18",
+    "subject": "IRobot",
+    "user": "Bedroom",
+    "support": [
+      "IRobot_Bedroom_Test1_HP_1783091",
+      "IRobot_Bedroom_Test1_HP_1784041",
+      "IRobot_Bedroom_Test1_HP_1793082",
+      "IRobot_Bedroom_Test1_HP_1780049",
+      "IRobot_Bedroom_Test1_HP_1792002"
+    ],
+    "query": [
+      "IRobot_Bedroom_Test1_HP_1787071",
+      "IRobot_Bedroom_Test1_HP_1802000",
+      "IRobot_Bedroom_Test1_HP_1805070",
+      "IRobot_Bedroom_Test1_HP_1800065",
+      "IRobot_Bedroom_Test1_HP_1785038",
+      "IRobot_Bedroom_Test1_HP_1781012",
+      "IRobot_Bedroom_Test1_HP_1801076",
+      "IRobot_Bedroom_Test1_HP_1798094",
+      "IRobot_Bedroom_Test1_HP_1788069",
+      "IRobot_Bedroom_Test1_HP_1808073",
+      "IRobot_Bedroom_Test1_HP_1781043",
+      "IRobot_Bedroom_Test1_HP_1799008",
+      "IRobot_Bedroom_Test1_HP_1809060",
+      "IRobot_Bedroom_Test1_HP_1791028",
+      "IRobot_Bedroom_Test1_HP_1808006"
+    ]
+  },
+  {
+    "task_id": "task_Pet_19",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test3_HP_1571009",
+      "Pet_tito_test1_HP_1561016",
+      "Pet_tito_test2_HP_1566006",
+      "Pet_tito_test4_HP_1581002",
+      "Pet_tito_test4_HP_1581014"
+    ],
+    "query": [
+      "Pet_tito_test5_HP_1586004",
+      "Pet_tito_test5_HP_1583013",
+      "Pet_tito_test6_HP_1593011",
+      "Pet_tito_test6_HP_1592013",
+      "Pet_tito_test1_HP_1560009",
+      "Pet_tito_test5_HP_1584015",
+      "Pet_tito_test2_HP_1564005",
+      "Pet_tito_test7_HP_1596018",
+      "Pet_tito_test3_HP_1575007",
+      "Pet_tito_test3_HP_1575010",
+      "Pet_tito_test3_HP_1575001",
+      "Pet_tito_test7_HP_1596021",
+      "Pet_tito_test1_HP_1558012",
+      "Pet_tito_test5_HP_1587005",
+      "Pet_tito_test1_HP_1562017"
+    ]
+  },
+  {
+    "task_id": "task_Fan_20",
+    "subject": "Fan",
+    "user": "4_13_2023",
+    "support": [
+      "Fan_4_13_2023_Test_1_HP_712040",
+      "Fan_4_13_2023_Test_1_HP_710008",
+      "Fan_4_13_2023_Test_1_HP_710006",
+      "Fan_4_13_2023_Test_1_HP_713039",
+      "Fan_4_13_2023_Test_1_HP_712014"
+    ],
+    "query": [
+      "Fan_4_13_2023_Test_1_HP_709056",
+      "Fan_4_13_2023_Test_1_HP_708020",
+      "Fan_4_13_2023_Test_1_HP_711044",
+      "Fan_4_13_2023_Test_1_HP_710004",
+      "Fan_4_13_2023_Test_1_HP_710011",
+      "Fan_4_13_2023_Test_1_HP_708011",
+      "Fan_4_13_2023_Test_1_HP_710023",
+      "Fan_4_13_2023_Test_1_HP_709011",
+      "Fan_4_13_2023_Test_1_HP_711016",
+      "Fan_4_13_2023_Test_1_HP_713015",
+      "Fan_4_13_2023_Test_1_HP_713036",
+      "Fan_4_13_2023_Test_1_HP_713050",
+      "Fan_4_13_2023_Test_1_HP_713027",
+      "Fan_4_13_2023_Test_1_HP_708013",
+      "Fan_4_13_2023_Test_1_HP_711026"
+    ]
+  },
+  {
+    "task_id": "task_Human_21",
+    "subject": "Human",
+    "user": "BrianK.andAndrew Two",
+    "support": [
+      "Human_BrianK.andAndrew Two_Running_HP_650003",
+      "Human_BrianK.andAndrew Two_Walking_HP_660005",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_654011",
+      "Human_BrianK.andAndrew Two_Running_HP_651015",
+      "Human_BrianK.andAndrew Two_Running_HP_652010"
+    ],
+    "query": [
+      "Human_BrianK.andAndrew Two_Walking_HP_665011",
+      "Human_BrianK.andAndrew Two_Walking_HP_660023",
+      "Human_BrianK.andAndrew Two_Running_HP_653001",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_645001",
+      "Human_BrianK.andAndrew Two_Running_HP_650012",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_645019",
+      "Human_BrianK.andAndrew Two_Walking_HP_664005",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_658005",
+      "Human_BrianK.andAndrew Two_Running_HP_653000",
+      "Human_BrianK.andAndrew Two_Running_HP_649010",
+      "Human_BrianK.andAndrew Two_Walking_HP_662011",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_642010",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_655015",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_647015",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_643011"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_22",
+    "subject": "IRobot",
+    "user": "4_13_2023",
+    "support": [
+      "IRobot_4_13_2023_Test_1_HP_811006",
+      "IRobot_4_13_2023_Test_1_HP_833001",
+      "IRobot_4_13_2023_Test_1_HP_834014",
+      "IRobot_4_13_2023_Test_1_HP_771010",
+      "IRobot_4_13_2023_Test_1_HP_808010"
+    ],
+    "query": [
+      "IRobot_4_13_2023_Test_2_HP_839011",
+      "IRobot_4_13_2023_Test_1_HP_813013",
+      "IRobot_4_13_2023_Test_1_HP_831000",
+      "IRobot_4_13_2023_Test_1_HP_795003",
+      "IRobot_4_13_2023_Test_1_HP_813007",
+      "IRobot_4_13_2023_Test_2_HP_838007",
+      "IRobot_4_13_2023_Test_2_HP_836037",
+      "IRobot_4_13_2023_Test_1_HP_821011",
+      "IRobot_4_13_2023_Test_1_HP_823010",
+      "IRobot_4_13_2023_Test_1_HP_768006",
+      "IRobot_4_13_2023_Test_1_HP_815007",
+      "IRobot_4_13_2023_Test_2_HP_841013",
+      "IRobot_4_13_2023_Test_1_HP_799013",
+      "IRobot_4_13_2023_Test_2_HP_836019",
+      "IRobot_4_13_2023_Test_1_HP_787011"
+    ]
+  },
+  {
+    "task_id": "task_Pet_23",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test3_HP_1573023",
+      "Pet_tito_test2_HP_1568000",
+      "Pet_tito_test1_HP_1563007",
+      "Pet_tito_test3_HP_1570003",
+      "Pet_tito_test1_HP_1560006"
+    ],
+    "query": [
+      "Pet_tito_test1_HP_1561010",
+      "Pet_tito_test2_HP_1566009",
+      "Pet_tito_test6_HP_1591001",
+      "Pet_tito_test5_HP_1583013",
+      "Pet_tito_test2_HP_1569009",
+      "Pet_tito_test3_HP_1571021",
+      "Pet_tito_test4_HP_1581000",
+      "Pet_tito_test6_HP_1593009",
+      "Pet_tito_test3_HP_1574011",
+      "Pet_tito_test1_HP_1560008",
+      "Pet_tito_test3_HP_1573005",
+      "Pet_tito_test2_HP_1564000",
+      "Pet_tito_test2_HP_1567020",
+      "Pet_tito_test1_HP_1561017",
+      "Pet_tito_test6_HP_1589011"
+    ]
+  },
+  {
+    "task_id": "task_Fan_24",
+    "subject": "Fan",
+    "user": "4_13_2023",
+    "support": [
+      "Fan_4_13_2023_Test_1_HP_710039",
+      "Fan_4_13_2023_Test_1_HP_713004",
+      "Fan_4_13_2023_Test_1_HP_711032",
+      "Fan_4_13_2023_Test_1_HP_709055",
+      "Fan_4_13_2023_Test_1_HP_708035"
+    ],
+    "query": [
+      "Fan_4_13_2023_Test_1_HP_708009",
+      "Fan_4_13_2023_Test_1_HP_708013",
+      "Fan_4_13_2023_Test_1_HP_710003",
+      "Fan_4_13_2023_Test_1_HP_711009",
+      "Fan_4_13_2023_Test_1_HP_713039",
+      "Fan_4_13_2023_Test_1_HP_708004",
+      "Fan_4_13_2023_Test_1_HP_712021",
+      "Fan_4_13_2023_Test_1_HP_713027",
+      "Fan_4_13_2023_Test_1_HP_712034",
+      "Fan_4_13_2023_Test_1_HP_709037",
+      "Fan_4_13_2023_Test_1_HP_708011",
+      "Fan_4_13_2023_Test_1_HP_710018",
+      "Fan_4_13_2023_Test_1_HP_711026",
+      "Fan_4_13_2023_Test_1_HP_709016",
+      "Fan_4_13_2023_Test_1_HP_710032"
+    ]
+  },
+  {
+    "task_id": "task_Human_25",
+    "subject": "Human",
+    "user": "Jesse",
+    "support": [
+      "Human_Jesse_Sneaking_HP_1426013",
+      "Human_Jesse_Sneaking_HP_1428004",
+      "Human_Jesse_Combined_HP_1414011",
+      "Human_Jesse_Sneaking_HP_1426020",
+      "Human_Jesse_Walking_HP_1436000"
+    ],
+    "query": [
+      "Human_Jesse_Sneaking_HP_1430015",
+      "Human_Jesse_Combined_HP_1414013",
+      "Human_Jesse_Jogging_HP_1423002",
+      "Human_Jesse_Sneaking_HP_1430011",
+      "Human_Jesse_Sneaking_HP_1429017",
+      "Human_Jesse_Combined_HP_1415010",
+      "Human_Jesse_Sneaking_HP_1429004",
+      "Human_Jesse_Jogging_HP_1420003",
+      "Human_Jesse_Sneaking_HP_1430018",
+      "Human_Jesse_Walking_HP_1436005",
+      "Human_Jesse_Combined_HP_1414030",
+      "Human_Jesse_Combined_HP_1419016",
+      "Human_Jesse_Sneaking_HP_1426011",
+      "Human_Jesse_Jogging_HP_1422014",
+      "Human_Jesse_Walking_HP_1436007"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_26",
+    "subject": "IRobot",
+    "user": "Bedroom",
+    "support": [
+      "IRobot_Bedroom_Test1_HP_1786017",
+      "IRobot_Bedroom_Test1_HP_1792045",
+      "IRobot_Bedroom_Test1_HP_1794092",
+      "IRobot_Bedroom_Test1_HP_1788093",
+      "IRobot_Bedroom_Test1_HP_1799031"
+    ],
+    "query": [
+      "IRobot_Bedroom_Test1_HP_1788084",
+      "IRobot_Bedroom_Test1_HP_1804031",
+      "IRobot_Bedroom_Test1_HP_1792067",
+      "IRobot_Bedroom_Test1_HP_1780023",
+      "IRobot_Bedroom_Test1_HP_1795044",
+      "IRobot_Bedroom_Test1_HP_1809094",
+      "IRobot_Bedroom_Test1_HP_1800019",
+      "IRobot_Bedroom_Test1_HP_1805045",
+      "IRobot_Bedroom_Test1_HP_1792077",
+      "IRobot_Bedroom_Test1_HP_1793024",
+      "IRobot_Bedroom_Test1_HP_1788053",
+      "IRobot_Bedroom_Test1_HP_1806038",
+      "IRobot_Bedroom_Test1_HP_1794078",
+      "IRobot_Bedroom_Test1_HP_1808067",
+      "IRobot_Bedroom_Test1_HP_1806001"
+    ]
+  },
+  {
+    "task_id": "task_Pet_27",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test5_HP_1584004",
+      "Pet_tito_test5_HP_1584010",
+      "Pet_tito_test7_HP_1594014",
+      "Pet_tito_test2_HP_1569010",
+      "Pet_tito_test6_HP_1588018"
+    ],
+    "query": [
+      "Pet_tito_test2_HP_1567020",
+      "Pet_tito_test5_HP_1583017",
+      "Pet_tito_test1_HP_1563013",
+      "Pet_tito_test5_HP_1585001",
+      "Pet_tito_test3_HP_1574003",
+      "Pet_tito_test1_HP_1563007",
+      "Pet_tito_test3_HP_1571009",
+      "Pet_tito_test6_HP_1590007",
+      "Pet_tito_test2_HP_1569003",
+      "Pet_tito_test1_HP_1561016",
+      "Pet_tito_test1_HP_1559003",
+      "Pet_tito_test1_HP_1560008",
+      "Pet_tito_test1_HP_1560016",
+      "Pet_tito_test3_HP_1571007",
+      "Pet_tito_test2_HP_1569001"
+    ]
+  },
+  {
+    "task_id": "task_Fan_28",
+    "subject": "Fan",
+    "user": "4_13_2023",
+    "support": [
+      "Fan_4_13_2023_Test_1_HP_708005",
+      "Fan_4_13_2023_Test_1_HP_709028",
+      "Fan_4_13_2023_Test_1_HP_712040",
+      "Fan_4_13_2023_Test_1_HP_712019",
+      "Fan_4_13_2023_Test_1_HP_713036"
+    ],
+    "query": [
+      "Fan_4_13_2023_Test_1_HP_708055",
+      "Fan_4_13_2023_Test_1_HP_708021",
+      "Fan_4_13_2023_Test_1_HP_710011",
+      "Fan_4_13_2023_Test_1_HP_708038",
+      "Fan_4_13_2023_Test_1_HP_710004",
+      "Fan_4_13_2023_Test_1_HP_712060",
+      "Fan_4_13_2023_Test_1_HP_711008",
+      "Fan_4_13_2023_Test_1_HP_710018",
+      "Fan_4_13_2023_Test_1_HP_709055",
+      "Fan_4_13_2023_Test_1_HP_712021",
+      "Fan_4_13_2023_Test_1_HP_708009",
+      "Fan_4_13_2023_Test_1_HP_710008",
+      "Fan_4_13_2023_Test_1_HP_711016",
+      "Fan_4_13_2023_Test_1_HP_708013",
+      "Fan_4_13_2023_Test_1_HP_713050"
+    ]
+  },
+  {
+    "task_id": "task_Human_29",
+    "subject": "Human",
+    "user": "Jesse",
+    "support": [
+      "Human_Jesse_Sneaking_HP_1431010",
+      "Human_Jesse_Walking_HP_1436020",
+      "Human_Jesse_Combined_HP_1419016",
+      "Human_Jesse_Walking_HP_1437002",
+      "Human_Jesse_Jogging_HP_1422010"
+    ],
+    "query": [
+      "Human_Jesse_Sneaking_HP_1428019",
+      "Human_Jesse_Jogging_HP_1425007",
+      "Human_Jesse_Sneaking_HP_1431015",
+      "Human_Jesse_Walking_HP_1434016",
+      "Human_Jesse_Walking_HP_1435003",
+      "Human_Jesse_Sneaking_HP_1430010",
+      "Human_Jesse_Walking_HP_1435021",
+      "Human_Jesse_Jogging_HP_1423002",
+      "Human_Jesse_Combined_HP_1419035",
+      "Human_Jesse_Combined_HP_1414023",
+      "Human_Jesse_Combined_HP_1414029",
+      "Human_Jesse_Walking_HP_1437017",
+      "Human_Jesse_Walking_HP_1436002",
+      "Human_Jesse_Combined_HP_1414034",
+      "Human_Jesse_Combined_HP_1419023"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_30",
+    "subject": "IRobot",
+    "user": "4_13_2023",
+    "support": [
+      "IRobot_4_13_2023_Test_1_HP_813007",
+      "IRobot_4_13_2023_Test_1_HP_793011",
+      "IRobot_4_13_2023_Test_1_HP_831000",
+      "IRobot_4_13_2023_Test_1_HP_781012",
+      "IRobot_4_13_2023_Test_1_HP_821003"
+    ],
+    "query": [
+      "IRobot_4_13_2023_Test_2_HP_840036",
+      "IRobot_4_13_2023_Test_2_HP_841046",
+      "IRobot_4_13_2023_Test_2_HP_838028",
+      "IRobot_4_13_2023_Test_1_HP_788000",
+      "IRobot_4_13_2023_Test_1_HP_819006",
+      "IRobot_4_13_2023_Test_1_HP_790011",
+      "IRobot_4_13_2023_Test_2_HP_839007",
+      "IRobot_4_13_2023_Test_1_HP_806011",
+      "IRobot_4_13_2023_Test_1_HP_773001",
+      "IRobot_4_13_2023_Test_1_HP_770010",
+      "IRobot_4_13_2023_Test_1_HP_831008",
+      "IRobot_4_13_2023_Test_2_HP_838046",
+      "IRobot_4_13_2023_Test_1_HP_823014",
+      "IRobot_4_13_2023_Test_1_HP_793014",
+      "IRobot_4_13_2023_Test_1_HP_823012"
+    ]
+  },
+  {
+    "task_id": "task_Pet_31",
+    "subject": "Pet",
+    "user": "tito",
+    "support": [
+      "Pet_tito_test3_HP_1574017",
+      "Pet_tito_test3_HP_1570003",
+      "Pet_tito_test7_HP_1596018",
+      "Pet_tito_test5_HP_1586004",
+      "Pet_tito_test7_HP_1596010"
+    ],
+    "query": [
+      "Pet_tito_test6_HP_1590005",
+      "Pet_tito_test1_HP_1563013",
+      "Pet_tito_test1_HP_1558024",
+      "Pet_tito_test3_HP_1571013",
+      "Pet_tito_test4_HP_1581014",
+      "Pet_tito_test3_HP_1575001",
+      "Pet_tito_test4_HP_1581019",
+      "Pet_tito_test6_HP_1592015",
+      "Pet_tito_test4_HP_1581002",
+      "Pet_tito_test4_HP_1577002",
+      "Pet_tito_test3_HP_1572012",
+      "Pet_tito_test6_HP_1592013",
+      "Pet_tito_test2_HP_1567001",
+      "Pet_tito_test1_HP_1560021",
+      "Pet_tito_test1_HP_1563020"
+    ]
+  },
+  {
+    "task_id": "task_Fan_32",
+    "subject": "Fan",
+    "user": "4_13_2023",
+    "support": [
+      "Fan_4_13_2023_Test_1_HP_711026",
+      "Fan_4_13_2023_Test_1_HP_711051",
+      "Fan_4_13_2023_Test_1_HP_713039",
+      "Fan_4_13_2023_Test_1_HP_708035",
+      "Fan_4_13_2023_Test_1_HP_709037"
+    ],
+    "query": [
+      "Fan_4_13_2023_Test_1_HP_709033",
+      "Fan_4_13_2023_Test_1_HP_711054",
+      "Fan_4_13_2023_Test_1_HP_712014",
+      "Fan_4_13_2023_Test_1_HP_713000",
+      "Fan_4_13_2023_Test_1_HP_712034",
+      "Fan_4_13_2023_Test_1_HP_709056",
+      "Fan_4_13_2023_Test_1_HP_711043",
+      "Fan_4_13_2023_Test_1_HP_708055",
+      "Fan_4_13_2023_Test_1_HP_710015",
+      "Fan_4_13_2023_Test_1_HP_711016",
+      "Fan_4_13_2023_Test_1_HP_710003",
+      "Fan_4_13_2023_Test_1_HP_709028",
+      "Fan_4_13_2023_Test_1_HP_709003",
+      "Fan_4_13_2023_Test_1_HP_708013",
+      "Fan_4_13_2023_Test_1_HP_709013"
+    ]
+  },
+  {
+    "task_id": "task_Human_33",
+    "subject": "Human",
+    "user": "BrianK.andAndrew Two",
+    "support": [
+      "Human_BrianK.andAndrew Two_Sneaking_HP_655009",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_654019",
+      "Human_BrianK.andAndrew Two_Running_HP_649022",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_642010",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_644027"
+    ],
+    "query": [
+      "Human_BrianK.andAndrew Two_Running_HP_651015",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_659018",
+      "Human_BrianK.andAndrew Two_Running_HP_653011",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_658017",
+      "Human_BrianK.andAndrew Two_Running_HP_648013",
+      "Human_BrianK.andAndrew Two_Running_HP_651000",
+      "Human_BrianK.andAndrew Two_Running_HP_650008",
+      "Human_BrianK.andAndrew Two_Running_HP_652014",
+      "Human_BrianK.andAndrew Two_Walking_HP_660011",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_642021",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_658008",
+      "Human_BrianK.andAndrew Two_Walking_HP_665006",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_647010",
+      "Human_BrianK.andAndrew Two_Sneaking_HP_657011",
+      "Human_BrianK.andAndrew Two_Intrusion_HP_647007"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_34",
+    "subject": "IRobot",
+    "user": "Bedroom",
+    "support": [
+      "IRobot_Bedroom_Test1_HP_1782069",
+      "IRobot_Bedroom_Test1_HP_1796050",
+      "IRobot_Bedroom_Test1_HP_1800074",
+      "IRobot_Bedroom_Test1_HP_1789035",
+      "IRobot_Bedroom_Test1_HP_1783068"
+    ],
+    "query": [
+      "IRobot_Bedroom_Test1_HP_1800011",
+      "IRobot_Bedroom_Test1_HP_1797031",
+      "IRobot_Bedroom_Test1_HP_1801030",
+      "IRobot_Bedroom_Test1_HP_1784063",
+      "IRobot_Bedroom_Test1_HP_1797076",
+      "IRobot_Bedroom_Test1_HP_1784042",
+      "IRobot_Bedroom_Test1_HP_1809057",
+      "IRobot_Bedroom_Test1_HP_1794004",
+      "IRobot_Bedroom_Test1_HP_1808061",
+      "IRobot_Bedroom_Test1_HP_1802080",
+      "IRobot_Bedroom_Test1_HP_1791040",
+      "IRobot_Bedroom_Test1_HP_1781068",
+      "IRobot_Bedroom_Test1_HP_1785035",
+      "IRobot_Bedroom_Test1_HP_1795077",
+      "IRobot_Bedroom_Test1_HP_1788084"
+    ]
+  },
+  {
+    "task_id": "task_Pet_35",
+    "subject": "Pet",
+    "user": "Blaze",
+    "support": [
+      "Pet_Blaze_Test_4_HP_1483003",
+      "Pet_Blaze_Test_1_HP_1463023",
+      "Pet_Blaze_Test_1_HP_1464024",
+      "Pet_Blaze_Test_3_HP_1475001",
+      "Pet_Blaze_Test_2_HP_1469009"
+    ],
+    "query": [
+      "Pet_Blaze_Test_2_HP_1469010",
+      "Pet_Blaze_Test_3_HP_1478007",
+      "Pet_Blaze_Test_6_HP_1492005",
+      "Pet_Blaze_Test_2_HP_1472011",
+      "Pet_Blaze_Test_4_HP_1481021",
+      "Pet_Blaze_Test_6_HP_1492013",
+      "Pet_Blaze_Test_5_HP_1487006",
+      "Pet_Blaze_Test_1_HP_1463017",
+      "Pet_Blaze_Test_1_HP_1463033",
+      "Pet_Blaze_Test_6_HP_1497006",
+      "Pet_Blaze_Test_5_HP_1488022",
+      "Pet_Blaze_Test_2_HP_1471000",
+      "Pet_Blaze_Test_1_HP_1462033",
+      "Pet_Blaze_Test_6_HP_1495001",
+      "Pet_Blaze_Test_6_HP_1497001"
+    ]
+  },
+  {
+    "task_id": "task_Fan_36",
+    "subject": "Fan",
+    "user": "loc1",
+    "support": [
+      "Fan_loc1_Fan_HP_1603005",
+      "Fan_loc1_Fan_HP_1626005",
+      "Fan_loc1_Fan_HP_1603004",
+      "Fan_loc1_Fan_HP_1616000",
+      "Fan_loc1_Fan_HP_1607007"
+    ],
+    "query": [
+      "Fan_loc1_Fan_HP_1618002",
+      "Fan_loc1_Fan_HP_1601007",
+      "Fan_loc1_Fan_HP_1605005",
+      "Fan_loc1_Fan_HP_1625004",
+      "Fan_loc1_Fan_HP_1625008",
+      "Fan_loc1_Fan_HP_1604005",
+      "Fan_loc1_Fan_HP_1623006",
+      "Fan_loc1_Fan_HP_1631003",
+      "Fan_loc1_Fan_HP_1605008",
+      "Fan_loc1_Fan_HP_1609004",
+      "Fan_loc1_Fan_HP_1624004",
+      "Fan_loc1_Fan_HP_1634013",
+      "Fan_loc1_Fan_HP_1634010",
+      "Fan_loc1_Fan_HP_1623011",
+      "Fan_loc1_Fan_HP_1607010"
+    ]
+  },
+  {
+    "task_id": "task_Human_37",
+    "subject": "Human",
+    "user": "Jesse",
+    "support": [
+      "Human_Jesse_Sneaking_HP_1426001",
+      "Human_Jesse_Walking_HP_1437008",
+      "Human_Jesse_Walking_HP_1437022",
+      "Human_Jesse_Combined_HP_1415021",
+      "Human_Jesse_Combined_HP_1416012"
+    ],
+    "query": [
+      "Human_Jesse_Walking_HP_1433017",
+      "Human_Jesse_Walking_HP_1436002",
+      "Human_Jesse_Sneaking_HP_1428003",
+      "Human_Jesse_Jogging_HP_1424004",
+      "Human_Jesse_Walking_HP_1437002",
+      "Human_Jesse_Walking_HP_1437017",
+      "Human_Jesse_Combined_HP_1415010",
+      "Human_Jesse_Sneaking_HP_1428004",
+      "Human_Jesse_Combined_HP_1415016",
+      "Human_Jesse_Jogging_HP_1425007",
+      "Human_Jesse_Sneaking_HP_1429004",
+      "Human_Jesse_Sneaking_HP_1431018",
+      "Human_Jesse_Combined_HP_1414023",
+      "Human_Jesse_Combined_HP_1415008",
+      "Human_Jesse_Sneaking_HP_1430020"
+    ]
+  },
+  {
+    "task_id": "task_IRobot_38",
+    "subject": "IRobot",
+    "user": "Bedroom",
+    "support": [
+      "IRobot_Bedroom_Test1_HP_1801015",
+      "IRobot_Bedroom_Test1_HP_1801062",
+      "IRobot_Bedroom_Test1_HP_1800028",
+      "IRobot_Bedroom_Test1_HP_1782022",
+      "IRobot_Bedroom_Test1_HP_1782023"
+    ],
+    "query": [
+      "IRobot_Bedroom_Test1_HP_1786024",
+      "IRobot_Bedroom_Test1_HP_1806075",
+      "IRobot_Bedroom_Test1_HP_1790049",
+      "IRobot_Bedroom_Test1_HP_1785059",
+      "IRobot_Bedroom_Test1_HP_1783039",
+      "IRobot_Bedroom_Test1_HP_1793089",
+      "IRobot_Bedroom_Test1_HP_1792016",
+      "IRobot_Bedroom_Test1_HP_1797013",
+      "IRobot_Bedroom_Test1_HP_1780027",
+      "IRobot_Bedroom_Test1_HP_1797076",
+      "IRobot_Bedroom_Test1_HP_1804086",
+      "IRobot_Bedroom_Test1_HP_1780049",
+      "IRobot_Bedroom_Test1_HP_1784036",
+      "IRobot_Bedroom_Test1_HP_1781017",
+      "IRobot_Bedroom_Test1_HP_1806020"
+    ]
+  },
+  {
+    "task_id": "task_Pet_39",
+    "subject": "Pet",
+    "user": "loc1",
+    "support": [
+      "Pet_loc1_Pet_HP_1704008",
+      "Pet_loc1_Pet_HP_1710009",
+      "Pet_loc1_Pet_HP_1650003",
+      "Pet_loc1_Pet_HP_1739008",
+      "Pet_loc1_Pet_HP_1641006"
+    ],
+    "query": [
+      "Pet_loc1_Pet_HP_1722010",
+      "Pet_loc1_Pet_HP_1665010",
+      "Pet_loc1_Pet_HP_1653006",
+      "Pet_loc1_Pet_HP_1643000",
+      "Pet_loc1_Pet_HP_1695000",
+      "Pet_loc1_Pet_HP_1708006",
+      "Pet_loc1_Pet_HP_1642012",
+      "Pet_loc1_Pet_HP_1703009",
+      "Pet_loc1_Pet_HP_1662005",
+      "Pet_loc1_Pet_HP_1697007",
+      "Pet_loc1_Pet_HP_1723003",
+      "Pet_loc1_Pet_HP_1751010",
+      "Pet_loc1_Pet_HP_1749006",
+      "Pet_loc1_Pet_HP_1645011",
+      "Pet_loc1_Pet_HP_1713008"
+    ]
+  }
+]

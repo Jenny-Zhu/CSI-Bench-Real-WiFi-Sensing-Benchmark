@@ -1,0 +1,502 @@
+[
+  {
+    "task_id": "adapt_Fan_loc 1_0",
+    "subject": "Fan",
+    "user": "loc 1",
+    "support": [
+      "Fan_loc 1_Position_1_HP_6038"
+    ],
+    "query": [
+      "Fan_loc 1_Position_2_HP_11019",
+      "Fan_loc 1_Position_1_HP_4030",
+      "Fan_loc 1_Position_1_HP_3022",
+      "Fan_loc 1_Position_1_HP_5015",
+      "Fan_loc 1_Position_1_HP_1052",
+      "Fan_loc 1_Position_2_HP_7031",
+      "Fan_loc 1_Position_2_HP_10006",
+      "Fan_loc 1_Position_1_HP_1019",
+      "Fan_loc 1_Position_2_HP_7010",
+      "Fan_loc 1_Position_2_HP_11000",
+      "Fan_loc 1_Position_1_HP_1008",
+      "Fan_loc 1_Position_2_HP_10010",
+      "Fan_loc 1_Position_2_HP_8052",
+      "Fan_loc 1_Position_2_HP_10049",
+      "Fan_loc 1_Position_2_HP_8016"
+    ]
+  },
+  {
+    "task_id": "adapt_Fan_loc 1_1",
+    "subject": "Fan",
+    "user": "loc 1",
+    "support": [
+      "Fan_loc 1_Position_2_HP_8020"
+    ],
+    "query": [
+      "Fan_loc 1_Position_2_HP_10018",
+      "Fan_loc 1_Position_1_HP_4024",
+      "Fan_loc 1_Position_2_HP_10002",
+      "Fan_loc 1_Position_1_HP_6031",
+      "Fan_loc 1_Position_2_HP_11007",
+      "Fan_loc 1_Position_2_HP_8034",
+      "Fan_loc 1_Position_2_HP_11018",
+      "Fan_loc 1_Position_2_HP_11050",
+      "Fan_loc 1_Position_2_HP_10039",
+      "Fan_loc 1_Position_1_HP_1056",
+      "Fan_loc 1_Position_2_HP_11024",
+      "Fan_loc 1_Position_2_HP_12028",
+      "Fan_loc 1_Position_2_HP_8057",
+      "Fan_loc 1_Position_2_HP_11012",
+      "Fan_loc 1_Position_1_HP_3022"
+    ]
+  },
+  {
+    "task_id": "adapt_Fan_loc 1_2",
+    "subject": "Fan",
+    "user": "loc 1",
+    "support": [
+      "Fan_loc 1_Position_1_HP_5018"
+    ],
+    "query": [
+      "Fan_loc 1_Position_2_HP_10040",
+      "Fan_loc 1_Position_2_HP_8020",
+      "Fan_loc 1_Position_2_HP_12045",
+      "Fan_loc 1_Position_2_HP_8021",
+      "Fan_loc 1_Position_1_HP_1012",
+      "Fan_loc 1_Position_2_HP_10001",
+      "Fan_loc 1_Position_1_HP_5042",
+      "Fan_loc 1_Position_1_HP_2017",
+      "Fan_loc 1_Position_2_HP_10011",
+      "Fan_loc 1_Position_2_HP_8038",
+      "Fan_loc 1_Position_1_HP_4051",
+      "Fan_loc 1_Position_1_HP_5022",
+      "Fan_loc 1_Position_1_HP_4035",
+      "Fan_loc 1_Position_2_HP_7017",
+      "Fan_loc 1_Position_2_HP_11004"
+    ]
+  },
+  {
+    "task_id": "adapt_Fan_loc 1_3",
+    "subject": "Fan",
+    "user": "loc 1",
+    "support": [
+      "Fan_loc 1_Position_1_HP_2023"
+    ],
+    "query": [
+      "Fan_loc 1_Position_2_HP_8057",
+      "Fan_loc 1_Position_1_HP_5013",
+      "Fan_loc 1_Position_2_HP_8030",
+      "Fan_loc 1_Position_2_HP_10039",
+      "Fan_loc 1_Position_1_HP_5047",
+      "Fan_loc 1_Position_1_HP_1054",
+      "Fan_loc 1_Position_2_HP_12021",
+      "Fan_loc 1_Position_2_HP_11003",
+      "Fan_loc 1_Position_1_HP_3016",
+      "Fan_loc 1_Position_2_HP_10001",
+      "Fan_loc 1_Position_1_HP_5054",
+      "Fan_loc 1_Position_2_HP_11056",
+      "Fan_loc 1_Position_2_HP_11010",
+      "Fan_loc 1_Position_2_HP_12012",
+      "Fan_loc 1_Position_2_HP_7014"
+    ]
+  },
+  {
+    "task_id": "adapt_Fan_loc 1_4",
+    "subject": "Fan",
+    "user": "loc 1",
+    "support": [
+      "Fan_loc 1_Position_1_HP_6021"
+    ],
+    "query": [
+      "Fan_loc 1_Position_1_HP_2039",
+      "Fan_loc 1_Position_1_HP_4059",
+      "Fan_loc 1_Position_2_HP_10019",
+      "Fan_loc 1_Position_2_HP_7014",
+      "Fan_loc 1_Position_1_HP_1052",
+      "Fan_loc 1_Position_1_HP_1055",
+      "Fan_loc 1_Position_1_HP_4039",
+      "Fan_loc 1_Position_2_HP_12017",
+      "Fan_loc 1_Position_2_HP_10015",
+      "Fan_loc 1_Position_2_HP_7020",
+      "Fan_loc 1_Position_1_HP_2057",
+      "Fan_loc 1_Position_1_HP_2058",
+      "Fan_loc 1_Position_1_HP_2004",
+      "Fan_loc 1_Position_2_HP_9027",
+      "Fan_loc 1_Position_2_HP_12055"
+    ]
+  },
+  {
+    "task_id": "adapt_Human_Brian_0",
+    "subject": "Human",
+    "user": "Brian",
+    "support": [
+      "Human_Brian_Walking_HP_90046"
+    ],
+    "query": [
+      "Human_Brian_Sneaking_HP_573008",
+      "Human_Brian_Running_HP_569008",
+      "Human_Brian_Sneaking_With_Metronome_HP_78047",
+      "Human_Brian_Running_HP_567000",
+      "Human_Brian_Sneaking_HP_572010",
+      "Human_Brian_Speed_Walking_HP_81035",
+      "Human_Brian_Sneaking_With_Metronome_HP_76025",
+      "Human_Brian_Running_HP_564020",
+      "Human_Brian_Sneaking_HP_571006",
+      "Human_Brian_Intrusion_HP_563015",
+      "Human_Brian_Sneaking_HP_68034",
+      "Human_Brian_Speed_Walking_HP_79023",
+      "Human_Brian_Running_HP_62007",
+      "Human_Brian_Sneaking_HP_570007",
+      "Human_Brian_Walking_HP_90028"
+    ]
+  },
+  {
+    "task_id": "adapt_Human_Brian_1",
+    "subject": "Human",
+    "user": "Brian",
+    "support": [
+      "Human_Brian_Running_HP_63029"
+    ],
+    "query": [
+      "Human_Brian_Sneaking_With_Metronome_HP_77021",
+      "Human_Brian_Sneaking_HP_573007",
+      "Human_Brian_Running_HP_564013",
+      "Human_Brian_Walking_HP_86046",
+      "Human_Brian_Sneaking_With_Metronome_HP_76017",
+      "Human_Brian_Intrusion_HP_558006",
+      "Human_Brian_Running_HP_63005",
+      "Human_Brian_Intrusion_HP_559014",
+      "Human_Brian_Sneaking_HP_68024",
+      "Human_Brian_Walking_HP_85036",
+      "Human_Brian_Walking_HP_90041",
+      "Human_Brian_Speed_Walking_HP_80000",
+      "Human_Brian_Sneaking_HP_67022",
+      "Human_Brian_Walking_HP_89024",
+      "Human_Brian_Sneaking_HP_70038"
+    ]
+  },
+  {
+    "task_id": "adapt_Human_Brian_2",
+    "subject": "Human",
+    "user": "Brian",
+    "support": [
+      "Human_Brian_Sneaking_HP_69029"
+    ],
+    "query": [
+      "Human_Brian_Sneaking_HP_67047",
+      "Human_Brian_Walking_HP_576013",
+      "Human_Brian_Sneaking_With_Metronome_HP_76000",
+      "Human_Brian_Sneaking_HP_72007",
+      "Human_Brian_Running_HP_63027",
+      "Human_Brian_Running_HP_566005",
+      "Human_Brian_Running_HP_568010",
+      "Human_Brian_Walking_HP_581002",
+      "Human_Brian_Running_HP_569009",
+      "Human_Brian_Running_HP_568017",
+      "Human_Brian_Sneaking_With_Metronome_HP_78047",
+      "Human_Brian_Walking_HP_85009",
+      "Human_Brian_Speed_Walking_HP_81026",
+      "Human_Brian_Running_HP_566006",
+      "Human_Brian_Walking_HP_87038"
+    ]
+  },
+  {
+    "task_id": "adapt_Human_Brian_3",
+    "subject": "Human",
+    "user": "Brian",
+    "support": [
+      "Human_Brian_Sneaking_HP_72022"
+    ],
+    "query": [
+      "Human_Brian_Walking_HP_87050",
+      "Human_Brian_Sneaking_With_Metronome_HP_78021",
+      "Human_Brian_Running_HP_567002",
+      "Human_Brian_Sneaking_With_Metronome_HP_73019",
+      "Human_Brian_Sneaking_HP_575016",
+      "Human_Brian_Running_HP_62019",
+      "Human_Brian_Sneaking_With_Metronome_HP_75008",
+      "Human_Brian_Intrusion_HP_563020",
+      "Human_Brian_Intrusion_HP_562024",
+      "Human_Brian_Walking_HP_87028",
+      "Human_Brian_Intrusion_HP_562017",
+      "Human_Brian_Running_HP_568018",
+      "Human_Brian_Running_HP_61029",
+      "Human_Brian_Walking_HP_90052",
+      "Human_Brian_Speed_Walking_HP_84020"
+    ]
+  },
+  {
+    "task_id": "adapt_Human_Brian_4",
+    "subject": "Human",
+    "user": "Brian",
+    "support": [
+      "Human_Brian_Running_HP_569021"
+    ],
+    "query": [
+      "Human_Brian_Intrusion_HP_559012",
+      "Human_Brian_Sneaking_HP_571018",
+      "Human_Brian_Running_HP_65006",
+      "Human_Brian_Sneaking_HP_570021",
+      "Human_Brian_Sneaking_HP_68015",
+      "Human_Brian_Walking_HP_89025",
+      "Human_Brian_Sneaking_HP_70035",
+      "Human_Brian_Sneaking_HP_70037",
+      "Human_Brian_Intrusion_HP_561017",
+      "Human_Brian_Sneaking_With_Metronome_HP_77015",
+      "Human_Brian_Running_HP_568017",
+      "Human_Brian_Sneaking_With_Metronome_HP_74055",
+      "Human_Brian_Running_HP_61020",
+      "Human_Brian_Sneaking_With_Metronome_HP_78033",
+      "Human_Brian_Speed_Walking_HP_79034"
+    ]
+  },
+  {
+    "task_id": "adapt_IRobot_loc 1_0",
+    "subject": "IRobot",
+    "user": "loc 1",
+    "support": [
+      "IRobot_loc 1_test_2_HP_383016"
+    ],
+    "query": [
+      "IRobot_loc 1_test_2_HP_387042",
+      "IRobot_loc 1_test_2_HP_390030",
+      "IRobot_loc 1_test_2_HP_385054",
+      "IRobot_loc 1_test_1_HP_371059",
+      "IRobot_loc 1_test_2_HP_379048",
+      "IRobot_loc 1_test_1_HP_363028",
+      "IRobot_loc 1_test_2_HP_379029",
+      "IRobot_loc 1_test_2_HP_395058",
+      "IRobot_loc 1_test_1_HP_357023",
+      "IRobot_loc 1_test_1_HP_366044",
+      "IRobot_loc 1_test_2_HP_381024",
+      "IRobot_loc 1_test_1_HP_356053",
+      "IRobot_loc 1_test_2_HP_384014",
+      "IRobot_loc 1_test_3_HP_396005",
+      "IRobot_loc 1_test_1_HP_361018"
+    ]
+  },
+  {
+    "task_id": "adapt_IRobot_loc 1_1",
+    "subject": "IRobot",
+    "user": "loc 1",
+    "support": [
+      "IRobot_loc 1_test_1_HP_368045"
+    ],
+    "query": [
+      "IRobot_loc 1_test_2_HP_383013",
+      "IRobot_loc 1_test_1_HP_365044",
+      "IRobot_loc 1_test_1_HP_371035",
+      "IRobot_loc 1_test_2_HP_388015",
+      "IRobot_loc 1_test_2_HP_392031",
+      "IRobot_loc 1_test_2_HP_379051",
+      "IRobot_loc 1_test_1_HP_377024",
+      "IRobot_loc 1_test_1_HP_356014",
+      "IRobot_loc 1_test_3_HP_401003",
+      "IRobot_loc 1_test_2_HP_392035",
+      "IRobot_loc 1_test_2_HP_387018",
+      "IRobot_loc 1_test_1_HP_354048",
+      "IRobot_loc 1_test_2_HP_391018",
+      "IRobot_loc 1_test_3_HP_397004",
+      "IRobot_loc 1_test_1_HP_358012"
+    ]
+  },
+  {
+    "task_id": "adapt_IRobot_loc 1_2",
+    "subject": "IRobot",
+    "user": "loc 1",
+    "support": [
+      "IRobot_loc 1_test_2_HP_390047"
+    ],
+    "query": [
+      "IRobot_loc 1_test_1_HP_360034",
+      "IRobot_loc 1_test_2_HP_378023",
+      "IRobot_loc 1_test_2_HP_390024",
+      "IRobot_loc 1_test_1_HP_377011",
+      "IRobot_loc 1_test_1_HP_376013",
+      "IRobot_loc 1_test_1_HP_367017",
+      "IRobot_loc 1_test_3_HP_396038",
+      "IRobot_loc 1_test_1_HP_367036",
+      "IRobot_loc 1_test_1_HP_370008",
+      "IRobot_loc 1_test_2_HP_378002",
+      "IRobot_loc 1_test_2_HP_381017",
+      "IRobot_loc 1_test_1_HP_358010",
+      "IRobot_loc 1_test_1_HP_377029",
+      "IRobot_loc 1_test_1_HP_363054",
+      "IRobot_loc 1_test_2_HP_378000"
+    ]
+  },
+  {
+    "task_id": "adapt_IRobot_loc 1_3",
+    "subject": "IRobot",
+    "user": "loc 1",
+    "support": [
+      "IRobot_loc 1_test_2_HP_380007"
+    ],
+    "query": [
+      "IRobot_loc 1_test_2_HP_386006",
+      "IRobot_loc 1_test_3_HP_401029",
+      "IRobot_loc 1_test_2_HP_387053",
+      "IRobot_loc 1_test_2_HP_381010",
+      "IRobot_loc 1_test_1_HP_355036",
+      "IRobot_loc 1_test_1_HP_361034",
+      "IRobot_loc 1_test_2_HP_388052",
+      "IRobot_loc 1_test_3_HP_400000",
+      "IRobot_loc 1_test_1_HP_373000",
+      "IRobot_loc 1_test_1_HP_376001",
+      "IRobot_loc 1_test_1_HP_364013",
+      "IRobot_loc 1_test_1_HP_358021",
+      "IRobot_loc 1_test_1_HP_373010",
+      "IRobot_loc 1_test_1_HP_357034",
+      "IRobot_loc 1_test_2_HP_394057"
+    ]
+  },
+  {
+    "task_id": "adapt_IRobot_loc 1_4",
+    "subject": "IRobot",
+    "user": "loc 1",
+    "support": [
+      "IRobot_loc 1_test_2_HP_385058"
+    ],
+    "query": [
+      "IRobot_loc 1_test_3_HP_401031",
+      "IRobot_loc 1_test_2_HP_388011",
+      "IRobot_loc 1_test_2_HP_379031",
+      "IRobot_loc 1_test_1_HP_359058",
+      "IRobot_loc 1_test_2_HP_383018",
+      "IRobot_loc 1_test_1_HP_376049",
+      "IRobot_loc 1_test_1_HP_369049",
+      "IRobot_loc 1_test_1_HP_370052",
+      "IRobot_loc 1_test_2_HP_394054",
+      "IRobot_loc 1_test_2_HP_395049",
+      "IRobot_loc 1_test_2_HP_386001",
+      "IRobot_loc 1_test_3_HP_399051",
+      "IRobot_loc 1_test_3_HP_399030",
+      "IRobot_loc 1_test_1_HP_357025",
+      "IRobot_loc 1_test_3_HP_400009"
+    ]
+  },
+  {
+    "task_id": "adapt_Pet_4_3_2023_0",
+    "subject": "Pet",
+    "user": "4_3_2023",
+    "support": [
+      "Pet_4_3_2023_Cada_Test_1_HP_1247049"
+    ],
+    "query": [
+      "Pet_4_3_2023_Cada_Test_3_HP_1260049",
+      "Pet_4_3_2023_Cada_Test_1_HP_1247051",
+      "Pet_4_3_2023_Cada_Test_4_HP_1266042",
+      "Pet_4_3_2023_Cada_Test_3_HP_1259019",
+      "Pet_4_3_2023_Cada_Test_2_HP_1252030",
+      "Pet_4_3_2023_Cada_Test_3_HP_1262017",
+      "Pet_4_3_2023_Cada_Test_1_HP_1251039",
+      "Pet_4_3_2023_Cada_Test_4_HP_1268005",
+      "Pet_4_3_2023_Cada_Test_4_HP_1268006",
+      "Pet_4_3_2023_Cada_Test_1_HP_1247050",
+      "Pet_4_3_2023_Cada_Test_3_HP_1258029",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267048",
+      "Pet_4_3_2023_Cada_Test_3_HP_1260002",
+      "Pet_4_3_2023_Cada_Test_3_HP_1263037",
+      "Pet_4_3_2023_Cada_Test_3_HP_1263042"
+    ]
+  },
+  {
+    "task_id": "adapt_Pet_4_3_2023_1",
+    "subject": "Pet",
+    "user": "4_3_2023",
+    "support": [
+      "Pet_4_3_2023_Cada_Test_3_HP_1259036"
+    ],
+    "query": [
+      "Pet_4_3_2023_Cada_Test_4_HP_1268024",
+      "Pet_4_3_2023_Cada_Test_3_HP_1261032",
+      "Pet_4_3_2023_Cada_Test_2_HP_1254011",
+      "Pet_4_3_2023_Cada_Test_3_HP_1258039",
+      "Pet_4_3_2023_Cada_Test_4_HP_1264004",
+      "Pet_4_3_2023_Cada_Test_2_HP_1257010",
+      "Pet_4_3_2023_Cada_Test_1_HP_1249002",
+      "Pet_4_3_2023_Cada_Test_4_HP_1269051",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267009",
+      "Pet_4_3_2023_Cada_Test_2_HP_1253043",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267055",
+      "Pet_4_3_2023_Cada_Test_4_HP_1269013",
+      "Pet_4_3_2023_Cada_Test_1_HP_1251054",
+      "Pet_4_3_2023_Cada_Test_1_HP_1250001",
+      "Pet_4_3_2023_Cada_Test_4_HP_1265059"
+    ]
+  },
+  {
+    "task_id": "adapt_Pet_4_3_2023_2",
+    "subject": "Pet",
+    "user": "4_3_2023",
+    "support": [
+      "Pet_4_3_2023_Cada_Test_3_HP_1260044"
+    ],
+    "query": [
+      "Pet_4_3_2023_Cada_Test_2_HP_1252008",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267036",
+      "Pet_4_3_2023_Cada_Test_4_HP_1264028",
+      "Pet_4_3_2023_Cada_Test_1_HP_1248053",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267015",
+      "Pet_4_3_2023_Cada_Test_2_HP_1252026",
+      "Pet_4_3_2023_Cada_Test_4_HP_1266047",
+      "Pet_4_3_2023_Cada_Test_3_HP_1261007",
+      "Pet_4_3_2023_Cada_Test_2_HP_1256048",
+      "Pet_4_3_2023_Cada_Test_3_HP_1260033",
+      "Pet_4_3_2023_Cada_Test_2_HP_1254026",
+      "Pet_4_3_2023_Cada_Test_3_HP_1261039",
+      "Pet_4_3_2023_Cada_Test_4_HP_1268025",
+      "Pet_4_3_2023_Cada_Test_2_HP_1257046",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267029"
+    ]
+  },
+  {
+    "task_id": "adapt_Pet_4_3_2023_3",
+    "subject": "Pet",
+    "user": "4_3_2023",
+    "support": [
+      "Pet_4_3_2023_Cada_Test_1_HP_1246028"
+    ],
+    "query": [
+      "Pet_4_3_2023_Cada_Test_1_HP_1251019",
+      "Pet_4_3_2023_Cada_Test_4_HP_1265012",
+      "Pet_4_3_2023_Cada_Test_4_HP_1264021",
+      "Pet_4_3_2023_Cada_Test_4_HP_1266013",
+      "Pet_4_3_2023_Cada_Test_4_HP_1268046",
+      "Pet_4_3_2023_Cada_Test_1_HP_1246001",
+      "Pet_4_3_2023_Cada_Test_2_HP_1253034",
+      "Pet_4_3_2023_Cada_Test_3_HP_1258016",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267043",
+      "Pet_4_3_2023_Cada_Test_1_HP_1251010",
+      "Pet_4_3_2023_Cada_Test_2_HP_1253002",
+      "Pet_4_3_2023_Cada_Test_2_HP_1254011",
+      "Pet_4_3_2023_Cada_Test_1_HP_1248034",
+      "Pet_4_3_2023_Cada_Test_1_HP_1249034",
+      "Pet_4_3_2023_Cada_Test_4_HP_1267020"
+    ]
+  },
+  {
+    "task_id": "adapt_Pet_4_3_2023_4",
+    "subject": "Pet",
+    "user": "4_3_2023",
+    "support": [
+      "Pet_4_3_2023_Cada_Test_1_HP_1251000"
+    ],
+    "query": [
+      "Pet_4_3_2023_Cada_Test_1_HP_1246024",
+      "Pet_4_3_2023_Cada_Test_2_HP_1255049",
+      "Pet_4_3_2023_Cada_Test_1_HP_1251041",
+      "Pet_4_3_2023_Cada_Test_4_HP_1269002",
+      "Pet_4_3_2023_Cada_Test_3_HP_1262055",
+      "Pet_4_3_2023_Cada_Test_2_HP_1253057",
+      "Pet_4_3_2023_Cada_Test_2_HP_1256013",
+      "Pet_4_3_2023_Cada_Test_1_HP_1250014",
+      "Pet_4_3_2023_Cada_Test_1_HP_1246041",
+      "Pet_4_3_2023_Cada_Test_3_HP_1260055",
+      "Pet_4_3_2023_Cada_Test_2_HP_1256058",
+      "Pet_4_3_2023_Cada_Test_2_HP_1256025",
+      "Pet_4_3_2023_Cada_Test_1_HP_1251021",
+      "Pet_4_3_2023_Cada_Test_3_HP_1261018",
+      "Pet_4_3_2023_Cada_Test_4_HP_1265047"
+    ]
+  }
+]
