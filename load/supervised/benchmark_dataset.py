@@ -192,6 +192,28 @@ class BenchmarkCSIDataset(Dataset):
         if len(csi_data.shape) == 3:  # (time_index, feature_size, 1)
             # Permute to get (1, time_index, feature_size)
             csi_data = csi_data.permute(2, 0, 1)
+            
+        # Unify dimensions to (1, 500, 232)
+        _, time_index, feature_size = csi_data.shape
+        
+        # Handle time dimension (500)
+        if time_index > 500:
+            # Cut to 500 time steps
+            csi_data = csi_data[:, :500, :]
+        elif time_index < 500:
+            # Pad with zeros to reach 500 time steps
+            padding = torch.zeros((1, 500 - time_index, feature_size), dtype=csi_data.dtype)
+            csi_data = torch.cat([csi_data, padding], dim=1)
+            
+        # Handle feature dimension (232)
+        _, _, feature_size = csi_data.shape  # Get updated feature_size
+        if feature_size > 232:
+            # Cut to 232 features
+            csi_data = csi_data[:, :, :232]
+        elif feature_size < 232:
+            # Pad with zeros to reach 232 features
+            padding = torch.zeros((1, 500, 232 - feature_size), dtype=csi_data.dtype)
+            csi_data = torch.cat([csi_data, padding], dim=2)
         
         # Apply transforms
         if self.transform:
