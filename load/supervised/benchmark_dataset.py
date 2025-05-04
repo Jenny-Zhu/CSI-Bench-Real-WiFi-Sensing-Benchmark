@@ -191,7 +191,7 @@ class BenchmarkCSIDataset(Dataset):
         # Reshape to (1, time_index, feature_size)
         if len(csi_data.shape) == 3:  # (time_index, feature_size, 1)
             # Permute to get (1, time_index, feature_size)
-            csi_data = csi_data.permute(2, 0, 1)
+            csi_data = csi_data.permute(2, 1, 0)
         
         # Apply transforms
         if self.transform:
