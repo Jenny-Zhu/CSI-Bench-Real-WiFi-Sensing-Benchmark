@@ -10,7 +10,7 @@
   "feature_size": 232,
   "seed": 42,
   "batch_size": 16,
-  "num_epochs": 10,
+  "num_epochs": 100,
   "model_name": "transformer", 
   "instance_type": "ml.g4dn.xlarge",
   "instance_count": 1,
