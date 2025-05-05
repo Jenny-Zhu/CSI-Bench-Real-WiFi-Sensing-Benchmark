@@ -63,8 +63,8 @@ def load_default_config():
             "model_name": "transformer", 
             "instance_type": "ml.g4dn.xlarge",
             "instance_count": 1,
-            "framework_version": "1.12.1",
-            "py_version": "py38",
+            "framework_version": "1.13.1",
+            "py_version": "py39",
             "base_job_name": "wifi-sensing-supervised",
             "batch_wait_time": 30,
             "task_class_mapping": {
@@ -101,8 +101,8 @@ AVAILABLE_PIPELINES = DEFAULT_CONFIG.get("available_pipelines", ["supervised", "
 # SageMaker settings
 INSTANCE_TYPE = DEFAULT_CONFIG.get("instance_type", "ml.g4dn.xlarge")
 INSTANCE_COUNT = DEFAULT_CONFIG.get("instance_count", 1)
-FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.12.1")
-PY_VERSION = DEFAULT_CONFIG.get("py_version", "py38")
+FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.13.1")
+PY_VERSION = DEFAULT_CONFIG.get("py_version", "py39")
 BASE_JOB_NAME = DEFAULT_CONFIG.get("base_job_name", "wifi-sensing-supervised")
 EBS_VOLUME_SIZE = DEFAULT_CONFIG.get("ebs_volume_size", 30)  # Set default to 30GB
 
