@@ -1,13 +1,19 @@
 {
-  "model_name": "lstm",
+  "model": "lstm",
   "task": "MotionSourceRecognition",
   "batch_size": 32,
   "num_epochs": 2,
-  "learning_rate": 0.001,
-  "weight_decay": 1e-05,
+  "learning_rate": 1e-3,
+  "weight_decay": 1e-5,
   "win_len": 232,
   "feature_size": 500,
   "results_subdir": "lstm_msr",
   "training_dir": "wifi_benchmark_dataset",
-  "output_dir": "./results"
+  "output_dir": "./results",
+  "epochs": 30,
+  "warmup_epochs": 5,
+  "patience": 15,
+  "d_model": 256,
+  "dropout": 0.1
 }
+

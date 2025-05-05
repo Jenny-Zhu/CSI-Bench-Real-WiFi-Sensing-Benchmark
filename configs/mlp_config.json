@@ -1,5 +1,5 @@
 {
-  "model_name": "mlp",
+  "model": "mlp",
   "task": "MotionSourceRecognition",
   "batch_size": 64,
   "epochs": 1,
@@ -11,3 +11,4 @@
   "training_dir": "wifi_benchmark_dataset",
   "output_dir": "./results"
 }
+

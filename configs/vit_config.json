@@ -1,5 +1,5 @@
 {
-  "model_name": "vit",
+  "model": "vit",
   "task": "MotionSourceRecognition",
   "batch_size": 32,
   "num_epochs": 10,
@@ -14,3 +14,4 @@
   "training_dir": "wifi_benchmark_dataset",
   "output_dir": "./results"
 } 
+

@@ -11,7 +11,7 @@
   "seed": 42,
   "batch_size": 16,
   "num_epochs": 100,
-  "model_name": "transformer", 
+  "model": "transformer", 
   "instance_type": "ml.g4dn.xlarge",
   "instance_count": 1,
   "framework_version": "1.12.1",
@@ -39,3 +39,4 @@
     "MotionSourceRecognition"
   ]
 } 
+

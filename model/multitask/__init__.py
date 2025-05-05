@@ -1,1 +1,1 @@
-from .models import MultiTaskAdapterModel
+from .models import MultiTaskAdapterModel, PatchTSTAdapterModel, TimesFormerAdapterModel

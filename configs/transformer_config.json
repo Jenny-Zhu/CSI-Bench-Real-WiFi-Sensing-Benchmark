@@ -1,5 +1,5 @@
 {
-  "model_name": "transformer",
+  "model": "transformer",
   "task": "MotionSourceRecognition",
   "batch_size": 16,
   "epochs": 10,
@@ -13,3 +13,4 @@
   "training_dir": "wifi_benchmark_dataset",
   "output_dir": "./results"
 } 
+

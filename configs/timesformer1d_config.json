@@ -1,0 +1,21 @@
+{
+  "pipeline": "supervised",
+  "model": "timesformer1d",
+  "win_len": 232,
+  "feature_size": 500,
+  "emb_dim": 128,
+  "depth": 4,
+  "num_heads": 8,
+  "patch_size": 4,
+  "dropout": 0.1,
+  "attn_dropout": 0.1,
+  "head_dropout": 0.2,
+  "mlp_ratio": 4.0,
+  "batch_size": 32,
+  "epochs": 30,
+  "learning_rate": 0.0005,
+  "weight_decay": 1e-5,
+  "warmup_epochs": 5,
+  "patience": 15
+} 
+
