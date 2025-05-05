@@ -1,6 +1,6 @@
 {
   "pipeline": "supervised",
-  "training_dir": "F:\\BenchmarkDataset",
+  "training_dir": "C:\\Guozhen\\Code\\Github\\WiAL-Real-WiFi-Sensing-Benchmark\\wifi_benchmark_dataset",
   "test_dirs": [],
   "output_dir": "./results",
   "mode": "csi",
@@ -11,31 +11,14 @@
   "feature_size": 500,
   "seed": 42,
   "batch_size": 8,
-  "num_epochs": 1,
+  "num_epochs": 10,
   "model_name": "transformer",
   "task_class_mapping": {
     "HumanNonhuman": 2, 
-    "MotionSourceRecognition": 4, 
-    "NTUHumanID": 15, 
-    "NTUHAR": 6, 
-    "HumanID": 4, 
-    "Widar": 22,
-    "HumanMotion": 3, 
-    "ThreeClass": 3, 
-    "DetectionandClassification": 5, 
-    "Detection": 2
+    "MotionSourceRecognition": 4
   },
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
   "available_tasks": [
-    "MotionSourceRecognition", 
-    "HumanMotion", 
-    "DetectionandClassification", 
-    "HumanID", 
-    "NTUHAR",
-    "HumanNonhuman",
-    "NTUHumanID",
-    "Widar",
-    "ThreeClass",
-    "Detection"
+    "MotionSourceRecognition"
   ]
 } 

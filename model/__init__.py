@@ -13,13 +13,13 @@ from .supervised.models import (
 )
 
 # Import meta-learning models
-from .meta_learning.meta_model import (
-    BaseMetaModel,
-    CSIMetaModel,
-    ACFMetaModel,
-    CSI2DCNN,
-    CSITransformer
-)
+# from .meta_learning.meta_model import (
+#     BaseMetaModel,
+#     CSIMetaModel,
+#     ACFMetaModel,
+#     CSI2DCNN,
+#     CSITransformer
+# )
 
 # For backwards compatibility
 
@@ -30,13 +30,7 @@ __all__ = [
     'LSTMClassifier',
     'ResNet18Classifier',
     'TransformerClassifier',
-    'ViTClassifier',
-    # Meta-learning models
-    'BaseMetaModel',
-    'CSIMetaModel',
-    'ACFMetaModel',
-    'CSI2DCNN',
-    'CSITransformer'
+    'ViTClassifier'
 ]
 
 # Provide model type mapping for convenience
