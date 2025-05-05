@@ -59,7 +59,7 @@ def load_default_config():
             "feature_size": 98,
             "seed": 42,
             "batch_size": 8,
-            "num_epochs": 10,
+            "epochs": 10,
             "model_name": "transformer", 
             "instance_type": "ml.g4dn.xlarge",
             "instance_count": 1,
@@ -81,7 +81,8 @@ def load_default_config():
                 "demo": 2
             },
             "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
-            "available_tasks": ["MotionSourceRecognition", "HumanMotion", "DetectionandClassification", "HumanID", "NTUHAR", "HumanNonhuman", "NTUHumanID", "Widar", "ThreeClass", "Detection"]
+            "available_tasks": ["MotionSourceRecognition", "HumanMotion", "DetectionandClassification", "HumanID", "NTUHAR", "HumanNonhuman", "NTUHumanID", "Widar", "ThreeClass", "Detection"],
+            "available_pipelines": ["supervised", "meta", "multitask"]
         }
 
 # Load the default configuration
@@ -95,6 +96,7 @@ AVAILABLE_TASKS = DEFAULT_CONFIG.get("available_tasks", [
 ])
 AVAILABLE_MODELS = DEFAULT_CONFIG.get("available_models", ["mlp", "lstm", "resnet18", "transformer", "vit"])
 TASK_CLASS_MAPPING = DEFAULT_CONFIG.get("task_class_mapping", {})
+AVAILABLE_PIPELINES = DEFAULT_CONFIG.get("available_pipelines", ["supervised", "meta", "multitask"])
 
 # SageMaker settings
 INSTANCE_TYPE = DEFAULT_CONFIG.get("instance_type", "ml.g4dn.xlarge")
@@ -117,7 +119,7 @@ FEATURE_SIZE = DEFAULT_CONFIG.get("feature_size", 98)
 # Common training parameters
 SEED = DEFAULT_CONFIG.get("seed", 42)
 BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
-EPOCH_NUMBER = DEFAULT_CONFIG.get("num_epochs", 10)
+EPOCH_NUMBER = DEFAULT_CONFIG.get("epochs", 10)
 PATIENCE = DEFAULT_CONFIG.get("patience", 15)
 MODEL_NAME = DEFAULT_CONFIG.get("model_name", "transformer")
 
@@ -274,7 +276,7 @@ class SageMakerRunner:
                 
                 # Training parameters
                 "batch_size": BATCH_SIZE,
-                "num_epochs": EPOCH_NUMBER,
+                "epochs": EPOCH_NUMBER,
                 "learning_rate": 1e-4,
                 "weight_decay": 1e-5,
                 "warmup_epochs": 5,
@@ -310,7 +312,7 @@ class SageMakerRunner:
             # 仅添加在train_multi_model.py中定义的参数
             allowed_params = [
                 "dataset_root", "task_name", "mode", "file_format", "num_workers",
-                "models", "batch_size", "num_epochs", "learning_rate", "weight_decay",
+                "models", "batch_size", "epochs", "learning_rate", "weight_decay",
                 "warmup_epochs", "patience", "win_len", "feature_size", "seed",
                 "save_dir", "output_dir", "data_key", "debug",
                 "in_channels", "emb_dim", "d_model", "dropout"
@@ -589,7 +591,7 @@ class SageMakerRunner:
             
             # 训练参数
             "batch_size": BATCH_SIZE,
-            "num_epochs": EPOCH_NUMBER,
+            "epochs": EPOCH_NUMBER,
             "learning_rate": 1e-4,
             "weight_decay": 1e-5,
             "warmup_epochs": 5,
@@ -688,6 +690,212 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"测试参数解析时出错: {e}")
 
+    def run_multitask(self, tasks=None, model_type="transformer", instance_type=None):
+        """
+        Run multitask learning pipeline on SageMaker
+        
+        Args:
+            tasks (list or str): List of tasks or comma-separated string of tasks
+            model_type (str): Base model type (transformer, vit, etc.)
+            instance_type (str): SageMaker instance type
+            
+        Returns:
+            dict: Dictionary containing job details
+        """
+        print(f"Starting multitask learning job...")
+        
+        # Convert tasks to comma-separated string if it's a list
+        if isinstance(tasks, list):
+            tasks_str = ",".join(tasks)
+        else:
+            tasks_str = tasks or TASK  # Default to single task if not specified
+        
+        # Get task list for job naming
+        task_list = tasks_str.split(',')
+        print(f"Running multitask learning with tasks: {task_list}")
+        print(f"Using model type: {model_type}")
+        
+        # Create a timestamp for this job
+        job_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        
+        # Create job name with shortened task names
+        short_tasks = "_".join([t[:5].lower() for t in task_list[:3]])
+        if len(task_list) > 3:
+            short_tasks += f"_plus{len(task_list)-3}"
+        
+        job_name = f"wifi-multitask-{short_tasks}-{model_type}-{job_timestamp[-6:]}"
+        
+        # Ensure job name meets SageMaker requirements
+        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
+        if len(job_name) > 63:
+            job_name = job_name[:60] + job_timestamp[-3:]
+        
+        # Output path - use a structure that matches the local runner
+        s3_output_path = f"{S3_OUTPUT_BASE}multitask/"
+        
+        print(f"Creating multitask learning job: {job_name}")
+        print(f"Output path: {s3_output_path}")
+        
+        # Build hyperparameters
+        hyperparameters = {
+            # Data parameters
+            "data_dir": S3_DATA_BASE,
+            "tasks": tasks_str,
+            "model_type": model_type,
+            
+            # Training parameters
+            "batch_size": BATCH_SIZE,
+            "epochs": EPOCH_NUMBER,
+            "lr": 1e-4,
+            "patience": 10,
+            
+            # Model parameters
+            "win_len": WIN_LEN,
+            "feature_size": FEATURE_SIZE,
+            
+            # LoRA parameters
+            "lora_r": 8,
+            "lora_alpha": 32,
+            "lora_dropout": 0.05,
+            
+            # Save directory (will be auto-set in SageMaker to use the correct structure)
+            "save_dir": "/opt/ml/model/results/multitask"
+        }
+        
+        # Create PyTorch estimator
+        instance_type_to_use = instance_type or INSTANCE_TYPE
+        
+        estimator = PyTorch(
+            entry_point="train_multitask_adapter.py",
+            source_dir=".",
+            role=self.role,
+            framework_version=FRAMEWORK_VERSION,
+            py_version=PY_VERSION,
+            instance_count=INSTANCE_COUNT,
+            instance_type=instance_type_to_use,
+            max_run=86400,  # 24 hours max runtime
+            output_path=s3_output_path,
+            base_job_name=job_name,
+            hyperparameters=hyperparameters,
+            volume_size=EBS_VOLUME_SIZE,
+            environment={
+                'PYTHONPATH': '/opt/ml/code',  # Add code directory to Python path
+                'LOG_LEVEL': 'INFO'            # Set logging level
+            }
+        )
+        
+        # Prepare data inputs
+        data_channels = {
+            'training': TrainingInput(
+                s3_data=S3_DATA_BASE,
+                distribution='FullyReplicated',
+                content_type='application/x-directory',
+                s3_data_type='S3Prefix',
+                input_mode='File'
+            )
+        }
+        
+        # Start training job
+        print(f"Starting SageMaker training job...")
+        estimator.fit(inputs=data_channels, job_name=job_name, wait=False)
+        
+        # Create job info
+        job_info = {
+            'job_name': job_name,
+            'estimator': estimator,
+            'inputs': data_channels,
+            'config': {
+                'tasks': tasks_str,
+                'model_type': model_type,
+                'output_dir': s3_output_path,
+                'save_dir': '/opt/ml/model/results/multitask'
+            }
+        }
+        
+        print(f"Multitask learning job submitted: {job_name}")
+        print(f"You can monitor the job in SageMaker console.")
+        
+        return job_info
+    
+    def run_batch_multitask(self, task_groups=None, model_type="transformer", instance_type=None, wait_time=BATCH_WAIT_TIME):
+        """
+        Run batch multitask training jobs
+        
+        Args:
+            task_groups (list): List of task groups, where each group is a list of tasks
+            model_type (str): Base model type (transformer, vit, etc.)
+            instance_type (str): SageMaker instance type
+            wait_time (int): Wait time between job submissions in seconds
+            
+        Returns:
+            list: List of job information dictionaries
+        """
+        print(f"Starting batch multitask execution...")
+        
+        # If no task groups provided, use a default
+        if not task_groups:
+            # Example: Group related tasks together
+            task_groups = [
+                ["MotionSourceRecognition", "HumanMotion"],
+                ["HumanNonhuman", "HumanID"],
+                ["NTUHAR", "NTUHumanID"]
+            ]
+        
+        # Validate task groups
+        valid_task_groups = []
+        for group in task_groups:
+            valid_tasks = [t for t in group if t in AVAILABLE_TASKS]
+            if len(valid_tasks) >= 2:  # At least 2 tasks for multitask learning
+                valid_task_groups.append(valid_tasks)
+            else:
+                print(f"Warning: Skipping task group {group} (not enough valid tasks)")
+        
+        if not valid_task_groups:
+            print("Error: No valid task groups found")
+            return []
+        
+        # Create batch timestamp
+        batch_timestamp = self.timestamp
+        
+        # Store all jobs
+        all_jobs = []
+        
+        # For each task group, launch a training job
+        for i, task_group in enumerate(valid_task_groups):
+            print(f"\n----------------------------")
+            print(f"Processing task group {i+1}/{len(valid_task_groups)}: {task_group}")
+            print(f"----------------------------")
+            
+            # Run multitask job for this group
+            job_info = self.run_multitask(
+                tasks=task_group,
+                model_type=model_type,
+                instance_type=instance_type
+            )
+            
+            # Add to job list
+            job_info['batch_id'] = batch_timestamp
+            job_info['group_id'] = i
+            all_jobs.append(job_info)
+            
+            # Wait between submissions
+            if wait_time > 0 and i < len(valid_task_groups) - 1:
+                print(f"Waiting {wait_time} seconds before next submission...")
+                try:
+                    time.sleep(wait_time)
+                except KeyboardInterrupt:
+                    print("\nBatch submission interrupted by user.")
+                    break
+        
+        # Create batch summary
+        self._update_batch_summary(all_jobs, f"multitask_{batch_timestamp}")
+        
+        print(f"\nBatch multitask execution initiated!")
+        print(f"Total jobs: {len(all_jobs)}")
+        print(f"Batch ID: multitask_{batch_timestamp}")
+        
+        return all_jobs
+
 def main():
     """Main function to execute from command line"""
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
@@ -706,32 +914,50 @@ def main():
                       help='Size of the EBS volume in GB')
     parser.add_argument('--test-args', dest='test_args', action='store_true',
                       help='Test argument parsing without running a job')
+    parser.add_argument('--pipeline', type=str, default='supervised',
+                      choices=AVAILABLE_PIPELINES,
+                      help='Pipeline to run (supervised, meta, or multitask)')
+    parser.add_argument('--task-groups', dest='task_groups', type=str, nargs='+',
+                      help='Task groups for multitask learning, format: "task1,task2 task3,task4"')
+    parser.add_argument('--model-type', dest='model_type', type=str, default='transformer',
+                      help='Base model type for multitask learning')
     
     args = parser.parse_args()
     
     # Create SageMaker runner instance
     runner = SageMakerRunner()
     
-    # Determine tasks and models to use
-    tasks = args.tasks or AVAILABLE_TASKS
-    models = args.models or AVAILABLE_MODELS
-    
-    # 如果是测试模式，只测试参数解析
+    # If using test mode, only test argument parsing
     if args.test_args:
         print("Running in test mode - will only test argument parsing")
-        for task in tasks:
-            runner.test_hyperparameters(task_name=task, models=models)
+        for task in args.tasks or AVAILABLE_TASKS[:1]:
+            runner.test_hyperparameters(task_name=task, models=args.models)
         return
     
-    # Start batch execution
-    print(f"Running batch jobs with {len(tasks)} tasks and {len(models)} models")
-    runner.run_batch_by_task(
-        tasks=tasks,
-        models=models,
-        mode=args.mode,
-        instance_type=args.instance_type,
-        wait_time=args.batch_wait
-    )
+    # Handle different pipelines
+    if args.pipeline == 'multitask':
+        # Parse task groups if provided
+        task_groups = None
+        if args.task_groups:
+            task_groups = [group.split(',') for group in args.task_groups]
+        
+        # Run multitask batch
+        runner.run_batch_multitask(
+            task_groups=task_groups,
+            model_type=args.model_type,
+            instance_type=args.instance_type,
+            wait_time=args.batch_wait
+        )
+    else:
+        # Default to supervised pipeline with batch execution
+        print(f"Running batch jobs with {len(args.tasks or AVAILABLE_TASKS)} tasks and {len(args.models or AVAILABLE_MODELS)} models")
+        runner.run_batch_by_task(
+            tasks=args.tasks,
+            models=args.models,
+            mode=args.mode,
+            instance_type=args.instance_type,
+            wait_time=args.batch_wait
+        )
 
 if __name__ == "__main__":
     main()

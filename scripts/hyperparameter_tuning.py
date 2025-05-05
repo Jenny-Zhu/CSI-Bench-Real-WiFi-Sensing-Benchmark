@@ -130,7 +130,7 @@ def parse_args():
                         help='ViT模型的嵌入维度')
     parser.add_argument('--d_model', type=int, default=256,
                         help='Transformer模型的模型维度')
-    parser.add_argument('--num_epochs', type=int, default=30,
+    parser.add_argument('--epochs', type=int, default=30,
                         help='训练轮数')
     parser.add_argument('--warmup_epochs', type=int, default=5,
                         help='预热轮数')
@@ -160,7 +160,7 @@ def generate_grid_search_params(args):
             'in_channels': args.in_channels,
             'emb_dim': args.emb_dim,
             'd_model': args.d_model,
-            'num_epochs': args.num_epochs,
+            'epochs': args.epochs,
             'warmup_epochs': args.warmup_epochs,
             'patience': args.patience
         }
@@ -195,7 +195,7 @@ def generate_random_search_params(args):
             'in_channels': args.in_channels,
             'emb_dim': args.emb_dim,
             'd_model': args.d_model,
-            'num_epochs': args.num_epochs,
+            'epochs': args.epochs,
             'warmup_epochs': args.warmup_epochs,
             'patience': args.patience
         }
@@ -215,7 +215,7 @@ def train_with_params(params, args):
         "--output_dir", args.output_dir,
         "--learning_rate", str(params['learning_rate']),
         "--batch_size", str(params['batch_size']),
-        "--num_epochs", str(params['num_epochs']),
+        "--epochs", str(params['epochs']),
         "--weight_decay", str(params['weight_decay']),
         "--dropout", str(params['dropout']),
         "--win_len", str(params['win_len']),
@@ -297,7 +297,7 @@ def optuna_objective(trial, args):
         'in_channels': args.in_channels,
         'emb_dim': args.emb_dim,
         'd_model': args.d_model,
-        'num_epochs': args.num_epochs,
+        'epochs': args.epochs,
         'warmup_epochs': args.warmup_epochs,
         'patience': args.patience
     }
@@ -336,7 +336,7 @@ def run_optuna_optimization(args):
         'in_channels': args.in_channels,
         'emb_dim': args.emb_dim,
         'd_model': args.d_model,
-        'num_epochs': args.num_epochs,
+        'epochs': args.epochs,
         'warmup_epochs': args.warmup_epochs,
         'patience': args.patience
     }

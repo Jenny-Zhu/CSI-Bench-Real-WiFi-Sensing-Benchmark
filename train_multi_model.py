@@ -244,7 +244,7 @@ def get_args():
     
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
-    parser.add_argument('--num_epochs', type=int, default=30, help='Number of epochs to train')
+    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5, 
                         help='Weight decay for optimizer')
@@ -466,7 +466,7 @@ def train_model(model_name, data, args, device):
     
     # Create config object
     config = argparse.Namespace(
-        num_epochs=args.num_epochs,
+        epochs=args.epochs,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         warmup_epochs=args.warmup_epochs,
@@ -491,7 +491,7 @@ def train_model(model_name, data, args, device):
     # Create trainer
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
     trainer = TaskTrainer(
         model=model,
@@ -523,7 +523,7 @@ def train_model(model_name, data, args, device):
     import pandas as pd
     if isinstance(training_results, pd.DataFrame):
         train_history = {
-            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.num_epochs + 1)),
+            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.epochs + 1)),
             'train_loss_history': training_results['Train Loss'].tolist() if 'Train Loss' in training_results.columns else [],
             'val_loss_history': training_results['Val Loss'].tolist() if 'Val Loss' in training_results.columns else [],
             'train_accuracy_history': training_results['Train Accuracy'].tolist() if 'Train Accuracy' in training_results.columns else [],
@@ -541,8 +541,8 @@ def train_model(model_name, data, args, device):
             train_history['best_epoch'] = trainer.best_epoch
         else:
             # 如果best_epoch不存在，使用当前epoch或设置为-1
-            train_history['best_epoch'] = args.num_epochs  # 默认使用最后一个epoch
-            logger.warning(f"TaskTrainer missing best_epoch attribute, using last epoch ({args.num_epochs}) as best")
+            train_history['best_epoch'] = args.epochs  # 默认使用最后一个epoch
+            logger.warning(f"TaskTrainer missing best_epoch attribute, using last epoch ({args.epochs}) as best")
     
     # Run evaluation on each test set
     for test_name, test_loader in test_loaders.items():
@@ -608,7 +608,7 @@ def train_model(model_name, data, args, device):
         "best_experiment_params": {
             "learning_rate": args.learning_rate,
             "batch_size": args.batch_size,
-            "num_epochs": args.num_epochs,
+            "epochs": args.epochs,
             "weight_decay": args.weight_decay,
             "dropout": args.dropout
         },

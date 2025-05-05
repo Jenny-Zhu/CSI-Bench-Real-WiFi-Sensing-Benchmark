@@ -1,0 +1,21 @@
+{
+  "pipeline": "multitask",
+  "training_dir": "wifi_benchmark_dataset",
+  "output_dir": "results",
+  "mode": "csi",
+  "model_type": "transformer",
+  "tasks": "MotionSourceRecognition,HumanMotion",
+  "win_len": 232,
+  "feature_size": 500,
+  "seed": 42,
+  "batch_size": 16,
+  "epochs": 20,
+  "lr": 1e-4,
+  "patience": 10,
+  "lora_r": 8,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "emb_dim": 512,
+  "dropout": 0.1,
+  "save_dir": "results/multitask"
+} 
