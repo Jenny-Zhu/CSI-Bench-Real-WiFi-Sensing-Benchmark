@@ -262,6 +262,43 @@ class SageMakerRunner:
             num_classes = TASK_CLASS_MAPPING.get(task_name, 2)
             print(f"Task has {num_classes} classes")
             
+            # Check if S3 path exists for this task - helps with debugging data access issues
+            s3_client = boto3.client('s3')
+            try:
+                # Extract bucket and prefix from S3 data path
+                s3_parts = S3_DATA_BASE.replace('s3://', '').split('/', 1)
+                if len(s3_parts) == 2:
+                    bucket = s3_parts[0]
+                    prefix = s3_parts[1]
+                    if not prefix.endswith('/'):
+                        prefix += '/'
+                    
+                    # Check for specific path structures for this task
+                    task_paths_to_check = [
+                        f"{prefix}tasks/{task_name}/",
+                        f"{prefix}{task_name}/",
+                        f"{prefix}Benchmark/tasks/{task_name}/"
+                    ]
+                    
+                    print(f"Checking S3 for data paths:")
+                    for task_path in task_paths_to_check:
+                        try:
+                            response = s3_client.list_objects_v2(
+                                Bucket=bucket,
+                                Prefix=task_path,
+                                MaxKeys=5
+                            )
+                            if 'Contents' in response:
+                                print(f"  ✓ Found data at s3://{bucket}/{task_path}")
+                                for item in response['Contents'][:5]:
+                                    print(f"    - {item['Key']}")
+                            else:
+                                print(f"  ✗ No data found at s3://{bucket}/{task_path}")
+                        except Exception as e:
+                            print(f"  ! Error checking s3://{bucket}/{task_path}: {str(e)}")
+            except Exception as e:
+                print(f"Error checking S3 paths: {str(e)}")
+            
             # Build hyperparameters dictionary
             hyperparameters = {
                 # Data parameters
@@ -270,6 +307,7 @@ class SageMakerRunner:
                 "mode": mode,
                 "file_format": "h5",  # Add file format parameter
                 "num_workers": 4,     # Add number of workers parameter
+                "data_key": 'CSI_amps',  # Add data_key parameter
                 
                 # Model list - note this is a new parameter not supported by the standard script
                 "models": ",".join(models_to_run),  # Comma-separated list of models
@@ -288,73 +326,75 @@ class SageMakerRunner:
                 "seed": SEED,
                 "save_dir": "/opt/ml/model",  # Use SageMaker model directory
                 "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
-                "data_key": 'CSI_amps',  # Add data_key parameter
                 
-                # S3保存参数
-                "save_to_s3": S3_OUTPUT_BASE,  # 在S3上保存结果
+                # Adaptive path handling - always enable in SageMaker
+                "adaptive_path": "",  # Flag parameter (empty string means True)
+                "try_all_paths": "",  # Flag parameter (empty string means True)
+                
+                # S3 upload parameters
+                "save_to_s3": S3_OUTPUT_BASE,  # S3 path to save results
+                "direct_upload": "",  # Flag parameter for direct S3 upload
+                
+                # Debug parameters
+                "debug": "",  # Enable detailed logging
             }
             
-            # 标志类型参数 - 传递空字符串而不是布尔值，这样在命令行中只会出现--flag而不是--flag True
+            # Additional model parameters that may be needed based on local_runner.py
+            if 'in_channels' in DEFAULT_CONFIG:
+                hyperparameters['in_channels'] = DEFAULT_CONFIG['in_channels']
+            if 'emb_dim' in DEFAULT_CONFIG:
+                hyperparameters['emb_dim'] = DEFAULT_CONFIG['emb_dim']
+            if 'd_model' in DEFAULT_CONFIG:
+                hyperparameters['d_model'] = DEFAULT_CONFIG['d_model']
+            if 'dropout' in DEFAULT_CONFIG:
+                hyperparameters['dropout'] = DEFAULT_CONFIG['dropout']
+            
+            # Flag parameters - pass empty string for flags that should be enabled
             flag_parameters = [
-                "debug",              # 启用详细日志记录
-                "adaptive_path",      # 自动适应数据路径
-                "try_all_paths",      # 尝试所有路径组合
-                "direct_upload",      # 直接上传到S3
-                "upload_final_model", # 上传最终模型
-                "skip_train_for_debug", # 调试时跳过训练
+                "debug",              # Enable verbose logging
+                "adaptive_path",      # Auto-adapt data path
+                "try_all_paths",      # Try all path combinations
+                "direct_upload",      # Direct upload to S3
+                "upload_final_model", # Upload final model
             ]
             
-            # 为所有标志类型参数设置空字符串
+            # Set all flag parameters with empty string (indicates flag is present)
             for flag in flag_parameters:
                 hyperparameters[flag] = ""
             
-            # 从配置文件添加额外参数（如果有）
-            # 仅添加在train_multi_model.py中定义的参数
-            allowed_params = [
-                "dataset_root", "task_name", "mode", "file_format", "num_workers",
-                "models", "batch_size", "epochs", "learning_rate", "weight_decay",
-                "warmup_epochs", "patience", "win_len", "feature_size", "seed",
-                "save_dir", "output_dir", "data_key", "debug",
-                "in_channels", "emb_dim", "d_model", "dropout"
-            ]
-            
-            for key, value in DEFAULT_CONFIG.items():
-                if key in allowed_params and key not in hyperparameters:
-                    hyperparameters[key] = value
-            
-            # 打印完整的参数列表，用于调试命令行参数
+            # Print command line arguments for debugging
             print("\nCommand line arguments that will be passed to the script:")
             cmd_args = []
             for key, value in hyperparameters.items():
                 if isinstance(value, str) and value == "":
-                    # 标志参数只添加--key，不添加值
+                    # For flag parameters, only add --key without value
                     cmd_args.append(f"--{key}")
                 elif not (isinstance(value, bool) and not value):  # Skip False values
-                    # 对于有值的参数，添加--key value
+                    # For parameters with values, add --key value
                     cmd_args.append(f"--{key} {value}")
             
-            # 将参数分组显示，便于阅读
-            print("\n标志参数:")
+            # Group and display parameters for readability
+            print("\nFlag parameters:")
             flag_args = [arg for arg in cmd_args if "=" not in arg and " " not in arg]
             print("  " + "\n  ".join(flag_args))
             
-            print("\n值参数:")
+            print("\nValue parameters:")
             value_args = [arg for arg in cmd_args if "=" in arg or " " in arg]
             print("  " + "\n  ".join(value_args))
             
-            # 对将生成的命令行进行格式验证，确保没有明显问题
-            print("\n完整命令行:")
+            # Validate command line format
+            print("\nFull command line:")
             full_cmd = "train_multi_model.py " + " ".join(cmd_args)
             print(full_cmd)
             
-            # 检查命令行长度，过长可能会导致问题
+            # Check command line length - too long can cause issues
             if len(full_cmd) > 1000:
-                print(f"\n警告: 命令行长度 ({len(full_cmd)}) 很长，可能导致问题")
+                print(f"\nWarning: Command line length ({len(full_cmd)}) is long and may cause issues")
             
-            # 验证参数
+            # Validate required parameters
             for param in ["dataset_root", "task_name", "models"]:
                 if param not in hyperparameters or not hyperparameters[param]:
-                    print(f"\n警告: 必需参数 {param} 缺失或为空!")
+                    print(f"\nWarning: Required parameter {param} is missing or empty!")
             
             print("\n")
             
@@ -383,19 +423,10 @@ class SageMakerRunner:
             # Create PyTorch estimator
             instance_type_to_use = instance_type or INSTANCE_TYPE
             
-            # Note: To reduce S3 storage of source code, you can:
-            # 1. Use git_config instead of source_dir (requires code to be in a git repo)
-            # 2. Use dependencies parameter for small scripts
-            # 3. Set custom SAGEMAKER_SUBMIT_DIRECTORY environment variable
+            # Create estimator with optimized configuration
             estimator = PyTorch(
-                entry_point="train_multi_model.py",  # Note: This uses a new training script
-                #source_dir=".",  # Using source_dir will upload a copy to S3 as sourcedir.tar.gz
-                source_dir=".",  # Still need this for local development
-                # If your code is in a git repo, you can use this to avoid creating sourcedir.tar.gz:
-                # git_config={
-                #    'repo': 'https://github.com/your-username/your-repo.git',
-                #    'branch': 'main'
-                # },
+                entry_point="train_multi_model.py",
+                source_dir=".",  # Use source_dir for local development
                 role=self.role,
                 framework_version=FRAMEWORK_VERSION,
                 py_version=PY_VERSION,
@@ -425,7 +456,7 @@ class SageMakerRunner:
                 }
             )
             
-            # Prepare data inputs with more explicit configuration
+            # Prepare data inputs with explicit configuration
             data_channels = {
                 'training': TrainingInput(
                     s3_data=S3_DATA_BASE,
@@ -436,11 +467,9 @@ class SageMakerRunner:
                 )
             }
             
-            # 添加调试信息
+            # Add debug information
             print(f"S3 data path for training: {S3_DATA_BASE}")
             print(f"Training input configuration: {data_channels['training']}")
-            
-            # 在实际的SageMaker环境中，数据将被下载到以下路径:
             print(f"In SageMaker environment, data will be downloaded to: /opt/ml/input/data/training/")
             print(f"Expected task path in SageMaker: /opt/ml/input/data/training/tasks/{task_name}/")
             
@@ -467,7 +496,7 @@ class SageMakerRunner:
             all_jobs.append(job_info)
             task_job_groups[task_name] = job_info
             
-            # Wait longer between tasks
+            # Wait between tasks
             if wait_time > 0 and task_name != tasks_to_run[-1]:
                 print(f"Waiting {wait_time} seconds before starting next task...")
                 try:

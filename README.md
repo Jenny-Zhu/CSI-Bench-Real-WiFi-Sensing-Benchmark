@@ -405,3 +405,126 @@ The improved debugging information in `train_multi_model.py` will help identify 
 5. **Check Instance Types**
    - Ensure your SageMaker instance type has sufficient GPU memory for your models
    - `ml.g4dn.xlarge` works well for most models, but larger models may require `ml.g4dn.2xlarge`
+
+# WiAL-Real-WiFi-Sensing-Benchmark
+
+This repository contains code for the WiFi sensing benchmark dataset described in the paper titled "Real: A Large-scale Realistic Wi-Fi Sensing Benchmark Dataset".
+
+## Running on AWS SageMaker
+
+This repository supports both local execution and cloud deployment on AWS SageMaker. The following guide explains how to use the SageMaker integration.
+
+### Prerequisites
+
+1. Setup your AWS CLI and permissions with appropriate IAM roles for SageMaker
+2. Install the required Python packages:
+   ```
+   pip install sagemaker boto3 pandas numpy
+   ```
+
+### Data Setup
+
+Before running on SageMaker, upload your data to S3 with the following structure:
+```
+s3://your-bucket/data/Benchmark/
+└── tasks/
+    ├── MotionSourceRecognition/
+    ├── HumanMotion/
+    └── ... (other tasks)
+```
+
+### Running a Training Job
+
+The `sagemaker_runner.py` provides the entry point for SageMaker execution. Here's a simple example:
+
+```python
+import sagemaker_runner
+
+# Initialize the runner
+runner = sagemaker_runner.SageMakerRunner()
+
+# Run specific models on specific tasks
+runner.run_batch_by_task(
+    tasks=['MotionSourceRecognition'], 
+    models=['vit', 'transformer'],
+    instance_type='ml.g4dn.xlarge'
+)
+```
+
+### Configuration
+
+You can modify the default configuration by editing `configs/sagemaker_default_config.json`. Key settings include:
+
+- `s3_data_base`: S3 path to your dataset
+- `s3_output_base`: S3 path for saving results
+- `instance_type`: SageMaker instance type
+- `batch_size`, `epochs`, etc.: Training parameters
+
+### Debugging Tips
+
+If your SageMaker jobs fail, check the following:
+
+1. **Data Path Issues**: Verify your S3 data paths match the expected structure
+   - The script will look for task data in multiple locations:
+     - `/opt/ml/input/data/training/tasks/{task_name}/`
+     - `/opt/ml/input/data/training/{task_name}/`
+
+2. **CloudWatch Logs**: Examine the CloudWatch logs for detailed error messages
+   - Look for logs containing "Error loading data" or "Error training model"
+   - Check if the adaptive path finding is working correctly
+
+3. **Enable Debug Mode**: Set the `debug` flag in the hyperparameters:
+   ```python
+   runner.run_batch_by_task(
+       tasks=['MotionSourceRecognition'],
+       models=['vit'],
+       hyperparameters={"debug": ""}  # Empty string means flag is enabled
+   )
+   ```
+
+4. **Test Data Access**: Use the `test_hyperparameters` method to verify S3 data access:
+   ```python
+   runner.test_hyperparameters(task_name='MotionSourceRecognition')
+   ```
+
+### Local vs. SageMaker Differences
+
+The main differences between local execution and SageMaker execution are:
+
+1. **Entry Points**:
+   - Local: `scripts/local_runner.py` - Directly executes training on local machine
+   - SageMaker: `sagemaker_runner.py` - Creates and configures SageMaker training jobs
+
+2. **Data Paths**:
+   - Local: Uses local file system paths
+   - SageMaker: Uses S3 paths that are downloaded to the SageMaker container
+
+3. **Training Script**:
+   - Local: Uses `scripts/train_supervised.py` for each model separately
+   - SageMaker: Uses `train_multi_model.py` to train multiple models in one job
+
+4. **Execution Model**:
+   - Local: Sequential execution of models
+   - SageMaker: Can run multiple tasks in parallel on separate instances
+
+5. **Data Loading**:
+   - Local: Uses `load/supervised/` directory for data
+   - SageMaker: Uses S3 paths for data
+
+6. **Output Structure**:
+   - Local: `results/task/model/experiment_id/`
+   - SageMaker: `s3://rnd-sagemaker/Benchmark_Log/task_name/model_name/experiment_id/`
+
+### Common Issues and Solutions
+
+1. **"No data found" errors**:
+   - Ensure data is uploaded to S3 with the correct structure
+   - Try enabling the `adaptive_path` and `try_all_paths` flags
+
+2. **Out of memory errors**:
+   - Use a larger instance type or reduce batch size
+   - For large datasets, consider using `ml.g4dn.2xlarge` or larger
+
+3. **Slow model training**:
+   - Use GPU-accelerated instances like `ml.g4dn` series
+   - Optimize `num_workers` parameter for data loading
