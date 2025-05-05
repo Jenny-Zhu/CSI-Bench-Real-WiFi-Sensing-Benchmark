@@ -14,6 +14,8 @@ from datetime import datetime
 from sklearn.metrics import confusion_matrix, classification_report
 from torch.optim.lr_scheduler import LambdaLR
 from engine.base_trainer import BaseTrainer
+import random
+from tqdm import tqdm
 
 def warmup_schedule(epoch, warmup_epochs):
     """Warmup learning rate schedule."""
@@ -76,7 +78,7 @@ class TaskTrainerACF(BaseTrainer):
             'num_classes': self.num_classes,
             'learning_rate': getattr(config, 'learning_rate', 1e-4),
             'weight_decay': getattr(config, 'weight_decay', 1e-5),
-            'num_epochs': getattr(config, 'num_epochs', 100),
+            'epochs': getattr(config, 'epochs', 100),
             'patience': getattr(config, 'patience', 15),
             'batch_size': self.train_loader.batch_size if hasattr(self.train_loader, 'batch_size') else 'unknown',
             'optimizer': self.optimizer.__class__.__name__,
@@ -124,7 +126,7 @@ class TaskTrainerACF(BaseTrainer):
         records = []
         
         # Training parameters
-        num_epochs = getattr(self.config, 'num_epochs', 100)
+        epochs = getattr(self.config, 'epochs', 100)
         patience = getattr(self.config, 'patience', 15)
         
         # Best model state
@@ -136,9 +138,9 @@ class TaskTrainerACF(BaseTrainer):
         # Record start time
         train_start_time = time.time()
         
-        for epoch in range(num_epochs):
+        for epoch in range(epochs):
             self.current_epoch = epoch
-            print(f'Epoch {epoch+1}/{num_epochs}')
+            print(f'Epoch {epoch+1}/{epochs}')
             
             # Train one epoch
             train_loss, train_acc, train_time, batch_losses, batch_accs = self.train_epoch()
@@ -241,7 +243,7 @@ class TaskTrainerACF(BaseTrainer):
             best_epoch = best_idx + 1
             best_val_accuracy = self.val_accuracies[best_idx]
         else:
-            best_epoch = num_epochs
+            best_epoch = epochs
             best_val_accuracy = 0.0
         
         # 创建包含统一信息的字典作为返回值
@@ -520,3 +522,26 @@ class TaskTrainerACF(BaseTrainer):
         pd.DataFrame(report).transpose().to_csv(os.path.join(self.save_path, 'classification_report.csv'))
         
         return cm
+
+    @torch.no_grad()
+    def _create_val_dataframe(self, batch_size=32, seed=42, repeat=10):
+        # Set seed for reproducibility
+        torch.manual_seed(seed)
+        random.seed(seed)
+        
+        # Create single config dict with metadata and parameters
+        config = {
+            # Metadata
+            'task_name': getattr(self.config, 'task_name', 'unknown'),
+            'model_type': getattr(self.config, 'model_type', 'unknown'),
+            
+            # Parameters
+            'batch_size': getattr(self.config, 'batch_size', 32),
+            'epochs': getattr(self.config, 'epochs', 100),
+            'learning_rate': getattr(self.config, 'learning_rate', 0.001),
+            'weight_decay': getattr(self.config, 'weight_decay', 0.0001),
+            'optimizer': getattr(self.config, 'optimizer', 'adam'),
+            'architecture': str(type(self.model).__name__)
+        }
+        
+        # ... existing code ...

@@ -6,14 +6,28 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 import pandas as pd
+import json
+import time
+import uuid
 from load.supervised.benchmark_loader import load_benchmark_supervised
 from model.multitask.models import MultiTaskAdapterModel
 from scripts.train_supervised import MODEL_TYPES
 from engine.supervised.task_trainer import TaskTrainer
 
 
+def generate_experiment_id():
+    """Generate a unique experiment ID"""
+    # Use timestamp and random UUID
+    timestamp = int(time.time())
+    short_uuid = str(uuid.uuid4())[:8]
+    return f"params_{timestamp}_{short_uuid}"
+
 
 def parse_args():
+    # Get project root directory (two levels up from this script)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    default_save_dir = os.path.join(project_root, 'results', 'multitask')
+    
     parser = argparse.ArgumentParser("Multi-task Adapter Training", add_help=False)
     parser.add_argument('--tasks', type=str, required=True,
                         help='Comma-separated list of task names')
@@ -30,7 +44,8 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--save_dir', type=str, default='checkpoints/multitask')
+    parser.add_argument('--save_dir', type=str, default=default_save_dir,
+                       help='Directory to save results, defaults to PROJECT_ROOT/results/multitask')
     parser.add_argument('--lora_r', type=int, default=8)
     parser.add_argument('--lora_alpha', type=int, default=32)
     parser.add_argument('--lora_dropout', type=float, default=0.05)
@@ -42,7 +57,18 @@ def parse_args():
 
 def main():
     args = parse_args()
+    
+    # Convert save_dir to absolute path if it's relative
+    if not os.path.isabs(args.save_dir):
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        args.save_dir = os.path.join(project_root, args.save_dir)
+    
+    print(f"Results will be saved to: {args.save_dir}")
     os.makedirs(args.save_dir, exist_ok=True)
+    
+    # Generate experiment ID
+    experiment_id = generate_experiment_id()
+    print(f"Experiment ID: {experiment_id}")
 
     # Prepare loaders
     train_loaders, val_loaders, test_loaders = {}, {}, {}
@@ -141,6 +167,10 @@ def main():
     # Training loop
     history = []
     best_val, no_improve, best_state = float('inf'), 0, None
+    
+    # Store best metrics and states for each task
+    best_metrics = {task: {'val_loss': float('inf'), 'val_acc': 0, 'best_epoch': 0} for task in task_classes}
+    best_task_states = {}
 
     def evaluate(loader):
         model.eval()
@@ -179,28 +209,30 @@ def main():
             row[f"{task}_val_loss"] = v_l
             row[f"{task}_val_acc"] = v_a
             print(f"  {task}: loss={v_l:.4f}, acc={v_a:.4f}")
-            # Confusion matrix
-            tm = TaskTrainer(
-                model=model,
-                train_loader=None,
-                val_loader=vloader,
-                test_loader=None,
-                criterion=criterion,
-                optimizer=None,
-                scheduler=None,
-                device=device,
-                save_path=os.path.join(args.save_dir, 'results'),
-                num_classes=task_classes[task],
-                label_mapper=vloader.dataset.label_mapper,
-                config=None
-            )
-            tm.plot_confusion_matrix(data_loader=vloader, epoch=epoch, mode='val')
+            
+            # Create task-specific directory structure for results
+            task_dir = os.path.join(args.save_dir, task, args.model_type, experiment_id)
+            os.makedirs(task_dir, exist_ok=True)
+            
+            # Update best metrics if improved
+            if v_a > best_metrics[task]['val_acc']:
+                print(f"  New best accuracy for {task}: {v_a:.4f} (previous: {best_metrics[task]['val_acc']:.4f})")
+                best_metrics[task]['val_loss'] = v_l
+                best_metrics[task]['val_acc'] = v_a
+                best_metrics[task]['best_epoch'] = epoch
+                
+                # Save task-specific best state
+                model.set_active_task(task)
+                best_task_states[task] = {
+                    'adapters': model.adapters.state_dict(),
+                    'head': model.heads[task].state_dict()
+                }
 
         history.append(row)
         avg_val = sum(val_losses) / len(val_losses)
         print(f"Epoch {epoch}: avg_val_loss={avg_val:.4f}")
 
-        # Early stopping
+        # Early stopping based on average validation loss
         if avg_val < best_val:
             best_val = avg_val
             no_improve = 0
@@ -214,23 +246,158 @@ def main():
                 print(f"Early stopping at epoch {epoch}")
                 break
 
-    # Restore best
+    # Restore best overall state
     if best_state:
         model.adapters.load_state_dict(best_state['adapters'])
         model.heads.load_state_dict(best_state['heads'])
 
-    # Save history
-    res_dir = os.path.join(args.save_dir, 'results')
-    os.makedirs(res_dir, exist_ok=True)
-    pd.DataFrame(history).to_csv(os.path.join(res_dir, 'multitask_val.csv'), index=False)
+    # Now generate confusion matrices and classification reports for the best model of each task
+    print("\nGenerating visualization for the best model of each task...")
+    for task in task_classes:
+        # Create task-specific directory structure
+        task_dir = os.path.join(args.save_dir, task, args.model_type, experiment_id)
+        os.makedirs(task_dir, exist_ok=True)
+        
+        # Create checkpoints directory
+        checkpoint_dir = os.path.join(task_dir, 'checkpoints')
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # Extract task-specific history
+        task_history = []
+        for row in history:
+            task_row = {
+                'epoch': row['epoch'],
+                'val_loss': row.get(f"{task}_val_loss", None),
+                'val_acc': row.get(f"{task}_val_acc", None)
+            }
+            task_history.append(task_row)
+        
+        # Save history
+        pd.DataFrame(task_history).to_csv(os.path.join(task_dir, f"{args.model_type}_{task}_train_history.csv"), index=False)
+        
+        # Save configuration
+        config = {
+            'model_type': args.model_type,
+            'task': task,
+            'batch_size': args.batch_size,
+            'epochs': args.epochs,
+            'lr': args.lr,
+            'lora_r': args.lora_r,
+            'lora_alpha': args.lora_alpha,
+            'lora_dropout': args.lora_dropout,
+            'win_len': args.win_len,
+            'feature_size': args.feature_size,
+            'emb_dim': args.emb_dim,
+            'dropout': args.dropout,
+            'num_classes': task_classes[task],
+            'experiment_id': experiment_id,
+            'best_epoch': best_metrics[task]['best_epoch']
+        }
+        with open(os.path.join(task_dir, f"{args.model_type}_{task}_config.json"), 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        # Load task-specific best state if available
+        if task in best_task_states:
+            model.adapters.load_state_dict(best_task_states[task]['adapters'])
+            model.heads[task].load_state_dict(best_task_states[task]['head'])
+        
+        # Set active task
+        model.set_active_task(task)
+        
+        # Save task-specific model weights
+        task_model_path = os.path.join(checkpoint_dir, "best.pth")
+        torch.save({
+            'adapters': model.adapters.state_dict(),
+            'heads': {task: model.heads[task].state_dict()}
+        }, task_model_path)
+        
+        # Generate confusion matrix for the best model on validation set
+        print(f"Generating confusion matrix for best {task} model (epoch {best_metrics[task]['best_epoch']})")
+        tm = TaskTrainer(
+            model=model,
+            train_loader=None,
+            val_loader=val_loaders[task],
+            test_loader=None,
+            criterion=criterion,
+            optimizer=None,
+            scheduler=None,
+            device=device,
+            save_path=task_dir,
+            num_classes=task_classes[task],
+            label_mapper=val_loaders[task].dataset.label_mapper,
+            config=None
+        )
+        tm.plot_confusion_matrix(data_loader=val_loaders[task], epoch=best_metrics[task]['best_epoch'], mode='val_best')
+        
+        # Save summary
+        summary = {
+            'experiment_id': experiment_id,
+            'best_val_loss': best_metrics[task]['val_loss'],
+            'best_val_acc': best_metrics[task]['val_acc'],
+            'best_epoch': best_metrics[task]['best_epoch'],
+            'total_epochs': len(history),
+            'early_stopped': no_improve >= args.patience,
+            'model_type': args.model_type,
+            'task': task
+        }
+        with open(os.path.join(task_dir, f"{args.model_type}_{task}_summary.json"), 'w') as f:
+            json.dump(summary, f, indent=2)
+            
+        # Update best_performance.json
+        best_perf_path = os.path.join(args.save_dir, task, args.model_type, "best_performance.json")
+        try:
+            if os.path.exists(best_perf_path):
+                with open(best_perf_path, 'r') as f:
+                    best_perf = json.load(f)
+                
+                # Only update if our current performance is better
+                if best_metrics[task]['val_acc'] > best_perf.get('best_val_acc', 0):
+                    best_perf = {
+                        'best_experiment_id': experiment_id,
+                        'best_val_loss': best_metrics[task]['val_loss'],
+                        'best_val_acc': best_metrics[task]['val_acc'],
+                        'best_epoch': best_metrics[task]['best_epoch'],
+                        'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+            else:
+                best_perf = {
+                    'best_experiment_id': experiment_id,
+                    'best_val_loss': best_metrics[task]['val_loss'],
+                    'best_val_acc': best_metrics[task]['val_acc'],
+                    'best_epoch': best_metrics[task]['best_epoch'],
+                    'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+            with open(best_perf_path, 'w') as f:
+                json.dump(best_perf, f, indent=2)
+        except Exception as e:
+            print(f"Error updating best_performance.json: {e}")
 
     # Final test evaluation
-    print("Final test results:")
+    print("\nFinal test results (using best model for each task):")
     for task, tdict in test_loaders.items():
+        task_dir = os.path.join(args.save_dir, task, args.model_type, experiment_id)
+        
+        # Load task-specific best state if available
+        if task in best_task_states:
+            model.adapters.load_state_dict(best_task_states[task]['adapters'])
+            model.heads[task].load_state_dict(best_task_states[task]['head'])
+        
+        # Set active task
+        model.set_active_task(task)
+        
+        test_results = {}
         for split, tloader in tdict.items():
-            model.set_active_task(task)
             t_l, t_a = evaluate(tloader)
             print(f"{task} [{split}]: loss={t_l:.4f}, acc={t_a:.4f}")
+            
+            # Save test results
+            test_results[split] = {
+                'loss': t_l,
+                'accuracy': t_a
+            }
+            
+            # Generate confusion matrix for test set
             tm = TaskTrainer(
                 model=model,
                 train_loader=None,
@@ -240,18 +407,28 @@ def main():
                 optimizer=None,
                 scheduler=None,
                 device=device,
-                save_path=res_dir,
+                save_path=task_dir,
                 num_classes=task_classes[task],
                 label_mapper=tloader.dataset.label_mapper,
                 config=None
             )
             tm.plot_confusion_matrix(data_loader=tloader, epoch=None, mode=split)
+        
+        # Save test results to a file
+        with open(os.path.join(task_dir, f"{args.model_type}_{task}_test_results.json"), 'w') as f:
+            json.dump(test_results, f, indent=2)
 
-    # Save adapters + heads
+    # Save full multitask model (the overall best state)
+    full_model_dir = os.path.join(args.save_dir, "shared_models")
+    os.makedirs(full_model_dir, exist_ok=True)
     torch.save(
-        {'adapters': model.adapters.state_dict(), 'heads': model.heads.state_dict()},
-        os.path.join(args.save_dir, 'multitask_adapters.pt')
+        {'adapters': best_state['adapters'], 'heads': best_state['heads']},
+        os.path.join(full_model_dir, f'multitask_adapters_{experiment_id}.pt')
     )
+    
+    print(f"\nMultitask training completed successfully.")
+    print(f"Results saved to: {args.save_dir}")
+    print(f"Experiment ID: {experiment_id}")
 
 
 if __name__ == '__main__':

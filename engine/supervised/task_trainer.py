@@ -98,20 +98,20 @@ class TaskTrainer(BaseTrainer):
         
         # Set default configuration values if config is None
         if self.config is None:
-            num_epochs = 30
+            epochs = 30
             patience = 15
         else:
             # Number of epochs and patience from config
-            num_epochs = getattr(self.config, 'num_epochs', 30)
+            epochs = getattr(self.config, 'epochs', 30)
             patience = getattr(self.config, 'patience', 15)
         
         # Best model state
         best_model = None
         best_val_loss = float('inf')
         
-        for epoch in range(num_epochs):
+        for epoch in range(epochs):
             self.current_epoch = epoch
-            print(f'Epoch {epoch+1}/{num_epochs}')
+            print(f'Epoch {epoch+1}/{epochs}')
             
             # Train one epoch
             train_loss, train_acc, train_time = self.train_epoch()
@@ -180,7 +180,7 @@ class TaskTrainer(BaseTrainer):
             best_epoch = best_idx + 1
             best_val_accuracy = self.val_accuracies[best_idx]
         else:
-            best_epoch = num_epochs
+            best_epoch = epochs
             best_val_accuracy = 0.0
         
         # 创建包含统一信息的字典作为返回值
@@ -570,3 +570,158 @@ class TaskTrainer(BaseTrainer):
             print(f"Classification report saved to {report_path}")
         
         return weighted_f1, per_class_f1
+
+    def training_loop(self, base_lr=1e-3, weight_decay=0.0, clip_grad=None):
+        
+        # Get model, loaders, criterion, etc
+        model = self.model
+        train_loader = self.train_loader
+        val_loader = self.val_loader
+        criterion = self.criterion
+        device = self.device
+        
+        # Setup optimizer
+        optimizer = self.optimizer or torch.optim.Adam(
+            model.parameters(), 
+            lr=base_lr, 
+            weight_decay=weight_decay
+        )
+        
+        # Setup learning rate scheduler
+        if self.scheduler is None:
+            if self.config is None:
+                # No config, use default values
+                patience = 7
+                epochs = 30
+                warmup_epochs = 5
+            else:
+                # Use config
+                patience = getattr(self.config, 'patience', 7)
+                epochs = getattr(self.config, 'epochs', 30)
+                warmup_epochs = getattr(self.config, 'warmup_epochs', 5)
+                
+            # Create scheduler
+            self.scheduler = WarmupCosineScheduler(
+                optimizer, 
+                epochs, 
+                warmup_epochs=warmup_epochs, 
+                min_lr=1e-6
+            )
+        
+        scheduler = self.scheduler
+        
+        # Training loop
+        best_val_loss = float('inf')
+        best_val_acc = 0.0
+        best_model_state = None
+        no_improve = 0
+        
+        history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
+        
+        for epoch in range(epochs):
+            model.train()
+            train_loss = 0
+            train_correct = 0
+            train_total = 0
+            
+            print(f'Epoch {epoch+1}/{epochs}')
+            pbar = tqdm(train_loader)
+            
+            for batch_idx, (inputs, targets) in enumerate(pbar):
+                inputs, targets = inputs.to(device), targets.to(device)
+                
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                
+                if clip_grad is not None:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad)
+                    
+                optimizer.step()
+                
+                train_loss += loss.item()
+                _, predicted = outputs.max(1)
+                batch_correct = predicted.eq(targets).sum().item()
+                train_correct += batch_correct
+                train_total += targets.size(0)
+                
+                # Update progress bar with current statistics
+                pbar.set_description(f'Train Loss: {train_loss/(batch_idx+1):.4f} | Acc: {100.*train_correct/train_total:.2f}%')
+            
+            # Step scheduler
+            scheduler.step()
+            
+            # Evaluate on validation set
+            model.eval()
+            val_loss = 0
+            val_correct = 0
+            val_total = 0
+            
+            with torch.no_grad():
+                for batch_idx, (inputs, targets) in enumerate(val_loader):
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    outputs = model(inputs)
+                    loss = criterion(outputs, targets)
+                    
+                    val_loss += loss.item()
+                    _, predicted = outputs.max(1)
+                    val_correct += predicted.eq(targets).sum().item()
+                    val_total += targets.size(0)
+            
+            # Calculate metrics
+            avg_train_loss = train_loss / len(train_loader)
+            avg_val_loss = val_loss / len(val_loader)
+            train_accuracy = 100. * train_correct / train_total
+            val_accuracy = 100. * val_correct / val_total
+            
+            # Save metrics to history
+            history['train_loss'].append(avg_train_loss)
+            history['train_acc'].append(train_accuracy)
+            history['val_loss'].append(avg_val_loss)
+            history['val_acc'].append(val_accuracy)
+            
+            print(f'Epoch {epoch+1}/{epochs}:')
+            print(f'  Train Loss: {avg_train_loss:.4f}, Accuracy: {train_accuracy:.2f}%')
+            print(f'  Val Loss: {avg_val_loss:.4f}, Accuracy: {val_accuracy:.2f}%')
+            print(f'  Learning Rate: {scheduler.get_lr()[0]:.6f}')
+            
+            # Create confusion matrix for validation set
+            y_preds, y_true = self.get_predictions(val_loader)
+            # No need to generate confusion matrix here if we only want to save the best model's
+            
+            # Save the best model
+            is_best = False
+            if val_accuracy > best_val_acc:
+                best_val_acc = val_accuracy
+                best_val_loss = avg_val_loss
+                best_model_state = model.state_dict()
+                best_epoch = epoch
+                no_improve = 0
+                is_best = True
+                
+                # Save current best model
+                self.save_checkpoint(epoch, model, optimizer, scheduler, is_best)
+            else:
+                no_improve += 1
+                
+            # Early stopping
+            if no_improve >= patience:
+                print(f'Early stopping after {epoch+1} epochs without improvement')
+                break
+        
+        # Restore best model
+        if best_model_state is not None:
+            model.load_state_dict(best_model_state)
+        
+        # At the end, generate and save confusion matrix for the best model
+        if best_model_state is not None:
+            model.load_state_dict(best_model_state)
+            print(f'Generating confusion matrix for best model (epoch {best_epoch+1})')
+            self.plot_confusion_matrix(epoch=best_epoch+1, mode='val_best')
+        
+        # If we didn't complete all epochs, set best_epoch to the last epoch
+        if 'best_epoch' not in locals():
+            best_epoch = epochs
+        
+        return history, best_val_loss, best_val_acc, best_model_state, best_epoch

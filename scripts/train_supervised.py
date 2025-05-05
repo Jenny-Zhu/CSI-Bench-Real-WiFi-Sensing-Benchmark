@@ -49,7 +49,7 @@ def main(args=None):
                             choices=['mlp', 'lstm', 'resnet18', 'transformer', 'vit'],
                             help='Type of model to train')
         parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
-        parser.add_argument('--num_epochs', type=int, default=30, help='Number of epochs to train')
+        parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train')
         parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
         parser.add_argument('--data_key', type=str, default='CSI_amps',
                             help='Key for CSI data in h5 files')
@@ -92,7 +92,7 @@ def main(args=None):
     
     # Generate a unique experiment ID based only on parameters hash
     # This way, same parameters will generate same experiment ID and overwrite previous results
-    param_str = f"{args.learning_rate}_{args.batch_size}_{args.num_epochs}_{args.weight_decay}_{args.warmup_epochs}_{args.win_len}_{args.feature_size}"
+    param_str = f"{args.learning_rate}_{args.batch_size}_{args.epochs}_{args.weight_decay}_{args.warmup_epochs}_{args.win_len}_{args.feature_size}"
     if hasattr(args, 'dropout') and args.dropout is not None:
         param_str += f"_{args.dropout}"
     if hasattr(args, 'emb_dim') and args.emb_dim is not None:
@@ -222,7 +222,7 @@ def main(args=None):
     
     # Create configuration object for trainer
     config = type('Config', (), {
-        'num_epochs': args.num_epochs,
+        'epochs': args.epochs,
         'learning_rate': args.learning_rate,
         'weight_decay': args.weight_decay,
         'warmup_epochs': args.warmup_epochs,
@@ -248,7 +248,7 @@ def main(args=None):
     # Create trainer
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
     trainer = TaskTrainer(
         model=model,
@@ -280,7 +280,7 @@ def main(args=None):
     if isinstance(training_results, pd.DataFrame):
         # 从DataFrame中提取数据
         train_history = {
-            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.num_epochs + 1)),
+            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.epochs + 1)),
             'train_loss_history': training_results['Train Loss'].tolist() if 'Train Loss' in training_results.columns else [],
             'val_loss_history': training_results['Val Loss'].tolist() if 'Val Loss' in training_results.columns else [],
             'train_accuracy_history': training_results['Train Accuracy'].tolist() if 'Train Accuracy' in training_results.columns else [],
@@ -293,7 +293,7 @@ def main(args=None):
             best_epoch = int(training_results.loc[best_idx, 'Epoch'])
             best_val_accuracy = float(training_results.loc[best_idx, 'Val Accuracy'])
         else:
-            best_epoch = args.num_epochs
+            best_epoch = args.epochs
             best_val_accuracy = 0.0
     else:
         # 如果已经是字典，直接提取需要的数据
@@ -305,7 +305,7 @@ def main(args=None):
         }
         
         # 从字典中获取最佳验证准确率和对应的epoch
-        best_epoch = training_results.get('best_epoch', args.num_epochs)
+        best_epoch = training_results.get('best_epoch', args.epochs)
         best_val_accuracy = training_results.get('best_val_accuracy', 0.0)
     
     # 添加最佳结果到整体指标
@@ -368,7 +368,7 @@ def main(args=None):
     experiment_params = {
         'learning_rate': args.learning_rate,
         'batch_size': args.batch_size,
-        'num_epochs': args.num_epochs,
+        'epochs': args.epochs,
         'weight_decay': args.weight_decay,
         'warmup_epochs': args.warmup_epochs,
         'patience': args.patience,

@@ -59,7 +59,7 @@ def load_default_config():
             "feature_size": 98,
             "seed": 42,
             "batch_size": 8,
-            "num_epochs": 10,
+            "epochs": 10,
             "model_name": "transformer", 
             "instance_type": "ml.g4dn.xlarge",
             "instance_count": 1,
@@ -119,7 +119,7 @@ FEATURE_SIZE = DEFAULT_CONFIG.get("feature_size", 98)
 # Common training parameters
 SEED = DEFAULT_CONFIG.get("seed", 42)
 BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
-EPOCH_NUMBER = DEFAULT_CONFIG.get("num_epochs", 10)
+EPOCH_NUMBER = DEFAULT_CONFIG.get("epochs", 10)
 PATIENCE = DEFAULT_CONFIG.get("patience", 15)
 MODEL_NAME = DEFAULT_CONFIG.get("model_name", "transformer")
 
@@ -276,7 +276,7 @@ class SageMakerRunner:
                 
                 # Training parameters
                 "batch_size": BATCH_SIZE,
-                "num_epochs": EPOCH_NUMBER,
+                "epochs": EPOCH_NUMBER,
                 "learning_rate": 1e-4,
                 "weight_decay": 1e-5,
                 "warmup_epochs": 5,
@@ -312,7 +312,7 @@ class SageMakerRunner:
             # 仅添加在train_multi_model.py中定义的参数
             allowed_params = [
                 "dataset_root", "task_name", "mode", "file_format", "num_workers",
-                "models", "batch_size", "num_epochs", "learning_rate", "weight_decay",
+                "models", "batch_size", "epochs", "learning_rate", "weight_decay",
                 "warmup_epochs", "patience", "win_len", "feature_size", "seed",
                 "save_dir", "output_dir", "data_key", "debug",
                 "in_channels", "emb_dim", "d_model", "dropout"
@@ -591,7 +591,7 @@ class SageMakerRunner:
             
             # 训练参数
             "batch_size": BATCH_SIZE,
-            "num_epochs": EPOCH_NUMBER,
+            "epochs": EPOCH_NUMBER,
             "learning_rate": 1e-4,
             "weight_decay": 1e-5,
             "warmup_epochs": 5,
@@ -730,8 +730,8 @@ if __name__ == '__main__':
         if len(job_name) > 63:
             job_name = job_name[:60] + job_timestamp[-3:]
         
-        # Output path
-        s3_output_path = f"{S3_OUTPUT_BASE}multitask/{model_type}/"
+        # Output path - use a structure that matches the local runner
+        s3_output_path = f"{S3_OUTPUT_BASE}multitask/"
         
         print(f"Creating multitask learning job: {job_name}")
         print(f"Output path: {s3_output_path}")
@@ -758,8 +758,8 @@ if __name__ == '__main__':
             "lora_alpha": 32,
             "lora_dropout": 0.05,
             
-            # Save directory (will be auto-set in SageMaker)
-            "save_dir": "/opt/ml/model"
+            # Save directory (will be auto-set in SageMaker to use the correct structure)
+            "save_dir": "/opt/ml/model/results/multitask"
         }
         
         # Create PyTorch estimator
@@ -777,7 +777,11 @@ if __name__ == '__main__':
             output_path=s3_output_path,
             base_job_name=job_name,
             hyperparameters=hyperparameters,
-            volume_size=EBS_VOLUME_SIZE
+            volume_size=EBS_VOLUME_SIZE,
+            environment={
+                'PYTHONPATH': '/opt/ml/code',  # Add code directory to Python path
+                'LOG_LEVEL': 'INFO'            # Set logging level
+            }
         )
         
         # Prepare data inputs
@@ -803,7 +807,8 @@ if __name__ == '__main__':
             'config': {
                 'tasks': tasks_str,
                 'model_type': model_type,
-                'output_dir': s3_output_path
+                'output_dir': s3_output_path,
+                'save_dir': '/opt/ml/model/results/multitask'
             }
         }
         

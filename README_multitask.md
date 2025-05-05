@@ -16,6 +16,7 @@ The implementation uses a Transformer backbone model with:
 - PyTorch 1.9+
 - pandas, numpy, matplotlib
 - The standard WiFi Sensing Benchmark environment
+- PEFT (Parameter-Efficient Fine-Tuning) package: `pip install peft`
 
 ## Running Locally
 
@@ -59,19 +60,81 @@ task_groups = [
 
 runner.run_batch_multitask(
     task_groups=task_groups,
-    model_type="transformer",
-    instance_type="ml.g4dn.xlarge"
+    model_type="transformer"
 )
 ```
 
-You can also use the command line interface:
+## Result Directory Structure
 
-```bash
-# Run multitask learning on SageMaker
-python sagemaker_runner.py --pipeline multitask \
-  --task-groups "MotionSourceRecognition,HumanMotion" "HumanNonhuman,HumanID" \
-  --model-type transformer \
-  --instance-type ml.g4dn.xlarge
+The multitask pipeline saves results under the `results/multitask` directory with the following structure:
+
+```
+results/multitask/
+├── TaskName1/                     # e.g., MotionSourceRecognition/
+│   ├── ModelType/                 # e.g., transformer/
+│   │   ├── ExperimentID/          # e.g., params_1234567890_abcd1234/
+│   │   │   ├── checkpoints/       # Model checkpoint directory
+│   │   │   │   ├── best.pth       # Best model weights
+│   │   │   ├── transformer_TaskName1_config.json        # Configuration information
+│   │   │   ├── transformer_TaskName1_summary.json       # Training results summary
+│   │   │   ├── transformer_TaskName1_train_history.csv  # Training history
+│   │   │   ├── transformer_TaskName1_test_results.json  # Test results
+│   │   │   └── confusion_matrix.png                     # Confusion matrix plot
+│   │   ├── best_performance.json  # Records best performance for this model on this task
+│   ├── AnotherModelType/          # e.g., vit/
+│   │   └── ...
+├── TaskName2/                     # e.g., HumanMotion/
+│   └── ...
+└── shared_models/                 # Shared multitask models
+    └── multitask_adapters_[ExperimentID].pt  # Complete multitask model with all tasks
+```
+
+This structure organizes results by task and model type, making it easy to:
+1. Compare the performance of a single model across different tasks
+2. Compare different models on the same task
+3. Track the best-performing experiment for each task-model combination
+
+Each experiment directory contains:
+- Training history (loss and accuracy)
+- Model configuration
+- Performance summary
+- Confusion matrices
+- Model checkpoints
+
+## Performance Tracking
+
+For each task and model type, a `best_performance.json` file keeps track of the best-performing experiment. This makes it easy to identify the most successful configurations for each task.
+
+## Loading Trained Models
+
+To load a trained multitask model:
+
+```python
+import torch
+from model.multitask.models import MultiTaskAdapterModel
+
+# Initialize your backbone model
+# ...
+
+# Create multitask model with the same task classes used during training
+task_classes = {"MotionSourceRecognition": 4, "HumanMotion": 3}
+model = MultiTaskAdapterModel(backbone, task_classes)
+
+# Load the saved adapters and heads
+checkpoint = torch.load("results/multitask/shared_models/multitask_adapters_[ExperimentID].pt")
+model.adapters.load_state_dict(checkpoint['adapters'])
+model.heads.load_state_dict(checkpoint['heads'])
+
+# For inference, set the active task
+model.set_active_task("MotionSourceRecognition")
+```
+
+You can also load a task-specific model:
+
+```python
+checkpoint = torch.load("results/multitask/MotionSourceRecognition/transformer/[ExperimentID]/checkpoints/best.pth")
+model.adapters.load_state_dict(checkpoint['adapters'])
+model.heads["MotionSourceRecognition"].load_state_dict(checkpoint['heads']["MotionSourceRecognition"])
 ```
 
 ## Configuration
