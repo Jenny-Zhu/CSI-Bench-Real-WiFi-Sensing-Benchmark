@@ -420,14 +420,19 @@ class SageMakerRunner:
             print(f"Job name: {job_name}")
             print(f"Output path: {s3_output_path}")
             
+            # 更新批处理大小，减小以降低内存使用
+            if 'batch_size' in hyperparameters and int(hyperparameters['batch_size']) > 8:
+                print(f"注意: 已将batch_size从{hyperparameters['batch_size']}降低至8，以减少内存使用")
+                hyperparameters['batch_size'] = 8
+            
             # Create PyTorch estimator
-            instance_type_to_use = instance_type or INSTANCE_TYPE
+            # 使用内存更大的实例
+            instance_type_to_use = instance_type or "ml.g4dn.2xlarge"  # 默认使用更大的实例
+            print(f"使用实例类型: {instance_type_to_use}")
             
             # Create estimator with optimized configuration
             estimator = PyTorch(
                 entry_point="entry_script.py",  # Use our custom entry script to bypass Horovod/smdebug
-                source_dir=".",  # Use source_dir for local development
-                dependencies=["requirements.txt"],  # Use our custom requirements file
                 role=self.role,
                 framework_version=FRAMEWORK_VERSION,
                 py_version=PY_VERSION,
@@ -444,13 +449,21 @@ class SageMakerRunner:
                     {'Name': 'validation:loss', 'Regex': 'Val Loss: ([0-9\\.]+)'},
                     {'Name': 'validation:accuracy', 'Regex': 'Val Accuracy: ([0-9\\.]+)'}
                 ],
-                volume_size=EBS_VOLUME_SIZE,  # Increase EBS volume size
+                volume_size=200,  # 增加EBS卷大小至100GB，确保有足够的磁盘空间
                 debugger_hook_config=False,  # Disable debugger
                 disable_profiler=True,        # Disable profiler
+                code_location=None,           # 禁止将代码上传至S3特定位置
+                dependencies=None,            # 不上传dependencies
+                source_dir=".",               # 直接使用当前目录，不创建TAR文件
+                disable_upload=True,          # 尝试完全禁用源代码上传
                 environment={
                     # Code directories
                     'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',  # Ensure code is properly located
                     'PYTHONPATH': '/opt/ml/code',                  # Add code directory to Python path
+                    
+                    # 指定实际要运行的脚本
+                    'SAGEMAKER_PROGRAM': 'train_multi_model.py',   # 指定入口脚本
+                    'SAGEMAKER_USER_ENTRY_POINT': 'entry_script.py', # 确保使用我们的入口脚本
                     
                     # Disable SageMaker debugging tools
                     'SAGEMAKER_MODEL_SERVER_WORKERS': '1',         # Limit number of model server workers
@@ -463,14 +476,18 @@ class SageMakerRunner:
                     'HOROVOD_WITHOUT_PYTORCH': '1',                # Explicitly disable Horovod-PyTorch integration
                     'USE_HOROVOD': 'false',                        # Disable general Horovod usage
                     
+                    # 内存优化设置
+                    'OMP_NUM_THREADS': '1',                        # 限制OpenMP线程数
+                    'MKL_NUM_THREADS': '1',                        # 限制MKL线程数
+                    'CUDA_LAUNCH_BLOCKING': '1',                   # 阻塞式CUDA操作，减少内存峰值
+                    'PYTORCH_CUDA_ALLOC_CONF': 'max_split_size_mb:128', # 限制CUDA内存分配
+                    
                     # Miscellaneous settings
                     'LOG_LEVEL': 'INFO',                           # Set logging level
                     'TORCH_CUDNN_V8_API_ENABLED': '1',             # Enable CUDNN v8 API for PyTorch 1.13+
-                    'OMP_NUM_THREADS': '1',                        # Limit OpenMP threads
                     
                     # Disable unnecessary features
                     'DISABLE_SMDATAPARALLEL': '1',                 # Disable SM distributed training
-                    'SAGEMAKER_PROGRAM': 'entry_script.py'         # Specify entry point
                 }
             )
             
@@ -978,13 +995,12 @@ if __name__ == '__main__':
         # 使用测试脚本
         test_script = "test_sagemaker_env.py"
         
-        # 创建PyTorch估计器 - 使用小型实例以节省成本
-        instance_type_to_use = instance_type or "ml.g4dn.xlarge"
+        # 创建PyTorch估计器 - 使用较大内存的实例
+        instance_type_to_use = instance_type or "ml.g4dn.2xlarge"
+        print(f"使用实例类型: {instance_type_to_use}")
         
         estimator = PyTorch(
             entry_point="entry_script.py",  # 使用自定义入口脚本，它会禁用Horovod并处理依赖
-            source_dir=".",
-            dependencies=["requirements.txt"],
             role=self.role,
             framework_version=FRAMEWORK_VERSION,
             py_version=PY_VERSION,
@@ -994,9 +1010,12 @@ if __name__ == '__main__':
             output_path=s3_output_path,
             base_job_name=job_name,
             hyperparameters=hyperparameters,
-            volume_size=30,  # 较小的卷大小用于测试
+            volume_size=50,  # 增加卷大小到50GB
             debugger_hook_config=False,  # 禁用调试器
             disable_profiler=True,        # 禁用分析器
+            source_dir=".",               # 直接使用当前目录，不创建TAR文件
+            code_location=None,           # 禁止将代码上传至S3特定位置
+            dependencies=None,            # 不上传dependencies
             environment={
                 # 代码目录
                 'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',
@@ -1014,6 +1033,11 @@ if __name__ == '__main__':
                 'HOROVOD_WITH_PYTORCH': '0',
                 'HOROVOD_WITHOUT_PYTORCH': '1',
                 'USE_HOROVOD': 'false',
+                
+                # 内存优化设置
+                'OMP_NUM_THREADS': '1',                # 限制OpenMP线程数
+                'MKL_NUM_THREADS': '1',                # 限制MKL线程数
+                'CUDA_LAUNCH_BLOCKING': '1',           # 阻塞式CUDA操作，减少内存峰值
                 
                 # 其他设置
                 'LOG_LEVEL': 'INFO',

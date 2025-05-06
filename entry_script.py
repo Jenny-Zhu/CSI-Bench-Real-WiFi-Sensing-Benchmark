@@ -11,6 +11,36 @@ import os
 import sys
 import importlib.util
 import subprocess
+import gc
+
+print("\n==========================================")
+print("启动自定义入口脚本entry_script.py")
+print("==========================================\n")
+
+# 设置内存优化选项
+print("配置内存优化设置...")
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 减少TensorFlow日志，如果使用的话
+
+# 启用垃圾回收
+gc.enable()
+print("已启用主动垃圾回收")
+
+# 立即禁用horovod和smdebug以防止冲突
+print("立即禁用Horovod集成...")
+sys.modules['horovod'] = None
+sys.modules['horovod.torch'] = None
+sys.modules['horovod.tensorflow'] = None
+sys.modules['horovod.common'] = None
+sys.modules['horovod.torch.elastic'] = None
+
+print("立即禁用SMDebug...")
+sys.modules['smdebug'] = None
+os.environ['SMDEBUG_DISABLED'] = 'true'
+os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
 # 设置typing_extensions支持，用于解决typing.Literal导入问题
 print("设置typing_extensions支持...")
@@ -35,21 +65,28 @@ except Exception as e:
     print(f"安装peft库时出错: {e}")
     # 这不是致命错误，尝试继续执行
 
-# Disable Horovod integration to avoid version conflict
-print("正在禁用Horovod集成以避免版本冲突...")
-sys.modules['horovod'] = None
-sys.modules['horovod.torch'] = None
-sys.modules['horovod.tensorflow'] = None
-
-# Disable SMDebug to avoid Horovod dependency
-print("正在禁用SageMaker Debugger (smdebug)...")
-sys.modules['smdebug'] = None
-os.environ['SMDEBUG_DISABLED'] = 'true'
-os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+# 释放一些内存
+gc.collect()
 
 # Set paths
 print("设置路径...")
 sys.path.insert(0, os.getcwd())
+
+# 显示可用内存信息
+try:
+    import psutil
+    process = psutil.Process(os.getpid())
+    print(f"当前进程内存使用: {process.memory_info().rss / (1024 * 1024):.2f} MB")
+    
+    virtual_memory = psutil.virtual_memory()
+    print(f"系统内存情况:")
+    print(f"  总内存: {virtual_memory.total / (1024**3):.2f} GB")
+    print(f"  可用内存: {virtual_memory.available / (1024**3):.2f} GB")
+    print(f"  内存使用率: {virtual_memory.percent}%")
+except ImportError:
+    print("无法导入psutil，跳过内存信息显示")
+except Exception as e:
+    print(f"获取内存信息时出错: {e}")
 
 # Now run the actual training script
 print("准备运行训练脚本...")
@@ -60,8 +97,29 @@ from subprocess import check_call
 script_to_run = os.environ.get('SAGEMAKER_PROGRAM', 'train_multi_model.py')
 print(f"将要执行的脚本: {script_to_run}")
 
-# Get all command line arguments
+# 获取并优化命令行参数 - 减小batch_size以降低内存使用
 args = sys.argv[1:]
+modified_args = []
+i = 0
+while i < len(args):
+    if args[i] == '--batch_size' and i+1 < len(args):
+        try:
+            batch_size = int(args[i+1])
+            if batch_size > 4:
+                print(f"警告: 检测到较大的batch_size ({batch_size})，已自动减小至4以降低内存使用")
+                modified_args.extend(['--batch_size', '4'])
+            else:
+                modified_args.extend([args[i], args[i+1]])
+        except ValueError:
+            modified_args.extend([args[i], args[i+1]])
+        i += 2
+    else:
+        modified_args.append(args[i])
+        i += 1
+
+if args != modified_args:
+    print("注意: 已调整命令行参数以优化内存使用")
+    args = modified_args
 
 # Print environment information
 print("\n===== 环境信息 =====")
@@ -70,20 +128,42 @@ print(f"Python版本: {platform.python_version()}")
 print(f"当前目录: {os.getcwd()}")
 print(f"目录中的文件: {', '.join(os.listdir('.'))[:200]}...")
 print(f"命令: python3 {script_to_run} {' '.join(args)}")
+
+# 打印环境变量信息
+print("\n===== 环境变量 =====")
+sm_vars = [k for k in os.environ.keys() if k.startswith('SM_') or k.startswith('SAGEMAKER_')]
+for var in sm_vars:
+    print(f"{var}: {os.environ.get(var)}")
 print("==================================\n")
 
 # Try importing torch to verify it loads correctly without Horovod conflicts
 try:
+    print("尝试导入PyTorch (设置内存限制)...")
     import torch
+    # 设置PyTorch内存分配器的优化
+    if torch.cuda.is_available():
+        # 限制GPU内存增长
+        torch.cuda.set_per_process_memory_fraction(0.7)  # 使用70%的可用GPU内存
+        # 主动清理CUDA缓存
+        torch.cuda.empty_cache()
+        
     print(f"PyTorch版本: {torch.__version__}")
     print(f"CUDA可用: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"CUDA版本: {torch.version.cuda}")
         print(f"GPU设备: {torch.cuda.get_device_name(0)}")
+        print(f"GPU内存总量: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
+        print(f"当前分配的GPU内存: {torch.cuda.memory_allocated(0) / (1024**3):.2f} GB")
+        print(f"当前GPU内存缓存: {torch.cuda.memory_reserved(0) / (1024**3):.2f} GB")
     print("PyTorch成功导入，没有Horovod冲突")
 except Exception as e:
     print(f"导入PyTorch时出错: {e}")
     sys.exit(1)  # Exit if we can't import PyTorch
+
+# 释放一些内存
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 
 # 尝试导入peft库确认是否可以正确加载
 try:
@@ -100,12 +180,83 @@ if not os.path.exists(script_to_run):
     print(f"当前目录中的Python文件: {[f for f in os.listdir('.') if f.endswith('.py')]}")
     sys.exit(1)
 
-print(f"\n开始运行脚本 {script_to_run}...\n")
+# 创建优化版本的包装脚本
+print(f"\n创建优化版本包装脚本...")
 
-# Run the actual training script with the same arguments
+# 创建一个简单的包装脚本，它将先导入我们的修改后再执行实际代码
+wrapper_content = f"""#!/usr/bin/env python3
+# 自动生成的包装脚本，用于避免Horovod依赖冲突并优化内存使用
+import sys
+import os
+import gc
+
+# 开启垃圾回收
+gc.enable()
+
+# 设置内存优化环境变量
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
+# 禁用Horovod相关模块
+sys.modules['horovod'] = None
+sys.modules['horovod.torch'] = None 
+sys.modules['horovod.tensorflow'] = None
+sys.modules['horovod.common'] = None
+sys.modules['horovod.torch.elastic'] = None
+
+# 禁用SMDebug
+sys.modules['smdebug'] = None
+os.environ['SMDEBUG_DISABLED'] = 'true'
+os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+
+# 导入torch并配置内存优化
 try:
-    ret = check_call([sys.executable, script_to_run] + args)
+    import torch
+    if torch.cuda.is_available():
+        # 限制内存使用
+        torch.cuda.set_per_process_memory_fraction(0.7)
+        torch.cuda.empty_cache()
+        
+        # 使用确定性算法，可能会降低性能但提高稳定性
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+except Exception as e:
+    print(f"配置PyTorch时出错: {{e}}")
+
+# 主动执行垃圾回收
+gc.collect()
+
+# 然后导入并执行原始脚本
+import {script_to_run.replace('.py', '')}
+
+# 调用原始脚本的main函数（如果存在）
+if hasattr({script_to_run.replace('.py', '')}, 'main'):
+    {script_to_run.replace('.py', '')}.main()
+"""
+
+# 写入临时包装脚本
+wrapper_script = "wrapper_script.py"
+with open(wrapper_script, "w") as f:
+    f.write(wrapper_content)
+print(f"创建了优化版本包装脚本: {wrapper_script}")
+
+print(f"\n开始运行优化后的脚本 {script_to_run}...\n")
+
+# Run the wrapper script with the same arguments
+try:
+    print("使用内存优化包装脚本...")
+    ret = check_call([sys.executable, wrapper_script] + args)
     sys.exit(ret)
 except Exception as e:
-    print(f"运行训练脚本时出错: {e}")
-    sys.exit(1) 
+    print(f"运行脚本时出错: {e}")
+    
+    # 作为备选方案，尝试直接运行原始脚本
+    print("\n尝试直接运行原始脚本作为备选方案...")
+    try:
+        ret = check_call([sys.executable, script_to_run] + args)
+        sys.exit(ret)
+    except Exception as e2:
+        print(f"运行原始脚本也失败: {e2}")
+        sys.exit(1) 
