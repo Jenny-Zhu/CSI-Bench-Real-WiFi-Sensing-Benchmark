@@ -427,6 +427,7 @@ class SageMakerRunner:
             estimator = PyTorch(
                 entry_point="train_multi_model.py",
                 source_dir=".",  # Use source_dir for local development
+                dependencies=["requirements.txt"],  # Use our custom requirements file
                 role=self.role,
                 framework_version=FRAMEWORK_VERSION,
                 py_version=PY_VERSION,
@@ -447,12 +448,29 @@ class SageMakerRunner:
                 debugger_hook_config=False,  # Disable debugger
                 disable_profiler=True,        # Disable profiler
                 environment={
+                    # Code directories
                     'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',  # Ensure code is properly located
                     'PYTHONPATH': '/opt/ml/code',                  # Add code directory to Python path
+                    
+                    # Disable SageMaker debugging tools
                     'SAGEMAKER_MODEL_SERVER_WORKERS': '1',         # Limit number of model server workers
                     'SM_DISABLE_PROFILER': 'true',                 # Disable profiler via env var
                     'SM_DISABLE_DEBUGGER': 'true',                 # Disable debugger via env var
-                    'LOG_LEVEL': 'INFO'                            # Set logging level
+                    'SMDEBUG_DISABLED': 'true',                    # Disable SMDebug tool
+                    
+                    # Disable Horovod integration
+                    'HOROVOD_WITH_PYTORCH': '0',                   # Disable Horovod for PyTorch
+                    'HOROVOD_WITHOUT_PYTORCH': '1',                # Explicitly disable Horovod-PyTorch integration
+                    'USE_HOROVOD': 'false',                        # Disable general Horovod usage
+                    
+                    # Miscellaneous settings
+                    'LOG_LEVEL': 'INFO',                           # Set logging level
+                    'TORCH_CUDNN_V8_API_ENABLED': '1',             # Enable CUDNN v8 API for PyTorch 1.13+
+                    'OMP_NUM_THREADS': '1',                        # Limit OpenMP threads
+                    
+                    # Disable unnecessary features
+                    'DISABLE_SMDATAPARALLEL': '1',                 # Disable SM distributed training
+                    'SAGEMAKER_PROGRAM': 'train_multi_model.py'    # Specify entry point
                 }
             )
             

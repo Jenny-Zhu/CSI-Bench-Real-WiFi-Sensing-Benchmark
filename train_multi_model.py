@@ -7,7 +7,15 @@ This script can be run in a SageMaker environment to train and evaluate multiple
 on the same task.
 """
 
+# 禁用SMDebug和Horovod以避免PyTorch版本冲突
 import os
+os.environ['SM_DISABLE_PROFILER'] = 'true'
+os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+os.environ['SMDEBUG_DISABLED'] = 'true'
+os.environ['HOROVOD_WITH_PYTORCH'] = '0'
+os.environ['HOROVOD_WITHOUT_PYTORCH'] = '1'
+os.environ['USE_HOROVOD'] = 'false'
+
 import sys
 import argparse
 import json
