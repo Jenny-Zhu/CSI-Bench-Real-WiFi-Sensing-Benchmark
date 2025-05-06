@@ -224,3 +224,312 @@ class MultiTaskAdapterModel(nn.Module):
         logits = self.heads[self.active_task](features)
         
         return logits
+
+
+class PatchTSTTaskAdapters(nn.Module):
+    """
+    Collection of task-specific adapters for PatchTST model
+    """
+    def __init__(
+        self, 
+        backbone, 
+        task_names: List[str],
+        lora_r: int = 8,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05
+    ):
+        super().__init__()
+        self.backbone = backbone
+        self.task_names = task_names
+        self.active_task = None
+        
+        # Get hidden size from the backbone
+        emb_dim = backbone.config.hidden_size
+        
+        # Create task-specific adapters
+        self.task_adapters = nn.ModuleDict()
+        
+        for task in task_names:
+            # Create adapter layers for each transformer block
+            adapter_layers = nn.ModuleList()
+            
+            # For each transformer block in the backbone
+            for i in range(backbone.config.num_hidden_layers):
+                # Create an adapter for this layer
+                adapter_block = nn.ModuleDict({
+                    "attn_q": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "attn_k": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "attn_v": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "attn_out": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "mlp": TaskAdapter(emb_dim, dropout=lora_dropout)
+                })
+                adapter_layers.append(adapter_block)
+            
+            # Final output adapter for this task
+            final_adapter = TaskAdapter(emb_dim, dropout=lora_dropout)
+            
+            # Store all adapters for this task as a ModuleDict
+            task_module_dict = nn.ModuleDict()
+            task_module_dict.add_module("output", final_adapter)
+            task_module_dict.add_module("layers", adapter_layers)
+            
+            self.task_adapters[task] = task_module_dict
+    
+    def set_active_task(self, task_name: str):
+        """Set the active task for inference"""
+        if task_name not in self.task_names:
+            raise ValueError(f"Task {task_name} not found in available tasks: {self.task_names}")
+        self.active_task = task_name
+    
+    def forward(self, x):
+        """Apply backbone and task-specific adapters"""
+        if self.active_task is None:
+            raise ValueError("No active task set. Call set_active_task first.")
+        
+        # Get active task adapters
+        adapters = self.task_adapters[self.active_task]
+        
+        # Forward through backbone
+        hidden_states = self.backbone(x)
+        
+        # Apply final adapter
+        output = adapters["output"](hidden_states)
+        
+        return output
+
+
+class PatchTSTAdapterModel(nn.Module):
+    """
+    Multi-task model with PatchTST backbone and task-specific adapters and heads
+    """
+    def __init__(
+        self, 
+        backbone, 
+        task_classes: Dict[str, int],
+        lora_r: int = 8,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05
+    ):
+        super().__init__()
+        self.backbone = backbone
+        self.task_names = list(task_classes.keys())
+        self.active_task = None
+        
+        # Prepare backbone config if it doesn't exist
+        if not hasattr(backbone, 'config'):
+            # Create config with necessary attributes
+            class ConfigDict(dict):
+                def __getattr__(self, name):
+                    try:
+                        return self[name]
+                    except KeyError:
+                        raise AttributeError(f"No such attribute: {name}")
+            
+            # Extract attributes from the transformer blocks
+            num_layers = len(backbone.transformer.layers)
+            emb_dim = backbone.emb_dim if hasattr(backbone, 'emb_dim') else backbone.transformer.layers[0].self_attn.embed_dim
+            
+            backbone.config = ConfigDict(
+                hidden_size=emb_dim,
+                num_hidden_layers=num_layers
+            )
+        
+        # Task-specific adapters
+        self.adapters = PatchTSTTaskAdapters(
+            backbone, 
+            self.task_names,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout
+        )
+        
+        # Task-specific classification heads
+        hidden_size = backbone.config.hidden_size
+        self.heads = nn.ModuleDict({
+            task: nn.Linear(hidden_size, num_classes)
+            for task, num_classes in task_classes.items()
+        })
+        
+        # Initialize heads
+        for head in self.heads.values():
+            nn.init.xavier_uniform_(head.weight)
+            nn.init.zeros_(head.bias)
+    
+    def set_active_task(self, task_name: str):
+        """Set the active task for inference"""
+        if task_name not in self.task_names:
+            raise ValueError(f"Task {task_name} not found in available tasks: {self.task_names}")
+        self.active_task = task_name
+        self.adapters.set_active_task(task_name)
+    
+    def forward(self, x):
+        """Forward pass for the active task"""
+        if self.active_task is None:
+            raise ValueError("No active task set. Call set_active_task first.")
+        
+        # Get adapted features
+        features = self.adapters(x)
+        
+        # Apply task-specific head
+        logits = self.heads[self.active_task](features)
+        
+        return logits
+
+
+class TimesFormerTaskAdapters(nn.Module):
+    """
+    Collection of task-specific adapters for TimesFormer-1D model
+    """
+    def __init__(
+        self, 
+        backbone, 
+        task_names: List[str],
+        lora_r: int = 8,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05
+    ):
+        super().__init__()
+        self.backbone = backbone
+        self.task_names = task_names
+        self.active_task = None
+        
+        # Get hidden size from the backbone
+        emb_dim = backbone.config.hidden_size
+        
+        # Create task-specific adapters
+        self.task_adapters = nn.ModuleDict()
+        
+        for task in task_names:
+            # Create adapter layers for each transformer block
+            adapter_layers = nn.ModuleList()
+            
+            # For each transformer block in the backbone
+            for i in range(backbone.config.num_hidden_layers):
+                # Create separate adapters for temporal and feature attention
+                adapter_block = nn.ModuleDict({
+                    # Temporal attention adapters
+                    "temporal_q": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "temporal_k": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "temporal_v": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "temporal_out": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    
+                    # Feature attention adapters
+                    "feature_q": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "feature_k": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "feature_v": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    "feature_out": LoRALayer(emb_dim, emb_dim, r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout),
+                    
+                    # MLP adapter
+                    "mlp": TaskAdapter(emb_dim, dropout=lora_dropout)
+                })
+                adapter_layers.append(adapter_block)
+            
+            # Final output adapter for this task
+            final_adapter = TaskAdapter(emb_dim, dropout=lora_dropout)
+            
+            # Store all adapters for this task as a ModuleDict
+            task_module_dict = nn.ModuleDict()
+            task_module_dict.add_module("output", final_adapter)
+            task_module_dict.add_module("layers", adapter_layers)
+            
+            self.task_adapters[task] = task_module_dict
+    
+    def set_active_task(self, task_name: str):
+        """Set the active task for inference"""
+        if task_name not in self.task_names:
+            raise ValueError(f"Task {task_name} not found in available tasks: {self.task_names}")
+        self.active_task = task_name
+    
+    def forward(self, x):
+        """Apply backbone and task-specific adapters"""
+        if self.active_task is None:
+            raise ValueError("No active task set. Call set_active_task first.")
+        
+        # Get active task adapters
+        adapters = self.task_adapters[self.active_task]
+        
+        # Forward through backbone
+        hidden_states = self.backbone(x)
+        
+        # Apply final adapter
+        output = adapters["output"](hidden_states)
+        
+        return output
+
+
+class TimesFormerAdapterModel(nn.Module):
+    """
+    Multi-task model with TimesFormer-1D backbone and task-specific adapters and heads
+    """
+    def __init__(
+        self, 
+        backbone, 
+        task_classes: Dict[str, int],
+        lora_r: int = 8,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05
+    ):
+        super().__init__()
+        self.backbone = backbone
+        self.task_names = list(task_classes.keys())
+        self.active_task = None
+        
+        # Prepare backbone config if it doesn't exist
+        if not hasattr(backbone, 'config'):
+            # Create config with necessary attributes
+            class ConfigDict(dict):
+                def __getattr__(self, name):
+                    try:
+                        return self[name]
+                    except KeyError:
+                        raise AttributeError(f"No such attribute: {name}")
+            
+            # Extract attributes from the transformer blocks
+            num_layers = len(backbone.blocks)
+            emb_dim = backbone.emb_dim if hasattr(backbone, 'emb_dim') else backbone.blocks[0].norm1.normalized_shape[0]
+            
+            backbone.config = ConfigDict(
+                hidden_size=emb_dim,
+                num_hidden_layers=num_layers
+            )
+        
+        # Task-specific adapters
+        self.adapters = TimesFormerTaskAdapters(
+            backbone, 
+            self.task_names,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout
+        )
+        
+        # Task-specific classification heads
+        hidden_size = backbone.config.hidden_size
+        self.heads = nn.ModuleDict({
+            task: nn.Linear(hidden_size, num_classes)
+            for task, num_classes in task_classes.items()
+        })
+        
+        # Initialize heads
+        for head in self.heads.values():
+            nn.init.xavier_uniform_(head.weight)
+            nn.init.zeros_(head.bias)
+    
+    def set_active_task(self, task_name: str):
+        """Set the active task for inference"""
+        if task_name not in self.task_names:
+            raise ValueError(f"Task {task_name} not found in available tasks: {self.task_names}")
+        self.active_task = task_name
+        self.adapters.set_active_task(task_name)
+    
+    def forward(self, x):
+        """Forward pass for the active task"""
+        if self.active_task is None:
+            raise ValueError("No active task set. Call set_active_task first.")
+        
+        # Get adapted features
+        features = self.adapters(x)
+        
+        # Apply task-specific head
+        logits = self.heads[self.active_task](features)
+        
+        return logits

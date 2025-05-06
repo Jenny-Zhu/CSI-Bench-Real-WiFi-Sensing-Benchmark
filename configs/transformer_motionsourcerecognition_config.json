@@ -1,5 +1,5 @@
 {
-  "model_name": "transformer",
+  "model": "transformer",
   "task": "MotionSourceRecognition",
   "batch_size": 32,
   "num_epochs": 10,
@@ -14,3 +14,4 @@
   "output_dir": "./results",
   "num_classes": 4
 }
+

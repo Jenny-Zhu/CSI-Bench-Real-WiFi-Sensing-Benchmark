@@ -66,7 +66,7 @@ def load_default_config():
             "seed": 42,
             "batch_size": 8,
             "epochs": 10,
-            "model_name": "transformer",
+            "model": "transformer",
             "task_class_mapping": {
                 "HumanNonhuman": 2, 
                 "MotionSourceRecognition": 4, 
@@ -118,7 +118,7 @@ FEATURE_SIZE = DEFAULT_CONFIG.get("feature_size", 98)
 SEED = DEFAULT_CONFIG.get("seed", 42)
 BATCH_SIZE = DEFAULT_CONFIG.get("batch_size", 8)
 EPOCH_NUMBER = DEFAULT_CONFIG.get("epochs", 10)
-MODEL_NAME = DEFAULT_CONFIG.get("model_name", "transformer")
+MODEL_NAME = DEFAULT_CONFIG.get("model", "transformer")
 
 # Check if CUDA is available
 if torch.cuda.is_available():
@@ -265,7 +265,7 @@ def get_supervised_config(args=None, custom_config=None):
         # Other parameters
         'seed': SEED,
         'device': DEVICE,
-        'model_name': MODEL_NAME,
+        'model': MODEL_NAME,
         'win_len': WIN_LEN,
         'feature_size': FEATURE_SIZE
     }
@@ -278,14 +278,14 @@ def get_supervised_config(args=None, custom_config=None):
     # Override with command line arguments if provided
     if args:
         if hasattr(args, 'model') and args.model:
-            config['model_name'] = args.model
+            config['model'] = args.model
         
         if hasattr(args, 'task') and args.task:
             config['task'] = args.task
             # Update num_classes based on task
             config['num_classes'] = TASK_CLASS_MAPPING.get(args.task, 2)
             # Update results_subdir based on model and task
-            config['results_subdir'] = f"{config['model_name']}_{args.task.lower()}"
+            config['results_subdir'] = f"{config['model']}_{args.task.lower()}"
         
         if hasattr(args, 'training_dir') and args.training_dir:
             config['training_dir'] = args.training_dir
@@ -362,7 +362,7 @@ def get_multitask_config(args=None, custom_config=None):
         'patience': 10,
         
         # Model parameters
-        'model_type': MODEL_NAME,
+        'model': MODEL_NAME,
         'tasks': TASK,
         'win_len': WIN_LEN,
         'feature_size': FEATURE_SIZE,
@@ -387,7 +387,7 @@ def get_multitask_config(args=None, custom_config=None):
             config['tasks'] = args.tasks
             
         if hasattr(args, 'model') and args.model:
-            config['model_type'] = args.model
+            config['model'] = args.model
             
         if hasattr(args, 'training_dir') and args.training_dir:
             config['data_dir'] = args.training_dir
@@ -493,7 +493,7 @@ def run_supervised_direct(config):
     """
     # Get task and model names from config
     task_name = config.get('task', TASK)
-    model_name = config.get('model_name', MODEL_NAME)
+    model_name = config.get('model', MODEL_NAME)
     
     # Get base directories
     base_output_dir = config.get('output_dir', OUTPUT_DIR)
@@ -511,7 +511,7 @@ def run_supervised_direct(config):
         "python", os.path.join(SCRIPT_DIR, "train_supervised.py"),
         f"--data_dir={config.get('training_dir', TRAINING_DIR)}",
         f"--task_name={task_name}",
-        f"--model_name={model_name}",
+        f"--model={model_name}",
         f"--batch_size={config.get('batch_size', BATCH_SIZE)}",
         f"--epochs={config.get('epochs', EPOCH_NUMBER)}",
         f"--learning_rate={config.get('learning_rate', 1e-4)}",
@@ -586,7 +586,7 @@ def run_multitask_direct(config):
     """
     # Get tasks list and model type
     tasks = config.get('tasks', TASK)
-    model_type = config.get('model_type', MODEL_NAME)
+    model = config.get('model', MODEL_NAME)
     
     # Get project root directory for resolving paths
     project_root = ROOT_DIR
@@ -614,7 +614,7 @@ def run_multitask_direct(config):
     
     # Add command line arguments
     cmd += f" --tasks={tasks}"
-    cmd += f" --model_type={model_type}"
+    cmd += f" --model={model}"
     
     # Ensure data_dir is resolved correctly
     data_dir = config.get('data_dir', TRAINING_DIR)
@@ -668,7 +668,7 @@ def run_multitask_direct(config):
             # Print path to the results for each task
             tasks_list = tasks.split(',')
             for task in tasks_list:
-                task_result_path = os.path.join(save_dir, task, model_type, experiment_id)
+                task_result_path = os.path.join(save_dir, task, model, experiment_id)
                 print(f"Results for task {task} saved to: {task_result_path}")
     
     return return_code
@@ -692,13 +692,13 @@ def save_config(config, pipeline='supervised'):
         config_filename = os.path.join(CONFIG_DIR, pipeline, f"meta_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     elif pipeline == 'multitask':
         tasks = config.get('tasks', TASK)
-        model_type = config.get('model_type', MODEL_NAME)
+        model = config.get('model', MODEL_NAME)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        config_filename = os.path.join(CONFIG_DIR, pipeline,f"multitask_{model_type}_{timestamp}.json")
+        config_filename = os.path.join(CONFIG_DIR, pipeline,f"multitask_{model}_{timestamp}.json")
     else:
-        model_name = config.get('model_name', MODEL_NAME)
+        model = config.get('model', MODEL_NAME)
         task_name = config.get('task', TASK).lower()
-        config_filename = os.path.join(CONFIG_DIR, pipeline,f"{model_name}_{task_name}_config.json")
+        config_filename = os.path.join(CONFIG_DIR, pipeline,f"supervised_{model}_{task_name}_config.json")
     
     # Save config
     with open(config_filename, 'w') as f:

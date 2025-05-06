@@ -23,7 +23,9 @@ from model.supervised.models import (
     LSTMClassifier, 
     ResNet18Classifier, 
     TransformerClassifier, 
-    ViTClassifier
+    ViTClassifier,
+    PatchTST,
+    TimesFormer1D
 )
 
 # Import TaskTrainer
@@ -35,7 +37,9 @@ MODEL_TYPES = {
     'lstm': LSTMClassifier,
     'resnet18': ResNet18Classifier,
     'transformer': TransformerClassifier,
-    'vit': ViTClassifier
+    'vit': ViTClassifier,
+    'patchtst': PatchTST,
+    'timesformer1d': TimesFormer1D
 }
 
 def main(args=None):
@@ -45,15 +49,15 @@ def main(args=None):
                             help='Root directory of the dataset')
         parser.add_argument('--task_name', type=str, default='MotionSourceRecognition',
                             help='Name of the task to train on')
-        parser.add_argument('--model_name', type=str, default='vit', 
-                            choices=['mlp', 'lstm', 'resnet18', 'transformer', 'vit'],
+        parser.add_argument('--model', type=str, default='vit', 
+                            choices=['mlp', 'lstm', 'resnet18', 'transformer', 'vit', 'patchtst', 'timesformer1d'],
                             help='Type of model to train')
         parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
         parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train')
         parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
         parser.add_argument('--data_key', type=str, default='CSI_amps',
                             help='Key for CSI data in h5 files')
-        parser.add_argument('--save_dir', type=str, default='checkpoints',
+        parser.add_argument('--save_dir', type=str, default='results',
                             help='Directory to save checkpoints')
         parser.add_argument('--output_dir', type=str, default=None,
                             help='Directory to save results (defaults to save_dir if not specified)')
@@ -71,11 +75,31 @@ def main(args=None):
         parser.add_argument('--in_channels', type=int, default=1, 
                             help='Number of input channels for convolutional models')
         parser.add_argument('--emb_dim', type=int, default=128, 
-                            help='Embedding dimension for ViT model')
+                            help='Embedding dimension for transformer models')
         parser.add_argument('--d_model', type=int, default=256, 
                             help='Model dimension for Transformer model')
         parser.add_argument('--dropout', type=float, default=0.1, 
                             help='Dropout rate for regularization')
+        # PatchTST specific parameters
+        parser.add_argument('--patch_len', type=int, default=16,
+                            help='Patch length for PatchTST model')
+        parser.add_argument('--stride', type=int, default=8,
+                            help='Stride for patches in PatchTST model')
+        parser.add_argument('--pool', type=str, default='cls', choices=['cls', 'mean'],
+                            help='Pooling method for PatchTST (cls or mean)')
+        parser.add_argument('--head_dropout', type=float, default=0.2,
+                            help='Dropout rate for classification head')
+        # TimesFormer-1D specific parameters
+        parser.add_argument('--patch_size', type=int, default=4,
+                            help='Patch size for TimesFormer-1D model')
+        parser.add_argument('--attn_dropout', type=float, default=0.1,
+                            help='Dropout rate for attention layers')
+        parser.add_argument('--mlp_ratio', type=float, default=4.0,
+                            help='MLP ratio for transformer blocks')
+        parser.add_argument('--depth', type=int, default=6,
+                            help='Number of transformer layers')
+        parser.add_argument('--num_heads', type=int, default=4,
+                            help='Number of attention heads')
         
         args = parser.parse_args()
     
@@ -108,26 +132,26 @@ def main(args=None):
         print("Running in SageMaker environment")
         model_dir = '/opt/ml/model'
         # If running in SageMaker, ensure we save in the model directory with task/model/experiment structure
-        # Directory structure: model_dir/task_name/model_name/experiment_id/
-        results_dir = os.path.join(model_dir, args.task_name, args.model_name, experiment_id)
+        # Directory structure: model_dir/task_name/model/experiment_id/
+        results_dir = os.path.join(model_dir, args.task_name, args.model, experiment_id)
         os.makedirs(results_dir, exist_ok=True)
         # Also create the checkpoints directory under the task/model/experiment structure
-        # Directory structure: save_dir/task_name/model_name/experiment_id/
-        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_name, experiment_id)
+        # Directory structure: save_dir/task_name/model/experiment_id/
+        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model, experiment_id)
         os.makedirs(checkpoint_dir, exist_ok=True)
     else:
         print("Running in local environment")
         # Use specified directories for local environment with task/model/experiment structure
-        # Directory structure: output_dir/task_name/model_name/experiment_id/
-        results_dir = os.path.join(args.output_dir, args.task_name, args.model_name, experiment_id)
+        # Directory structure: output_dir/task_name/model/experiment_id/
+        results_dir = os.path.join(args.output_dir, args.task_name, args.model, experiment_id)
         os.makedirs(results_dir, exist_ok=True)
         # Create the checkpoints directory under the task/model/experiment structure
-        # Directory structure: save_dir/task_name/model_name/experiment_id/
-        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model_name, experiment_id)
+        # Directory structure: save_dir/task_name/model/experiment_id/
+        checkpoint_dir = os.path.join(args.save_dir, args.task_name, args.model, experiment_id)
         os.makedirs(checkpoint_dir, exist_ok=True)
         
         # Create best_performance.json file at model level if it doesn't exist
-        model_level_dir = os.path.join(args.output_dir, args.task_name, args.model_name)
+        model_level_dir = os.path.join(args.output_dir, args.task_name, args.model)
         best_performance_path = os.path.join(model_level_dir, "best_performance.json")
         if not os.path.exists(best_performance_path):
             with open(best_performance_path, "w") as f:
@@ -175,245 +199,242 @@ def main(args=None):
     dataset = train_loader.dataset
     print(f"Detected {num_classes} classes in the dataset")
     
-    # Create model based on selected type
-    print(f"Creating {args.model_name.upper()} model...")
-    ModelClass = MODEL_TYPES[args.model_name]
+    # Get test loaders
+    test_loaders = {k: v for k, v in loaders.items() if k.startswith('test')}
     
-    # Common parameters for all models
-    model_params = {
-        'num_classes': num_classes
-    }
+    # Prepare model
+    print(f"Creating {args.model.upper()} model...")
+    ModelClass = MODEL_TYPES[args.model]
     
-    # Add additional parameters based on model type
-    if args.model_name in ['mlp', 'vit']:
-        model_params.update({
-            'win_len': args.win_len,
-            'feature_size': args.feature_size
-        })
+    model_kwargs = {'num_classes': num_classes}
     
-    if args.model_name == 'resnet18':
-        model_params.update({
-            'in_channels': args.in_channels
-        })
+    # Add model-specific parameters
+    if args.model in ['mlp', 'vit', 'patchtst', 'timesformer1d']:
+        model_kwargs.update({'win_len': args.win_len, 'feature_size': args.feature_size})
     
-    if args.model_name == 'lstm':
-        model_params.update({
-            'feature_size': args.feature_size,
-            'dropout': args.dropout
-        })
+    # ResNet18 specific parameters
+    if args.model == 'resnet18':
+        model_kwargs.update({'in_channels': args.in_channels})
     
-    if args.model_name == 'transformer':
-        model_params.update({
+    # LSTM specific parameters
+    if args.model == 'lstm':
+        model_kwargs.update({'feature_size': args.feature_size})
+    
+    # Transformer specific parameters
+    if args.model == 'transformer':
+        model_kwargs.update({
             'feature_size': args.feature_size,
             'd_model': args.d_model,
             'dropout': args.dropout
         })
     
-    if args.model_name == 'vit':
-        model_params.update({
+    # ViT specific parameters
+    if args.model == 'vit':
+        model_kwargs.update({
             'emb_dim': args.emb_dim,
-            'dropout': args.dropout,
-            'in_channels': args.in_channels
+            'dropout': args.dropout
         })
     
-    model = ModelClass(**model_params)
+    # PatchTST specific parameters
+    if args.model == 'patchtst':
+        model_kwargs.update({
+            'patch_len': args.patch_len,
+            'stride': args.stride,
+            'emb_dim': args.emb_dim, 
+            'pool': args.pool,
+            'head_dropout': args.head_dropout,
+            'depth': args.depth,
+            'num_heads': args.num_heads,
+            'dropout': args.dropout
+        })
+    
+    # TimesFormer-1D specific parameters
+    if args.model == 'timesformer1d':
+        model_kwargs.update({
+            'patch_size': args.patch_size,
+            'emb_dim': args.emb_dim,
+            'depth': args.depth,
+            'num_heads': args.num_heads,
+            'attn_dropout': args.attn_dropout,
+            'head_dropout': args.head_dropout,
+            'mlp_ratio': args.mlp_ratio,
+            'dropout': args.dropout
+        })
+    
+    # Initialize model
+    model = ModelClass(**model_kwargs)
     model = model.to(device)
-    print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
     
-    # Create configuration object for trainer
-    config = type('Config', (), {
-        'epochs': args.epochs,
-        'learning_rate': args.learning_rate,
-        'weight_decay': args.weight_decay,
-        'warmup_epochs': args.warmup_epochs,
-        'patience': args.patience,
-        'num_classes': num_classes,
-        'device': str(device),
-        'save_dir': checkpoint_dir,  # Use the checkpoint_dir for model checkpoints
-        'output_dir': results_dir,  # Use results_dir for output
-        'results_subdir': 'supervised',
-        'model_name': args.model_name,
-        'task_name': args.task_name
-    })
+    print(f"Model parameters: {sum(p.numel() for p in model.parameters())}")
     
-    # Save the configuration
-    config_path = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_config.json")
-    with open(config_path, "w") as f:
-        # Convert config to dict
-        config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
-        json.dump(config_dict, f, indent=4)
-    
-    print(f"Configuration saved to {config_path}")
-    
-    # Create trainer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    
-    trainer = TaskTrainer(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        device=device,
-        save_path=checkpoint_dir,  # Use checkpoint_dir for model checkpoints
-        num_classes=num_classes,
-        label_mapper=label_mapper,
-        config=config
+    # Set up optimizer and loss function
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay
     )
     
-    # Train the model
-    trained_model, training_results = trainer.train()
+    criterion = nn.CrossEntropyLoss()
     
-    # Evaluate on test set(s) if available
-    print("\nEvaluating on test sets:")
-    
-    # 统一处理训练结果，无论它是DataFrame还是字典
-    overall_metrics = {
-        'model_name': args.model_name,
-        'task_name': args.task_name
-    }
-    
-    # 转换training_results为标准格式
-    if isinstance(training_results, pd.DataFrame):
-        # 从DataFrame中提取数据
-        train_history = {
-            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.epochs + 1)),
-            'train_loss_history': training_results['Train Loss'].tolist() if 'Train Loss' in training_results.columns else [],
-            'val_loss_history': training_results['Val Loss'].tolist() if 'Val Loss' in training_results.columns else [],
-            'train_accuracy_history': training_results['Train Accuracy'].tolist() if 'Train Accuracy' in training_results.columns else [],
-            'val_accuracy_history': training_results['Val Accuracy'].tolist() if 'Val Accuracy' in training_results.columns else []
-        }
-        
-        # 找到最佳验证准确率和对应的epoch
-        if 'Val Accuracy' in training_results.columns:
-            best_idx = training_results['Val Accuracy'].idxmax()
-            best_epoch = int(training_results.loc[best_idx, 'Epoch'])
-            best_val_accuracy = float(training_results.loc[best_idx, 'Val Accuracy'])
-        else:
-            best_epoch = args.epochs
-            best_val_accuracy = 0.0
-    else:
-        # 如果已经是字典，直接提取需要的数据
-        train_history = {
-            'train_loss_history': training_results.get('train_loss_history', []),
-            'val_loss_history': training_results.get('val_loss_history', []),
-            'train_accuracy_history': training_results.get('train_accuracy_history', []),
-            'val_accuracy_history': training_results.get('val_accuracy_history', [])
-        }
-        
-        # 从字典中获取最佳验证准确率和对应的epoch
-        best_epoch = training_results.get('best_epoch', args.epochs)
-        best_val_accuracy = training_results.get('best_val_accuracy', 0.0)
-    
-    # 添加最佳结果到整体指标
-    overall_metrics['best_epoch'] = best_epoch
-    overall_metrics['best_val_accuracy'] = best_val_accuracy
-    
-    for key in loaders:
-        if key.startswith('test'):
-            print(f"\nEvaluating on {key} split:")
-            test_loss, test_acc = trainer.evaluate(loaders[key])
-            print(f"{key} loss: {test_loss:.4f}, accuracy: {test_acc:.4f}")
-            
-            # Store overall accuracy for this test set
-            overall_metrics[f'{key}_accuracy'] = float(test_acc)
-            
-            # Calculate overall F1 score (weighted average)
-            f1_score, _ = trainer.calculate_metrics(data_loader=loaders[key])
-            overall_metrics[f'{key}_f1_score'] = float(f1_score)
-            print(f"{key} F1 score (weighted): {f1_score:.4f}")
-            
-            # Plot confusion matrix for this test set
-            confusion_path = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_{key}_confusion.png")
-            trainer.plot_confusion_matrix(data_loader=loaders[key], mode=key, epoch=None)
-    
-    # Save training results summary with overall metrics
-    results_file = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_results.json")
-    with open(results_file, 'w') as f:
-        # 创建包含训练历史和整体指标的结果
-        serializable_results = {}
-        serializable_results.update(train_history)
-        serializable_results.update(overall_metrics)
-        
-        # 确保所有numpy类型都被转换为Python原生类型
-        def convert_to_json_serializable(obj):
-            if isinstance(obj, (np.integer, np.int64)):
-                return int(obj)
-            elif isinstance(obj, (np.floating, np.float32, np.float64)):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, pd.DataFrame):
-                return obj.to_dict()
-            elif isinstance(obj, list):
-                return [convert_to_json_serializable(item) for item in obj]
-            elif isinstance(obj, dict):
-                return {key: convert_to_json_serializable(value) for key, value in obj.items()}
-            else:
-                return obj
-        
-        serializable_results = convert_to_json_serializable(serializable_results)
-        json.dump(serializable_results, f, indent=4)
-    
-    # Save a separate summary file just for overall metrics
-    summary_file = os.path.join(results_dir, f"{args.model_name}_{args.task_name}_summary.json")
-    with open(summary_file, 'w') as f:
-        # 同样确保summary也是可序列化的
-        json.dump(convert_to_json_serializable(overall_metrics), f, indent=4)
-    
-    # Add experiment parameters to overall metrics for tracking
-    experiment_params = {
-        'learning_rate': args.learning_rate,
+    # Create config dictionary for saving
+    config = {
+        'model': args.model,
+        'task': args.task_name,
+        'num_classes': num_classes,
         'batch_size': args.batch_size,
-        'epochs': args.epochs,
+        'learning_rate': args.learning_rate,
         'weight_decay': args.weight_decay,
+        'epochs': args.epochs,
         'warmup_epochs': args.warmup_epochs,
         'patience': args.patience,
         'win_len': args.win_len,
         'feature_size': args.feature_size,
-        'dropout': getattr(args, 'dropout', 0.1),
-        'emb_dim': getattr(args, 'emb_dim', None),
-        'd_model': getattr(args, 'd_model', None),
-        'in_channels': getattr(args, 'in_channels', None),
     }
     
-    # In local environment, update the best performance record if this experiment has better results
+    # Save configuration
+    config_path = os.path.join(results_dir, f"{args.model}_{args.task_name}_config.json")
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=4)
+    
+    # Create scheduler
+    num_steps = len(train_loader) * args.epochs
+    warmup_steps = len(train_loader) * args.warmup_epochs
+    
+    def warmup_cosine_schedule(step):
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        else:
+            progress = float(step - warmup_steps) / float(max(1, num_steps - warmup_steps))
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+    
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_cosine_schedule)
+    
+    # Create TaskTrainer
+    trainer = TaskTrainer(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loaders,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=device,
+        save_path=checkpoint_dir,
+        num_classes=num_classes,
+        config={
+            'model': args.model,
+            'task': args.task_name,
+            'batch_size': args.batch_size,
+            'learning_rate': args.learning_rate,
+            'weight_decay': args.weight_decay,
+            'epochs': args.epochs,
+            'warmup_epochs': args.warmup_epochs,
+            'patience': args.patience,
+        },
+        label_mapper=label_mapper
+    )
+    
+    # Train the model with early stopping
+    best_epoch, history = trainer.train(
+        epochs=args.epochs,
+        patience=args.patience
+    )
+    
+    # Evaluate on test dataset
+    print("\nEvaluating on test splits:")
+    all_results = {}
+    for key, loader in test_loaders.items():
+        print(f"Evaluating on {key} split:")
+        metrics = trainer.evaluate(loader)
+        all_results[key] = metrics
+        print(f"{key} accuracy: {metrics['accuracy']:.4f}, F1-score: {metrics['f1_score']:.4f}")
+        
+        # Generate confusion matrix
+        print(f"Generating confusion matrix for {key} split...")
+        confusion_path = os.path.join(results_dir, f"{args.model}_{args.task_name}_{key}_confusion.png")
+        trainer.plot_confusion_matrix(data_loader=loader, mode=key, save_path=confusion_path)
+    
+    # Save test results
+    results_file = os.path.join(results_dir, f"{args.model}_{args.task_name}_results.json")
+    
+    # Some objects in the metrics might not be JSON serializable, so we need to convert them
+    def convert_to_json_serializable(obj):
+        if isinstance(obj, (np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return obj
+    
+    # Process all keys and values in all_results
+    for key in all_results:
+        all_results[key] = {k: convert_to_json_serializable(v) for k, v in all_results[key].items()}
+    
+    with open(results_file, 'w') as f:
+        json.dump(all_results, f, indent=4)
+    
+    # Save summary that includes training history, best epoch
+    summary = {
+        'best_epoch': best_epoch,
+        'best_val_loss': float(history.iloc[best_epoch]['val_loss']),
+        'best_val_accuracy': float(history.iloc[best_epoch]['val_accuracy']),
+        'test_accuracy': all_results.get('test', {}).get('accuracy', 0.0),
+        'test_f1_score': all_results.get('test', {}).get('f1_score', 0.0),
+        'experiment_id': experiment_id,
+        'experiment_completed': True
+    }
+    
+    summary_file = os.path.join(results_dir, f"{args.model}_{args.task_name}_summary.json")
+    with open(summary_file, 'w') as f:
+        json.dump(summary, f, indent=4)
+    
+    # Save training history
+    history_file = os.path.join(results_dir, f"{args.model}_{args.task_name}_train_history.csv")
+    history.to_csv(history_file, index=False)
+    
+    print(f"\nTraining and evaluation completed.")
+    print(f"Best model from epoch {best_epoch}, saved to {checkpoint_dir}")
+    print(f"Results saved to {results_dir}")
+    
+    # Check if this is the best model for the task so far
     if not is_sagemaker:
-        model_level_dir = os.path.join(args.output_dir, args.task_name, args.model_name)
+        # Update best_performance.json if performance improved
         best_performance_path = os.path.join(model_level_dir, "best_performance.json")
         
-        # Read current best performance
-        with open(best_performance_path, 'r') as f:
-            best_performance = json.load(f)
-        
-        # Get the primary test accuracy for comparison
-        test_key = 'test_accuracy' if 'test_accuracy' in overall_metrics else 'test1_accuracy'
-        current_accuracy = overall_metrics.get(test_key, 0.0)
-        
-        # Update if current experiment has better accuracy
-        if current_accuracy > best_performance['best_test_accuracy']:
-            best_performance['best_test_accuracy'] = current_accuracy
-            best_performance['best_experiment_id'] = experiment_id
-            best_performance['best_experiment_params'] = experiment_params
+        try:
+            with open(best_performance_path, 'r') as f:
+                best_performance = json.load(f)
             
-            # If available, also update F1 score
-            f1_key = 'test_f1_score' if 'test_f1_score' in overall_metrics else 'test1_f1_score'
-            if f1_key in overall_metrics:
-                best_performance['best_test_f1_score'] = overall_metrics[f1_key]
+            # Get current best test accuracy
+            current_best = best_performance.get('best_test_accuracy', 0.0)
             
-            # Write updated best performance record
-            with open(best_performance_path, 'w') as f:
-                json.dump(best_performance, f, indent=4)
+            # Compare current model performance with the best so far
+            test_accuracy = all_results.get('test', {}).get('accuracy', 0.0)
             
-            print(f"New best performance achieved! Updated {best_performance_path}")
+            if test_accuracy > current_best:
+                print(f"New best model! Test accuracy: {test_accuracy:.4f} (previous best: {current_best:.4f})")
+                
+                # Update best performance
+                best_performance.update({
+                    'best_test_accuracy': test_accuracy,
+                    'best_test_f1_score': all_results.get('test', {}).get('f1_score', 0.0),
+                    'best_experiment_id': experiment_id,
+                    'best_experiment_params': config,
+                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+                })
+                
+                # Save updated best performance
+                with open(best_performance_path, 'w') as f:
+                    json.dump(best_performance, f, indent=4)
+            else:
+                print(f"Not the best model. Current test accuracy: {test_accuracy:.4f} (best: {current_best:.4f})")
+        except Exception as e:
+            print(f"Warning: Failed to update best_performance.json: {e}")
     
-    print(f"\nTraining completed. Results saved to {results_file}")
-    print(f"Overall performance metrics saved to {summary_file}")
-    print(f"Model checkpoints saved to {checkpoint_dir}")
-    print(f"Final model and results saved to {results_dir}")
+    return summary['test_accuracy'], summary, model
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+    import math  # Import math here for the scheduler function
     main()

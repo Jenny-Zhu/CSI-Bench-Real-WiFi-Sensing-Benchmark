@@ -12,13 +12,14 @@
   "seed": 42,
   "batch_size": 8,
   "epochs": 10,
-  "model_name": "transformer",
+  "model": "transformer",
   "task_class_mapping": {
     "HumanNonhuman": 2, 
     "MotionSourceRecognition": 4
   },
-  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
+  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
     "MotionSourceRecognition"
   ]
 } 
+
