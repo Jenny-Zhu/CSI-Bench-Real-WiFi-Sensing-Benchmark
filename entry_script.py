@@ -11,56 +11,90 @@ import os
 import sys
 import importlib.util
 
+# 设置typing_extensions支持，用于解决typing.Literal导入问题
+print("设置typing_extensions支持...")
+# 确保typing_extensions已可用，并预先导入
+try:
+    import typing_extensions
+    from typing_extensions import Literal
+    # 在sys.modules中将Literal注入到typing模块
+    if 'typing' in sys.modules:
+        sys.modules['typing'].Literal = Literal
+    print("成功导入typing_extensions并配置Literal支持")
+except ImportError:
+    print("警告: 未找到typing_extensions，某些功能可能不可用")
+
 # Disable Horovod integration to avoid version conflict
-print("Disabling Horovod integration...")
+print("正在禁用Horovod集成以避免版本冲突...")
 sys.modules['horovod'] = None
 sys.modules['horovod.torch'] = None
 sys.modules['horovod.tensorflow'] = None
 
 # Disable SMDebug to avoid Horovod dependency
-print("Disabling SageMaker Debugger (smdebug)...")
+print("正在禁用SageMaker Debugger (smdebug)...")
 sys.modules['smdebug'] = None
 os.environ['SMDEBUG_DISABLED'] = 'true'
+os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
 # Set paths
-print("Setting up paths...")
+print("设置路径...")
 sys.path.insert(0, os.getcwd())
 
 # Now run the actual training script
-print("Preparing to run training script...")
+print("准备运行训练脚本...")
 from subprocess import check_call
+
+# 识别要执行的脚本
+# 检查SAGEMAKER_PROGRAM环境变量
+script_to_run = os.environ.get('SAGEMAKER_PROGRAM', 'train_multi_model.py')
+print(f"将要执行的脚本: {script_to_run}")
 
 # Get all command line arguments
 args = sys.argv[1:]
 
 # Print environment information
-print("\n===== Environment Information =====")
+print("\n===== 环境信息 =====")
 import platform
-print(f"Python version: {platform.python_version()}")
-print(f"Current directory: {os.getcwd()}")
-print(f"Files in directory: {os.listdir('.')}")
-print(f"Command: python3 train_multi_model.py {' '.join(args)}")
+print(f"Python版本: {platform.python_version()}")
+print(f"当前目录: {os.getcwd()}")
+print(f"目录中的文件: {', '.join(os.listdir('.'))[:200]}...")
+print(f"命令: python3 {script_to_run} {' '.join(args)}")
 print("==================================\n")
 
 # Try importing torch to verify it loads correctly without Horovod conflicts
 try:
     import torch
-    print(f"PyTorch version: {torch.__version__}")
-    print(f"CUDA available: {torch.cuda.is_available()}")
+    print(f"PyTorch版本: {torch.__version__}")
+    print(f"CUDA可用: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
-        print(f"CUDA version: {torch.version.cuda}")
-        print(f"GPU device: {torch.cuda.get_device_name(0)}")
-    print("PyTorch imported successfully without Horovod conflict")
+        print(f"CUDA版本: {torch.version.cuda}")
+        print(f"GPU设备: {torch.cuda.get_device_name(0)}")
+    print("PyTorch成功导入，没有Horovod冲突")
 except Exception as e:
-    print(f"Error importing PyTorch: {e}")
+    print(f"导入PyTorch时出错: {e}")
     sys.exit(1)  # Exit if we can't import PyTorch
 
-print("\nStarting training script...\n")
+# 尝试导入peft库确认是否可以正确加载
+try:
+    import peft
+    print(f"PEFT库版本: {peft.__version__}")
+    print("PEFT库成功导入")
+except Exception as e:
+    print(f"导入PEFT库时出错: {e}")
+    # 这不是致命错误，仍然继续尝试执行
+
+# 检查脚本是否存在
+if not os.path.exists(script_to_run):
+    print(f"错误: 找不到脚本 {script_to_run}")
+    print(f"当前目录中的Python文件: {[f for f in os.listdir('.') if f.endswith('.py')]}")
+    sys.exit(1)
+
+print(f"\n开始运行脚本 {script_to_run}...\n")
 
 # Run the actual training script with the same arguments
 try:
-    ret = check_call([sys.executable, "train_multi_model.py"] + args)
+    ret = check_call([sys.executable, script_to_run] + args)
     sys.exit(ret)
 except Exception as e:
-    print(f"Error running training script: {e}")
+    print(f"运行训练脚本时出错: {e}")
     sys.exit(1) 
