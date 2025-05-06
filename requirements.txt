@@ -10,3 +10,6 @@ scikit-learn>=1.0.0
 tqdm>=4.62.0
 h5py>=3.7.0
 einops>=0.6.0
+# 可选依赖项 - 如果需要使用以下功能请取消注释
+# peft>=0.3.0
+# transformers>=4.30.0

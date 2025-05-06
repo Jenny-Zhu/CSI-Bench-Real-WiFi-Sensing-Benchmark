@@ -425,7 +425,7 @@ class SageMakerRunner:
             
             # Create estimator with optimized configuration
             estimator = PyTorch(
-                entry_point="train_multi_model.py",
+                entry_point="entry_script.py",  # Use our custom entry script to bypass Horovod/smdebug
                 source_dir=".",  # Use source_dir for local development
                 dependencies=["requirements.txt"],  # Use our custom requirements file
                 role=self.role,
@@ -470,7 +470,7 @@ class SageMakerRunner:
                     
                     # Disable unnecessary features
                     'DISABLE_SMDATAPARALLEL': '1',                 # Disable SM distributed training
-                    'SAGEMAKER_PROGRAM': 'train_multi_model.py'    # Specify entry point
+                    'SAGEMAKER_PROGRAM': 'entry_script.py'         # Specify entry point
                 }
             )
             
