@@ -943,6 +943,147 @@ if __name__ == '__main__':
         
         return all_jobs
 
+    def test_environment_only(self, instance_type=None, wait=False):
+        """
+        提交一个极简的作业来仅测试环境配置，无需完整数据下载。
+        这个方法使用特殊的'test_environment'标志来指示我们只进行环境测试。
+        
+        Args:
+            instance_type (str): SageMaker实例类型，默认使用小型实例
+            wait (bool): 是否等待作业完成
+            
+        Returns:
+            dict: 包含作业详细信息的字典
+        """
+        print(f"启动快速环境测试作业...")
+        
+        # 创建此作业的时间戳
+        job_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        
+        # 创建作业名称
+        job_name = f"wifi-env-test-{job_timestamp[-6:]}"
+        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
+        
+        # 输出路径
+        s3_output_path = f"{S3_OUTPUT_BASE}env_tests/"
+        
+        print(f"创建环境测试作业: {job_name}")
+        print(f"输出路径: {s3_output_path}")
+        
+        # 构建超参数 - 只需要极少的参数
+        hyperparameters = {
+            "test_only": "",  # 标记这只是一个测试作业
+        }
+        
+        # 使用测试脚本
+        test_script = "test_sagemaker_env.py"
+        
+        # 创建PyTorch估计器 - 使用小型实例以节省成本
+        instance_type_to_use = instance_type or "ml.g4dn.xlarge"
+        
+        estimator = PyTorch(
+            entry_point=test_script,  # 直接使用测试脚本作为入口点
+            source_dir=".",
+            dependencies=["requirements.txt"],
+            role=self.role,
+            framework_version=FRAMEWORK_VERSION,
+            py_version=PY_VERSION,
+            instance_count=1,
+            instance_type=instance_type_to_use,
+            max_run=900,  # 最多15分钟 - 环境测试不需要更长时间
+            output_path=s3_output_path,
+            base_job_name=job_name,
+            hyperparameters=hyperparameters,
+            volume_size=30,  # 较小的卷大小用于测试
+            debugger_hook_config=False,  # 禁用调试器
+            disable_profiler=True,        # 禁用分析器
+            environment={
+                # 代码目录
+                'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',
+                'PYTHONPATH': '/opt/ml/code',
+                
+                # 禁用SageMaker调试工具
+                'SM_DISABLE_PROFILER': 'true',
+                'SM_DISABLE_DEBUGGER': 'true',
+                'SMDEBUG_DISABLED': 'true',
+                
+                # 禁用Horovod集成
+                'HOROVOD_WITH_PYTORCH': '0',
+                'HOROVOD_WITHOUT_PYTORCH': '1',
+                'USE_HOROVOD': 'false',
+                
+                # 其他设置
+                'LOG_LEVEL': 'INFO',
+                'TORCH_CUDNN_V8_API_ENABLED': '1',
+                
+                # 禁用不必要的功能
+                'DISABLE_SMDATAPARALLEL': '1',
+                'SAGEMAKER_PROGRAM': test_script
+            }
+        )
+        
+        # 创建一个空的或非常小的输入数据集
+        # 使用与培训任务相同的格式，但内容极少
+        try:
+            # 准备一个空目录作为输入
+            import tempfile
+            tmp_dir = tempfile.mkdtemp()
+            os.makedirs(os.path.join(tmp_dir, 'tasks'), exist_ok=True)
+            
+            # 在临时目录中创建一个空文件以确保数据通道有效
+            with open(os.path.join(tmp_dir, 'tasks', 'test_file.txt'), 'w') as f:
+                f.write("This is a minimal test file to make the data channel valid.\n")
+            
+            # 使用Session上传到S3
+            s3_prefix = f"test-env-inputs/{job_timestamp}"
+            s3_test_input = self.session.upload_data(tmp_dir, 
+                                                bucket=S3_DATA_BASE.split('/')[2],
+                                                key_prefix=s3_prefix)
+            
+            print(f"已创建最小测试输入数据: {s3_test_input}")
+        except Exception as e:
+            print(f"创建测试输入数据时出错: {e}")
+            # 如果失败，回退到标准数据位置，但仍然会避免下载大部分内容
+            s3_test_input = S3_DATA_BASE
+        
+        # 使用我们的测试输入准备数据通道
+        data_channels = {
+            'training': TrainingInput(
+                s3_data=s3_test_input,
+                distribution='FullyReplicated',
+                content_type='application/x-directory',
+                s3_data_type='S3Prefix',
+                input_mode='File'
+            )
+        }
+        
+        # 启动作业
+        print(f"启动SageMaker环境测试作业...")
+        estimator.fit(inputs=data_channels, job_name=job_name, wait=wait)
+        
+        if wait:
+            print("作业已完成。")
+            # 打印CloudWatch Logs的URL
+            region = boto3.session.Session().region_name
+            log_url = f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logStream:group=/aws/sagemaker/TrainingJobs;prefix={job_name}"
+            print(f"CloudWatch Logs URL: {log_url}")
+        else:
+            print(f"作业已提交，继续在后台运行...")
+            print(f"在SageMaker控制台监控作业: {job_name}")
+        
+        # 返回作业信息
+        job_info = {
+            'job_name': job_name,
+            'estimator': estimator,
+            'inputs': data_channels,
+            'config': {
+                'task_name': 'env_test',
+                'output_dir': s3_output_path
+            }
+        }
+        
+        return job_info
+
 def main():
     """Main function to execute from command line"""
     parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
@@ -961,6 +1102,10 @@ def main():
                       help='Size of the EBS volume in GB')
     parser.add_argument('--test-args', dest='test_args', action='store_true',
                       help='Test argument parsing without running a job')
+    parser.add_argument('--test-env', dest='test_env', action='store_true',
+                      help='Test environment configuration by submitting a minimal job')
+    parser.add_argument('--wait', dest='wait', action='store_true',
+                      help='Wait for the job to complete (when using --test-env)')
     parser.add_argument('--pipeline', type=str, default='supervised',
                       choices=AVAILABLE_PIPELINES,
                       help='Pipeline to run (supervised, meta, or multitask)')
@@ -973,6 +1118,15 @@ def main():
     
     # Create SageMaker runner instance
     runner = SageMakerRunner()
+    
+    # 如果要仅测试环境配置
+    if args.test_env:
+        print("正在进行快速环境测试 - 将提交最小作业，只测试环境配置")
+        runner.test_environment_only(
+            instance_type=args.instance_type,
+            wait=args.wait
+        )
+        return
     
     # If using test mode, only test argument parsing
     if args.test_args:
