@@ -26,7 +26,8 @@ class BenchmarkCSIDataset(Dataset):
                  data_column="file_path",  # Column in metadata that points to data
                  label_column="label",   # Column in metadata for label
                  data_key="CSI_amps",   # Key in h5 file for data
-                 label_mapper=None):   # Optional label mapper for converting string labels to indices
+                 label_mapper=None,     # Optional label mapper for converting string labels to indices
+                 task_dir=None):        # Optional task directory path (to avoid searching again)
         self.dataset_root = dataset_root
         self.task_name = task_name
         self.transform = transform
@@ -36,13 +37,107 @@ class BenchmarkCSIDataset(Dataset):
         self.label_column = label_column
         self.data_key = data_key
         
-        # Build paths
-        if "tasks" in dataset_root and os.path.isdir(os.path.join(dataset_root, task_name)):
-            task_dir = os.path.join(dataset_root, task_name)
+        # Use provided task_dir if available
+        if task_dir is not None and os.path.isdir(task_dir):
+            self.task_dir = task_dir
+            print(f"Using provided task directory: {self.task_dir}")
         else:
-            task_dir = os.path.join(dataset_root, "tasks", task_name)
-        split_path = os.path.join(task_dir, "splits", f"{split_name}.json")
-        metadata_path = os.path.join(task_dir, "metadata", "subset_metadata.csv")
+            # Build paths
+            possible_paths = [
+                os.path.join(dataset_root, "tasks", task_name),              # dataset_root/tasks/task_name
+                os.path.join(dataset_root, task_name),                        # dataset_root/task_name
+                os.path.join(dataset_root, task_name.lower()),                # dataset_root/task_name_lowercase
+                os.path.join(dataset_root, "tasks", task_name.lower())        # dataset_root/tasks/task_name_lowercase
+            ]
+            
+            task_dir_found = None
+            for path in possible_paths:
+                print(f"Dataset checking path: {path}")
+                if os.path.isdir(path):
+                    # Check if this directory has metadata and splits
+                    has_metadata = os.path.exists(os.path.join(path, 'metadata'))
+                    has_splits = os.path.exists(os.path.join(path, 'splits'))
+                    print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+                    
+                    if has_metadata or has_splits:
+                        task_dir_found = path
+                        break
+            
+            # If not found, try walking the directory to find it
+            if task_dir_found is None:
+                print(f"Dataset task directory not found in predefined paths, searching recursively...")
+                for root, dirs, files in os.walk(dataset_root):
+                    if task_name in dirs or task_name.lower() in dirs:
+                        # Try with exact case first
+                        if task_name in dirs:
+                            potential_task_dir = os.path.join(root, task_name)
+                        else:
+                            potential_task_dir = os.path.join(root, task_name.lower())
+                        
+                        # Check if this directory has metadata or splits
+                        has_metadata = os.path.exists(os.path.join(potential_task_dir, 'metadata'))
+                        has_splits = os.path.exists(os.path.join(potential_task_dir, 'splits'))
+                        print(f"Found potential directory: {potential_task_dir}")
+                        print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+                        
+                        if has_metadata or has_splits:
+                            task_dir_found = potential_task_dir
+                            break
+            
+            if task_dir_found is None:
+                raise ValueError(f"Could not find task directory for {task_name} in {dataset_root}")
+            
+            self.task_dir = task_dir_found
+            print(f"Found task directory: {self.task_dir}")
+        
+        # Now use the task_dir to find the split and metadata files
+        split_path = os.path.join(self.task_dir, "splits", f"{split_name}.json")
+        metadata_path = os.path.join(self.task_dir, "metadata", "subset_metadata.csv")
+        
+        # Check if files exist
+        if not os.path.exists(split_path):
+            # Try alternate locations for split file
+            alternate_split_paths = [
+                os.path.join(self.task_dir, f"splits/{split_name}.json"),
+                os.path.join(self.task_dir, f"{split_name}.json"),
+                os.path.join(dataset_root, f"splits/{split_name}.json")
+            ]
+            
+            found_split = False
+            for alt_path in alternate_split_paths:
+                if os.path.exists(alt_path):
+                    split_path = alt_path
+                    found_split = True
+                    break
+                    
+            if not found_split:
+                # List available splits
+                splits_dir = os.path.join(self.task_dir, "splits")
+                available_splits = []
+                if os.path.exists(splits_dir) and os.path.isdir(splits_dir):
+                    for file in os.listdir(splits_dir):
+                        if file.endswith('.json'):
+                            available_splits.append(file.replace('.json', ''))
+                
+                raise FileNotFoundError(f"Split file not found: {split_path}\nAvailable splits: {available_splits}")
+        
+        if not os.path.exists(metadata_path):
+            # Try alternate locations for metadata file
+            alternate_metadata_paths = [
+                os.path.join(self.task_dir, "metadata", "metadata.csv"),
+                os.path.join(self.task_dir, "subset_metadata.csv"),
+                os.path.join(self.task_dir, "metadata.csv")
+            ]
+            
+            found_metadata = False
+            for alt_path in alternate_metadata_paths:
+                if os.path.exists(alt_path):
+                    metadata_path = alt_path
+                    found_metadata = True
+                    break
+                    
+            if not found_metadata:
+                raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
         
         # Load split IDs
         with open(split_path, 'r') as f:
@@ -65,12 +160,8 @@ class BenchmarkCSIDataset(Dataset):
         
         # Initialize label mapper if not provided
         if label_mapper is None:
-            if "tasks" in dataset_root and os.path.isdir(os.path.join(dataset_root, task_name)):
-                task_dir = os.path.join(dataset_root, task_name)
-            else:
-                task_dir = os.path.join(dataset_root, "tasks", task_name)
-            metadata_path = os.path.join(task_dir, 'metadata', 'subset_metadata.csv')
-            mapping_path = os.path.join(task_dir, 'metadata', 'label_mapping.json')
+            # Use the task_dir
+            mapping_path = os.path.join(self.task_dir, 'metadata', 'label_mapping.json')
             
             # Create mapper directory if it doesn't exist
             os.makedirs(os.path.dirname(mapping_path), exist_ok=True)
@@ -103,14 +194,51 @@ class BenchmarkCSIDataset(Dataset):
         original_filepath = row[self.data_column]
         filepath = original_filepath
         
-   
-        
-        # # Debug print - original path from CSV
-        # print(f"Original path from CSV: {original_filepath}")
-        # print(f"Dataset root: {self.dataset_root}")
-        
-        # Handle different path formats
-        if not os.path.isabs(filepath):
+        # Handle the paths from the metadata file
+        if os.path.exists(original_filepath):
+            # If the original path exists as-is, use it directly
+            filepath = original_filepath
+        elif original_filepath.startswith('E:/'):
+            # Handle paths that start with the specific Windows drive path
+            # Extract the relative path after potential prefixes
+            relative_parts = []
+            path_parts = original_filepath.replace('\\', '/').split('/')
+            
+            # Try to find the task name in the path to extract relevant parts
+            for i, part in enumerate(path_parts):
+                if part.lower() == self.task_name.lower() or part.lower() == self.task_name.replace('_', '').lower():
+                    relative_parts = path_parts[i:]
+                    break
+            
+            if relative_parts:
+                # Construct path using the extracted relative parts
+                filepath = os.path.join(self.dataset_root, 'tasks', *relative_parts)
+            else:
+                # Try with the last parts of the path (after the last 'CSI100Hz' if it exists)
+                for i, part in enumerate(path_parts):
+                    if part == 'CSI100Hz':
+                        relative_parts = path_parts[i+1:]
+                        break
+                
+                if relative_parts:
+                    filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, *relative_parts)
+                else:
+                    # Last resort: try to find path segments like sub_X/user_Y/act_Z
+                    try_sub_user_path = False
+                    for i, part in enumerate(path_parts):
+                        if part.startswith('sub_') and i+1 < len(path_parts) and path_parts[i+1].startswith('user_'):
+                            relative_parts = path_parts[i:]
+                            try_sub_user_path = True
+                            break
+                    
+                    if try_sub_user_path:
+                        filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, *relative_parts)
+                    else:
+                        # Try just the filename
+                        filename = os.path.basename(original_filepath)
+                        filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filename)
+        elif not os.path.isabs(filepath):
+            # Handle relative paths
             # Case 1: Path includes 'tasks/TaskName/...'
             if filepath.startswith('/tasks/') or filepath.startswith('tasks/') or filepath.startswith('tasks\\'):
                 filepath = os.path.join(self.dataset_root, filepath)
@@ -122,9 +250,6 @@ class BenchmarkCSIDataset(Dataset):
             # Case 3: Path is relative to task directory
             else:
                 filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filepath)
-        
-        # # Debug print - constructed path
-        # print(f"Final path constructed: {filepath}")
         
         # Check if file exists
         if not os.path.exists(filepath):
@@ -145,11 +270,29 @@ class BenchmarkCSIDataset(Dataset):
                 alt3 = os.path.join(self.dataset_root, 'tasks', self.task_name, original_filepath)
                 alt_paths.append(("With task name", alt3))
             
+            # Alternative 4: Try extracting sub_X/user_Y/act_Z part from the original path
+            if 'sub_' in original_filepath and '/user_' in original_filepath and '/act_' in original_filepath:
+                parts = original_filepath.split('/')
+                for i, part in enumerate(parts):
+                    if part.startswith('sub_') and i+1 < len(parts) and parts[i+1].startswith('user_'):
+                        # Extract the path segments starting from sub_X
+                        rel_path = '/'.join(parts[i:])
+                        alt4 = os.path.join(self.dataset_root, 'tasks', self.task_name, rel_path)
+                        alt_paths.append(("Using path segments", alt4))
+                        break
+            
+            # Try with data_dir from environment variable if set
+            if os.environ.get('WIFI_DATA_DIR'):
+                alt5 = os.path.join(os.environ.get('WIFI_DATA_DIR'), original_filepath)
+                alt_paths.append(("Using WIFI_DATA_DIR", alt5))
+                
+                alt6 = os.path.join(os.environ.get('WIFI_DATA_DIR'), self.task_name, os.path.basename(original_filepath))
+                alt_paths.append(("Using WIFI_DATA_DIR with task and filename", alt6))
+            
             # Check alternatives
             for desc, alt_path in alt_paths:
-                print(f"Trying alternative path ({desc}): {alt_path}")
                 if os.path.exists(alt_path):
-                    print(f"Found file using alternative path: {alt_path}")
+                    print(f"Found file using alternative path ({desc}): {alt_path}")
                     filepath = alt_path
                     break
             
@@ -191,7 +334,7 @@ class BenchmarkCSIDataset(Dataset):
         # Reshape to (1, time_index, feature_size)
         if len(csi_data.shape) == 3:  # (time_index, feature_size, 1)
             # Permute to get (1, time_index, feature_size)
-            csi_data = csi_data.permute(2, 0, 1)
+            csi_data = csi_data.permute(2, 1, 0)
         
         # Apply transforms
         if self.transform:
@@ -237,34 +380,82 @@ class BenchmarkCSIDataset(Dataset):
 # Add a helper function to load multiple datasets
 def load_benchmark_datasets(dataset_root, task_name, splits=None, **kwargs):
     """
-    Load datasets for specified splits
+    Load all splits of benchmark datasets based on parameters.
+    Convenience wrapper around BenchmarkCSIDataset.
     
     Args:
-        dataset_root: Root directory of the dataset
-        task_name: Name of the task (e.g., 'motion_source_recognition')
-        splits: List of split names to load (default: ['train_id', 'val_id', 'test_id'])
-        **kwargs: Additional arguments passed to BenchmarkCSIDataset
+        dataset_root: Root directory of all benchmarks
+        task_name: Name of task to load
+        splits: List of split names or None for default splits (train_id, val_id, test_id)
+        **kwargs: Additional arguments for BenchmarkCSIDataset
         
     Returns:
-        Dict of datasets, with split names as keys
+        Dict of benchmark datasets, keyed by split name
     """
+    # Use default splits if not provided
     if splits is None:
         splits = ['train_id', 'val_id', 'test_id']
     
-    datasets = {}
+    # Try multiple directory structures to find the task directory
+    possible_paths = [
+        os.path.join(dataset_root, "tasks", task_name),              # dataset_root/tasks/task_name
+        os.path.join(dataset_root, task_name),                        # dataset_root/task_name
+        os.path.join(dataset_root, task_name.lower()),                # dataset_root/task_name_lowercase
+        os.path.join(dataset_root, "tasks", task_name.lower())        # dataset_root/tasks/task_name_lowercase
+    ]
     
+    task_dir = None
+    for path in possible_paths:
+        print(f"load_benchmark_datasets checking path: {path}")
+        if os.path.isdir(path):
+            # Check if this directory has metadata and splits
+            has_metadata = os.path.exists(os.path.join(path, 'metadata'))
+            has_splits = os.path.exists(os.path.join(path, 'splits'))
+            print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+            
+            if has_metadata or has_splits:
+                task_dir = path
+                break
+    
+    # If not found, try walking the directory to find it
+    if task_dir is None:
+        print(f"Task directory not found in predefined paths, searching recursively...")
+        for root, dirs, files in os.walk(dataset_root):
+            if task_name in dirs or task_name.lower() in dirs:
+                # Try with exact case first
+                if task_name in dirs:
+                    potential_task_dir = os.path.join(root, task_name)
+                else:
+                    potential_task_dir = os.path.join(root, task_name.lower())
+                
+                # Check if this directory has metadata or splits
+                has_metadata = os.path.exists(os.path.join(potential_task_dir, 'metadata'))
+                has_splits = os.path.exists(os.path.join(potential_task_dir, 'splits'))
+                print(f"Found potential directory: {potential_task_dir}")
+                print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+                
+                if has_metadata or has_splits:
+                    task_dir = potential_task_dir
+                    break
+    
+    if task_dir is None:
+        raise ValueError(f"Could not find task directory for {task_name} in {dataset_root}")
+    
+    print(f"Using task directory: {task_dir}")
+    
+    # Create datasets
+    datasets = {}
     for split_name in splits:
-        if "tasks" in dataset_root and os.path.isdir(os.path.join(dataset_root, task_name)):
-            task_dir = os.path.join(dataset_root, task_name)
-        else:
-            task_dir = os.path.join(dataset_root, "tasks", task_name)
-        split_path = os.path.join(task_dir, "splits", f"{split_name}.json")
-        if os.path.exists(split_path):
-            datasets[split_name] = BenchmarkCSIDataset(
+        try:
+            dataset = BenchmarkCSIDataset(
                 dataset_root=dataset_root,
                 task_name=task_name,
                 split_name=split_name,
+                task_dir=task_dir,  # Pass the found task_dir
                 **kwargs
             )
+            datasets[split_name] = dataset
+        except Exception as e:
+            print(f"Error loading split '{split_name}': {str(e)}")
     
     return datasets

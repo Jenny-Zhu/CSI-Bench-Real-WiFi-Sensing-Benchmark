@@ -16,6 +16,7 @@ from tqdm import tqdm
 import json
 import hashlib
 import time
+import matplotlib.pyplot as plt
 
 # Import model classes from models.py
 from model.supervised.models import (
@@ -30,6 +31,9 @@ from model.supervised.models import (
 
 # Import TaskTrainer
 from engine.supervised.task_trainer import TaskTrainer
+
+# Add few-shot learning import
+from engine.few_shot import FewShotAdapter
 
 # Model factory dictionary
 MODEL_TYPES = {
@@ -70,7 +74,7 @@ def main(args=None):
         # Additional model parameters
         parser.add_argument('--win_len', type=int, default=500, 
                             help='Window length for WiFi CSI data')
-        parser.add_argument('--feature_size', type=int, default=98, 
+        parser.add_argument('--feature_size', type=int, default=232,
                             help='Feature size for WiFi CSI data')
         parser.add_argument('--in_channels', type=int, default=1, 
                             help='Number of input channels for convolutional models')
@@ -100,6 +104,20 @@ def main(args=None):
                             help='Number of transformer layers')
         parser.add_argument('--num_heads', type=int, default=4,
                             help='Number of attention heads')
+        # Testing specific parameters
+        parser.add_argument('--test_splits', type=str, default='all',
+                            help='Comma-separated list of test splits to use. If "all", all available test splits will be used. '
+                                 'Examples: test_id,test_cross_env,test_cross_user,test_cross_device,hard_cases')
+        
+        # Few-shot learning parameters
+        parser.add_argument('--enable_few_shot', action='store_true',
+                            help='Enable few-shot learning adaptation for cross-domain scenarios')
+        parser.add_argument('--k_shot', type=int, default=5,
+                            help='Number of examples per class for few-shot adaptation')
+        parser.add_argument('--inner_lr', type=float, default=0.01,
+                            help='Learning rate for few-shot adaptation')
+        parser.add_argument('--num_inner_steps', type=int, default=10,
+                            help='Number of gradient steps for few-shot adaptation')
         
         args = parser.parse_args()
     
@@ -170,6 +188,36 @@ def main(args=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
+    # Check for available test splits in the dataset
+    task_dir = os.path.join(args.data_dir, "tasks", args.task_name) \
+        if os.path.exists(os.path.join(args.data_dir, "tasks", args.task_name)) else os.path.join(args.data_dir, args.task_name)
+    splits_dir = os.path.join(task_dir, "splits")
+    available_test_splits = []
+    print((f"********************splits_dir is {splits_dir}"))
+    if os.path.exists(splits_dir):
+        for filename in os.listdir(splits_dir):
+            if filename.endswith(".json"):
+                split_name = filename.replace(".json", "")
+                if split_name.startswith("test_") or split_name == "hard_cases":
+                    available_test_splits.append(split_name)
+    
+    print(f"Available test splits: {available_test_splits}")
+    
+    # Determine which test splits to use
+    if args.test_splits == "all":
+        test_splits = available_test_splits
+    elif args.test_splits is not None:
+        test_splits = args.test_splits.split(',')
+        # Validate that the requested splits exist
+        for split in test_splits:
+            if split not in available_test_splits and split != "test_id":
+                print(f"Warning: Requested test split '{split}' not found. Available splits: {available_test_splits}")
+    else:
+        # Default to test_id (in-distribution test)
+        test_splits = ["test_id"]
+    
+    print(f"Using test splits: {test_splits}")
+    
     # Load data
     print(f"Loading data from {args.data_dir} for task {args.task_name}...")
     data = load_benchmark_supervised(
@@ -178,7 +226,8 @@ def main(args=None):
         batch_size=args.batch_size,
         file_format="h5",
         data_key=args.data_key,
-        num_workers=4
+        num_workers=4,
+        test_splits=test_splits
     )
     
     # Extract data from the returned dictionary
@@ -201,6 +250,10 @@ def main(args=None):
     
     # Get test loaders
     test_loaders = {k: v for k, v in loaders.items() if k.startswith('test')}
+    if not test_loaders:
+        print("Warning: No test splits found in the dataset. Check split names and dataset structure.")
+    else:
+        print(f"Loaded {len(test_loaders)} test splits: {list(test_loaders.keys())}")
     
     # Prepare model
     print(f"Creating {args.model.upper()} model...")
@@ -289,6 +342,7 @@ def main(args=None):
         'patience': args.patience,
         'win_len': args.win_len,
         'feature_size': args.feature_size,
+        'test_splits': test_splits
     }
     
     # Save configuration
@@ -335,24 +389,186 @@ def main(args=None):
     )
     
     # Train the model with early stopping
-    best_epoch, history = trainer.train(
-        epochs=args.epochs,
-        patience=args.patience
-    )
+    model, training_results = trainer.train()
+    best_epoch = training_results['best_epoch']
+    history = training_results['training_dataframe']
     
     # Evaluate on test dataset
     print("\nEvaluating on test splits:")
     all_results = {}
     for key, loader in test_loaders.items():
         print(f"Evaluating on {key} split:")
-        metrics = trainer.evaluate(loader)
+        loss, accuracy = trainer.evaluate(loader)
+        # Use calculate_metrics to get f1_score if available
+        try:
+            f1_score, _ = trainer.calculate_metrics(loader)
+        except:
+            f1_score = 0.0  # Default if not available
+            
+        metrics = {
+            'loss': loss,
+            'accuracy': accuracy,
+            'f1_score': f1_score
+        }
         all_results[key] = metrics
         print(f"{key} accuracy: {metrics['accuracy']:.4f}, F1-score: {metrics['f1_score']:.4f}")
         
         # Generate confusion matrix
         print(f"Generating confusion matrix for {key} split...")
         confusion_path = os.path.join(results_dir, f"{args.model}_{args.task_name}_{key}_confusion.png")
-        trainer.plot_confusion_matrix(data_loader=loader, mode=key, save_path=confusion_path)
+        trainer.plot_confusion_matrix(data_loader=loader, mode=key)
+    print(f"***********************FEW_SHOT{args.enable_few_shot}")
+    # Apply few-shot learning if enabled
+    if args.enable_few_shot:
+        print("\n=== Few-Shot Learning Adaptation ===")
+        
+        # Create few-shot adapter
+        few_shot_adapter = FewShotAdapter(
+            model=model,
+            device=device,
+            inner_lr=args.inner_lr,
+            num_inner_steps=args.num_inner_steps,
+            k_shot=args.k_shot
+        )
+        
+        # Apply few-shot adaptation on each cross-domain test split
+        fs_results = {}
+        for key, loader in test_loaders.items():
+            # Skip in-distribution test set (no need for adaptation)
+            if key == 'test_id':
+                continue
+                
+            print(f"\nApplying few-shot adaptation on {key}...")
+            adaptation_results = few_shot_adapter.adapt_and_evaluate(loader)
+            fs_results[key] = adaptation_results
+            
+            # Print improvement
+            if 'improvement' in adaptation_results:
+                acc_imp = adaptation_results['improvement']['accuracy']
+                f1_imp = adaptation_results['improvement']['f1_score']
+                print(f"Few-shot improved {key}: Accuracy +{acc_imp:.4f}, F1-Score +{f1_imp:.4f}")
+        
+        # Create comparison table for original vs. few-shot adapted
+        print("\nComparison: Original vs. Few-Shot Adapted")
+        print(f"{'Split':<20} {'Original Acc':<15} {'Adapted Acc':<15} {'Improvement':<15}")
+        print('-' * 70)
+        
+        for split, results in fs_results.items():
+            orig_acc = results['original']['accuracy']
+            adapted_acc = results['adapted']['accuracy']
+            improvement = results['improvement']['accuracy']
+            print(f"{split:<20} {orig_acc:.4f}{'':>9} {adapted_acc:.4f}{'':>9} {improvement:+.4f}{'':>9}")
+        
+        # Plot comparison bar chart
+        plt.figure(figsize=(12, 6))
+        splits = list(fs_results.keys())
+        x = range(len(splits))
+        original_accs = [fs_results[split]['original']['accuracy'] for split in splits]
+        adapted_accs = [fs_results[split]['adapted']['accuracy'] for split in splits]
+        
+        width = 0.35
+        plt.bar([i - width/2 for i in x], original_accs, width, label='Original')
+        plt.bar([i + width/2 for i in x], adapted_accs, width, label='Few-Shot Adapted')
+        
+        plt.xlabel('Test Split')
+        plt.ylabel('Accuracy')
+        plt.title(f'Few-Shot Adaptation Results ({args.k_shot}-shot, {args.num_inner_steps} steps)')
+        plt.xticks(x, splits)
+        plt.legend()
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels on bars
+        for i, v in enumerate(original_accs):
+            plt.text(i - width/2, v + 0.01, f'{v:.3f}', ha='center')
+        for i, v in enumerate(adapted_accs):
+            plt.text(i + width/2, v + 0.01, f'{v:.3f}', ha='center')
+        
+        plt.tight_layout()
+        few_shot_plot_path = os.path.join(results_dir, f"{args.model}_{args.task_name}_few_shot_comparison.png")
+        plt.savefig(few_shot_plot_path)
+        print(f"Few-shot comparison plot saved to: {few_shot_plot_path}")
+        
+        # Save few-shot results to JSON
+        fs_results_serializable = {}
+        for split, res in fs_results.items():
+            # Prepare a dict with all necessary values and ensure they're JSON serializable
+            original_dict = {}
+            for k, v in res['original'].items():
+                if k != 'confusion_matrix':
+                    if isinstance(v, np.ndarray):
+                        original_dict[k] = v.tolist()
+                    elif isinstance(v, (np.int32, np.int64)):
+                        original_dict[k] = int(v)
+                    elif isinstance(v, (np.float32, np.float64)):
+                        original_dict[k] = float(v)
+                    else:
+                        original_dict[k] = v
+            
+            adapted_dict = {}
+            for k, v in res['adapted'].items():
+                if k != 'confusion_matrix':
+                    if isinstance(v, np.ndarray):
+                        adapted_dict[k] = v.tolist()
+                    elif isinstance(v, (np.int32, np.int64)):
+                        adapted_dict[k] = int(v)
+                    elif isinstance(v, (np.float32, np.float64)):
+                        adapted_dict[k] = float(v)
+                    else:
+                        adapted_dict[k] = v
+            
+            improvement_dict = {}
+            for k, v in res['improvement'].items():
+                if isinstance(v, np.ndarray):
+                    improvement_dict[k] = v.tolist()
+                elif isinstance(v, (np.int32, np.int64)):
+                    improvement_dict[k] = int(v)
+                elif isinstance(v, (np.float32, np.float64)):
+                    improvement_dict[k] = float(v)
+                else:
+                    improvement_dict[k] = v
+            
+            # Now create the final dict with all JSON serializable values
+            fs_results_serializable[split] = {
+                'original': original_dict,
+                'adapted': adapted_dict,
+                'improvement': improvement_dict,
+                'support_set_size': res.get('support_set_size', args.k_shot * num_classes),
+                'k_shot': args.k_shot,
+                'inner_lr': args.inner_lr,
+                'num_inner_steps': args.num_inner_steps
+            }
+        
+        few_shot_results_file = os.path.join(results_dir, f"{args.model}_{args.task_name}_few_shot_results.json")
+        with open(few_shot_results_file, 'w') as f:
+            json.dump(fs_results_serializable, f, indent=4)
+        print(f"Few-shot results saved to: {few_shot_results_file}")
+    
+    # Create a summary table with all test results
+    summary_table = []
+    for split_name, metrics in all_results.items():
+        row = {
+            'Split': split_name,
+            'Accuracy': f"{metrics['accuracy']:.4f}",
+            'F1-Score': f"{metrics['f1_score']:.4f}"
+        }
+        summary_table.append(row)
+    
+    # Add few-shot results to summary if applicable
+    if args.enable_few_shot:
+        for split_name, results in fs_results.items():
+            row = {
+                'Split': f"{split_name} (few-shot)",
+                'Accuracy': f"{results['adapted']['accuracy']:.4f}",
+                'F1-Score': f"{results['adapted']['f1_score']:.4f}"
+            }
+            summary_table.append(row)
+    
+    # Print summary table
+    print("\nTest Results Summary:")
+    print(f"{'Split':<25} {'Accuracy':<15} {'F1-Score':<15}")
+    print('-' * 55)
+    for row in summary_table:
+        print(f"{row['Split']:<25} {row['Accuracy']:<15} {row['F1-Score']:<15}")
     
     # Save test results
     results_file = os.path.join(results_dir, f"{args.model}_{args.task_name}_results.json")
@@ -378,13 +594,16 @@ def main(args=None):
     # Save summary that includes training history, best epoch
     summary = {
         'best_epoch': best_epoch,
-        'best_val_loss': float(history.iloc[best_epoch]['val_loss']),
-        'best_val_accuracy': float(history.iloc[best_epoch]['val_accuracy']),
-        'test_accuracy': all_results.get('test', {}).get('accuracy', 0.0),
-        'test_f1_score': all_results.get('test', {}).get('f1_score', 0.0),
+        'best_val_loss': float(history.iloc[best_epoch-1]['Val Loss']),
+        'best_val_accuracy': float(history.iloc[best_epoch-1]['Val Accuracy']),
         'experiment_id': experiment_id,
         'experiment_completed': True
     }
+    
+    # Add test results to summary
+    for split_name, metrics in all_results.items():
+        summary[f'{split_name}_accuracy'] = metrics['accuracy']
+        summary[f'{split_name}_f1_score'] = metrics['f1_score']
     
     summary_file = os.path.join(results_dir, f"{args.model}_{args.task_name}_summary.json")
     with open(summary_file, 'w') as f:
@@ -407,33 +626,39 @@ def main(args=None):
             with open(best_performance_path, 'r') as f:
                 best_performance = json.load(f)
             
-            # Get current best test accuracy
+            # Get current best test accuracy (use test split for standard evaluation)
             current_best = best_performance.get('best_test_accuracy', 0.0)
             
-            # Compare current model performance with the best so far
+            # Compare current model performance with the best so far (using standard test split)
             test_accuracy = all_results.get('test', {}).get('accuracy', 0.0)
             
             if test_accuracy > current_best:
                 print(f"New best model! Test accuracy: {test_accuracy:.4f} (previous best: {current_best:.4f})")
                 
-                # Update best performance
-                best_performance.update({
+                # Create updated best performance with all test splits
+                updated_performance = {
                     'best_test_accuracy': test_accuracy,
                     'best_test_f1_score': all_results.get('test', {}).get('f1_score', 0.0),
                     'best_experiment_id': experiment_id,
                     'best_experiment_params': config,
                     'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
-                })
+                }
+                
+                # Add results for other test splits
+                for split_name, metrics in all_results.items():
+                    if split_name != 'test':
+                        updated_performance[f'best_{split_name}_accuracy'] = metrics['accuracy']
+                        updated_performance[f'best_{split_name}_f1_score'] = metrics['f1_score']
                 
                 # Save updated best performance
                 with open(best_performance_path, 'w') as f:
-                    json.dump(best_performance, f, indent=4)
+                    json.dump(updated_performance, f, indent=4)
             else:
                 print(f"Not the best model. Current test accuracy: {test_accuracy:.4f} (best: {current_best:.4f})")
         except Exception as e:
             print(f"Warning: Failed to update best_performance.json: {e}")
     
-    return summary['test_accuracy'], summary, model
+    return summary, all_results, model
 
 if __name__ == '__main__':
     import math  # Import math here for the scheduler function

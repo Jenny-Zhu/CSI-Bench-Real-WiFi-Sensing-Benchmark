@@ -405,3 +405,57 @@ The improved debugging information in `train_multi_model.py` will help identify 
 5. **Check Instance Types**
    - Ensure your SageMaker instance type has sufficient GPU memory for your models
    - `ml.g4dn.xlarge` works well for most models, but larger models may require `ml.g4dn.2xlarge`
+
+## Enhanced Testing Capabilities
+
+The framework has been enhanced to support testing models not only on in-distribution (ID) test data but also on various out-of-distribution scenarios:
+
+- **Cross-Environment Testing**: Evaluate how models perform when deployed in new environments not seen during training
+- **Cross-User Testing**: Measure model robustness when encountering new users not present in the training data
+- **Cross-Device Testing**: Test model generalization to different devices or hardware configurations
+- **Hard Cases**: Evaluate model performance on particularly challenging samples
+
+### Running Extended Tests
+
+To leverage these enhanced testing capabilities, you can use the provided scripts:
+
+#### Supervised Learning
+```bash
+# Windows
+run_extended_test_supervised.bat --model transformer --task MotionSourceRecognition
+
+# Linux/Mac
+./run_extended_test_supervised.sh --model transformer --task MotionSourceRecognition
+```
+
+#### Multitask Learning
+```bash
+# Windows
+run_extended_test_multitask.bat --model transformer --tasks MotionSourceRecognition,HumanMotion
+
+# Linux/Mac
+./run_extended_test_multitask.sh --model transformer --tasks MotionSourceRecognition,HumanMotion
+```
+
+### Manual Control
+
+You can also specify specific test splits to evaluate:
+
+```bash
+python scripts/train_supervised.py --model transformer --task_name MotionSourceRecognition --test_splits test_id,test_cross_env,test_cross_user
+
+python scripts/train_multitask_adapter.py --model transformer --tasks MotionSourceRecognition,HumanMotion --test_splits test_id,test_cross_env
+```
+
+Use `--test_splits all` to automatically use all available test splits for each task.
+
+## Results Analysis
+
+The extended testing generates comprehensive reports for all test splits, including:
+
+- Accuracy and F1-scores for each test split
+- Confusion matrices for visualization
+- JSON summary files with detailed metrics
+- Comparative tables of performance across different test conditions
+
+This provides deeper insights into model robustness and potential areas for improvement in real-world deployment scenarios.

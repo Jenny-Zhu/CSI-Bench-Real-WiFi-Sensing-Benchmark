@@ -189,7 +189,7 @@ class MultiTaskAdapterModel(nn.Module):
             backbone, 
             self.task_names,
             lora_r=lora_r,
-            lora_alpha=lora_alpha,
+                lora_alpha=lora_alpha,
             lora_dropout=lora_dropout
         )
         
@@ -421,7 +421,7 @@ class TimesFormerTaskAdapters(nn.Module):
                     
                     # MLP adapter
                     "mlp": TaskAdapter(emb_dim, dropout=lora_dropout)
-                })
+        })
                 adapter_layers.append(adapter_block)
             
             # Final output adapter for this task
@@ -473,7 +473,7 @@ class TimesFormerAdapterModel(nn.Module):
         self.backbone = backbone
         self.task_names = list(task_classes.keys())
         self.active_task = None
-        
+
         # Prepare backbone config if it doesn't exist
         if not hasattr(backbone, 'config'):
             # Create config with necessary attributes
@@ -520,7 +520,7 @@ class TimesFormerAdapterModel(nn.Module):
             raise ValueError(f"Task {task_name} not found in available tasks: {self.task_names}")
         self.active_task = task_name
         self.adapters.set_active_task(task_name)
-    
+
     def forward(self, x):
         """Forward pass for the active task"""
         if self.active_task is None:
