@@ -10,6 +10,7 @@ PyTorch to avoid version conflicts, then runs the actual training script.
 import os
 import sys
 import importlib.util
+import subprocess
 
 # 设置typing_extensions支持，用于解决typing.Literal导入问题
 print("设置typing_extensions支持...")
@@ -23,6 +24,16 @@ try:
     print("成功导入typing_extensions并配置Literal支持")
 except ImportError:
     print("警告: 未找到typing_extensions，某些功能可能不可用")
+
+# 手动安装peft库，绕过版本依赖检查
+print("正在安装peft库（绕过依赖检查）...")
+try:
+    # 安装特定版本的peft，使用--no-dependencies参数
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "peft==0.3.0", "--no-dependencies"])
+    print("peft库安装成功")
+except Exception as e:
+    print(f"安装peft库时出错: {e}")
+    # 这不是致命错误，尝试继续执行
 
 # Disable Horovod integration to avoid version conflict
 print("正在禁用Horovod集成以避免版本冲突...")
@@ -81,7 +92,7 @@ try:
     print("PEFT库成功导入")
 except Exception as e:
     print(f"导入PEFT库时出错: {e}")
-    # 这不是致命错误，仍然继续尝试执行
+    print("这可能会影响某些功能，但我们将继续执行")
 
 # 检查脚本是否存在
 if not os.path.exists(script_to_run):

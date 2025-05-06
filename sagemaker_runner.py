@@ -982,7 +982,7 @@ if __name__ == '__main__':
         instance_type_to_use = instance_type or "ml.g4dn.xlarge"
         
         estimator = PyTorch(
-            entry_point=test_script,  # 直接使用测试脚本作为入口点
+            entry_point="entry_script.py",  # 使用自定义入口脚本，它会禁用Horovod并处理依赖
             source_dir=".",
             dependencies=["requirements.txt"],
             role=self.role,
@@ -1002,6 +1002,9 @@ if __name__ == '__main__':
                 'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',
                 'PYTHONPATH': '/opt/ml/code',
                 
+                # 指定实际要运行的脚本
+                'SAGEMAKER_PROGRAM': test_script,
+                
                 # 禁用SageMaker调试工具
                 'SM_DISABLE_PROFILER': 'true',
                 'SM_DISABLE_DEBUGGER': 'true',
@@ -1017,8 +1020,7 @@ if __name__ == '__main__':
                 'TORCH_CUDNN_V8_API_ENABLED': '1',
                 
                 # 禁用不必要的功能
-                'DISABLE_SMDATAPARALLEL': '1',
-                'SAGEMAKER_PROGRAM': test_script
+                'DISABLE_SMDATAPARALLEL': '1'
             }
         )
         

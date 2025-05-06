@@ -11,6 +11,6 @@ tqdm>=4.62.0
 h5py>=3.7.0
 einops>=0.6.0
 typing_extensions>=4.0.0
-peft==0.3.0
+# peft将在entry_script.py中使用--no-dependencies参数安装
 # 可选依赖项 - 如果需要使用以下功能请取消注释
 # transformers>=4.30.0
