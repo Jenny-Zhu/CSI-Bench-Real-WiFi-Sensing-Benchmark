@@ -1,13 +1,5 @@
-{
-  "pipeline": "supervised",
-  "model": "lstm",
-  "task": "MotionSourceRecognition",
-  "batch_size": 32,
-  "epochs": 30,
-  "learning_rate": 1e-3,
+{"learning_rate": 1e-3,
   "weight_decay": 1e-5,
-  "win_len": 232,
-  "feature_size": 500,
   "model_params": {
     "d_model": 256,
     "dropout": 0.1

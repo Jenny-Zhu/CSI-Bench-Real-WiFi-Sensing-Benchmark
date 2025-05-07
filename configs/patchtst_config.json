@@ -1,8 +1,5 @@
 {
-  "pipeline": "supervised",
   "model": "patchtst",
-  "win_len": 232,
-  "feature_size": 500,
   "emb_dim": 128,
   "depth": 4,
   "num_heads": 4,
