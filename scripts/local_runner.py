@@ -309,17 +309,17 @@ def get_supervised_config(custom_config=None):
 
 def get_multitask_config(custom_config=None):
     """
-    Get configuration for multitask learning pipeline.
+    获取多任务学习流水线的配置
     
     Args:
-        custom_config: Custom configuration dictionary
+        custom_config: 自定义配置字典
         
     Returns:
-        Configuration dictionary
+        配置字典
     """
-    # Custom configuration must be provided
+    # 必须提供自定义配置
     if custom_config is None:
-        print("Error: Configuration parameters must be provided!")
+        print("错误: 必须提供配置参数!")
         sys.exit(1)
     
     # 确保有任务名称
@@ -339,14 +339,14 @@ def get_multitask_config(custom_config=None):
     if 'task' not in custom_config:
         custom_config['task'] = 'multitask'
     
-    # Create configuration dictionary
+    # 创建配置字典
     config = {
-        # Data parameters
+        # 数据参数
         'training_dir': custom_config['training_dir'],
         'output_dir': custom_config['output_dir'],
         'results_subdir': f"{custom_config['model']}_{custom_config['task'].lower()}",
         
-        # Training parameters
+        # 训练参数
         'batch_size': custom_config['batch_size'],
         'learning_rate': custom_config.get('learning_rate', 5e-4),
         'weight_decay': custom_config.get('weight_decay', 1e-5),
@@ -354,35 +354,35 @@ def get_multitask_config(custom_config=None):
         'win_len': custom_config['win_len'],
         'feature_size': custom_config['feature_size'],
         
-        # Model parameters
+        # 模型参数
         'model': custom_config['model'],
         'emb_dim': custom_config.get('emb_dim', 128),
         'dropout': custom_config.get('dropout', 0.1),
         
-        # Task parameters - 保留task和tasks
+        # 任务参数 - 保留task和tasks
         'task': custom_config.get('task'),
         'tasks': custom_config.get('tasks'),
     }
     
-    # If transformer_config.json exists, try to load it
+    # 如果transformer_config.json存在，尝试加载它
     transform_path = os.path.join(CONFIG_DIR, "transformer_config.json")
     if os.path.exists(transform_path):
-        print(f"Using existing config file: {transform_path}")
+        print(f"使用现有配置文件: {transform_path}")
         with open(transform_path, 'r') as f:
             transformer_config = json.load(f)
             for k, v in transformer_config.items():
                 if k in config:
                     config[k] = v
     
-    # Ensure tasks parameter exists and is properly formatted
+    # 确保tasks参数存在且格式正确
     if not config.get('tasks'):
         if config.get('task'):
             config['tasks'] = config['task']
         else:
-            print("Error: Multitask configuration must specify 'tasks' or 'task' parameter!")
+            print("错误: 多任务配置必须指定 'tasks' 或 'task' 参数!")
             sys.exit(1)
     
-    # If model_params exists, add it to config
+    # 如果model_params存在，添加到config中
     if 'model_params' in custom_config:
         config['model_params'] = custom_config['model_params']
     
@@ -534,14 +534,14 @@ def run_multitask_direct(config):
 
 def save_config(config, pipeline='supervised'):
     """
-    Save configuration to a file
+    保存配置到文件
     
     Args:
-        config: Configuration dictionary
-        pipeline: Pipeline type ('supervised' or 'multitask')
+        config: 配置字典
+        pipeline: 流水线类型 ('supervised' 或 'multitask')
         
     Returns:
-        Path to the saved config file
+        保存的配置文件路径
     """
     # 注意：配置文件现在保存在results目录而不是configs目录
     # 监督学习和多任务学习都使用相同的目录结构：results/TASK/MODEL/EXPERIMENT_ID/

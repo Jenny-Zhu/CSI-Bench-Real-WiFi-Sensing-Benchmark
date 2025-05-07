@@ -452,8 +452,19 @@ def main():
     best_task_states = {}
 
     def evaluate(loader):
+        """评估模型在给定数据加载器上的性能。
+        
+        Args:
+            loader: 数据加载器
+            
+        Returns:
+            tuple: (损失, 准确率, F1分数)
+        """
         model.eval()
         tot_loss = tot_correct = tot_n = 0
+        all_preds = []
+        all_labels = []
+        
         with torch.no_grad():
             for x, y in loader:
                 x, y = x.to(device), y.to(device)
@@ -461,9 +472,28 @@ def main():
                 loss = criterion(logits, y)
                 b = y.size(0)
                 tot_loss += loss.item() * b
-                tot_correct += (logits.argmax(1) == y).sum().item()
+                
+                # 记录预测和真实标签用于计算F1分数
+                preds = logits.argmax(1)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(y.cpu().numpy())
+                
+                # 计算准确率
+                tot_correct += (preds == y).sum().item()
                 tot_n += b
-        return tot_loss / tot_n, tot_correct / tot_n
+        
+        # 计算F1分数
+        if len(set(all_labels)) > 1:  # 确保有多个类别
+            try:
+                from sklearn.metrics import f1_score
+                f1 = f1_score(all_labels, all_preds, average='macro')
+            except Exception as e:
+                print(f"Failed to calculate F1 score: {e}")
+                f1 = 0.0
+        else:
+            f1 = 0.0
+        
+        return tot_loss / tot_n, tot_correct / tot_n, f1
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -483,11 +513,12 @@ def main():
         print(f"\nValidation after epoch {epoch}:")
         for task, vloader in val_loaders.items():
             model.set_active_task(task)
-            v_l, v_a = evaluate(vloader)
+            v_l, v_a, v_f1 = evaluate(vloader)
             val_losses.append(v_l)
             row[f"{task}_val_loss"] = v_l
             row[f"{task}_val_acc"] = v_a
-            print(f"  {task}: loss={v_l:.4f}, acc={v_a:.4f}")
+            row[f"{task}_val_f1"] = v_f1
+            print(f"  {task}: loss={v_l:.4f}, acc={v_a:.4f}, f1={v_f1:.4f}")
             
             # Create task-specific directory structure for results
             task_dir = os.path.join(args.save_dir, task, args.model, experiment_id)
@@ -498,6 +529,7 @@ def main():
                 print(f"  New best accuracy for {task}: {v_a:.4f} (previous: {best_metrics[task]['val_acc']:.4f})")
                 best_metrics[task]['val_loss'] = v_l
                 best_metrics[task]['val_acc'] = v_a
+                best_metrics[task]['val_f1'] = v_f1
                 best_metrics[task]['best_epoch'] = epoch
                 
                 # Save task-specific best state
@@ -547,7 +579,8 @@ def main():
             task_row = {
                 'epoch': row['epoch'],
                 'val_loss': row.get(f"{task}_val_loss", None),
-                'val_acc': row.get(f"{task}_val_acc", None)
+                'val_acc': row.get(f"{task}_val_acc", None),
+                'val_f1': row.get(f"{task}_val_f1", None)
             }
             task_history.append(task_row)
         
@@ -634,6 +667,7 @@ def main():
             'experiment_id': experiment_id,
             'best_val_loss': best_metrics[task]['val_loss'],
             'best_val_acc': best_metrics[task]['val_acc'],
+            'best_val_f1': best_metrics[task]['val_f1'],
             'best_epoch': best_metrics[task]['best_epoch'],
             'total_epochs': len(history),
             'early_stopped': no_improve >= args.patience,
@@ -650,20 +684,22 @@ def main():
                 with open(best_perf_path, 'r') as f:
                     best_perf = json.load(f)
                 
-                # Only update if our current performance is better
-                if best_metrics[task]['val_acc'] > best_perf.get('best_val_acc', 0):
+                # 只有当验证准确率提高时才更新
+                if best_metrics[task]['val_acc'] > best_perf.get('best_val_accuracy', 0):
                     best_perf = {
                         'best_experiment_id': experiment_id,
+                        'best_val_accuracy': best_metrics[task]['val_acc'],
                         'best_val_loss': best_metrics[task]['val_loss'],
-                        'best_val_acc': best_metrics[task]['val_acc'],
+                        'best_val_f1': best_metrics[task]['val_f1'],
                         'best_epoch': best_metrics[task]['best_epoch'],
                         'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
                     }
             else:
                 best_perf = {
                     'best_experiment_id': experiment_id,
+                    'best_val_accuracy': best_metrics[task]['val_acc'],
                     'best_val_loss': best_metrics[task]['val_loss'],
-                    'best_val_acc': best_metrics[task]['val_acc'],
+                    'best_val_f1': best_metrics[task]['val_f1'],
                     'best_epoch': best_metrics[task]['best_epoch'],
                     'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
                 }
@@ -690,20 +726,21 @@ def main():
         
         # Create a summary table for this task's test results
         print(f"\nTest Results for {task}:")
-        print(f"{'Split':<20} {'Accuracy':<15} {'Loss':<15}")
+        print(f"{'Split':<20} {'Accuracy':<15} {'Loss':<15} {'F1 Score':<15}")
         print('-' * 50)
         
         for split, tloader in tdict.items():
-            t_l, t_a = evaluate(tloader)
-            print(f"{split:<20} {t_a:.4f}{'':<10} {t_l:.4f}")
+            t_l, t_a, t_f1 = evaluate(tloader)
+            print(f"{split:<20} {t_a:.4f}{'':<10} {t_l:.4f} F1: {t_f1:.4f}")
             
-            # Save test results
+            # 保存测试结果
             test_results[split] = {
                 'loss': t_l,
-                'accuracy': t_a
+                'accuracy': t_a,
+                'f1_score': t_f1
             }
             
-            # Generate confusion matrix for test set
+            # 生成混淆矩阵用于测试集
             tm = TaskTrainer(
                 model=model,
                 train_loader=None,
@@ -720,17 +757,25 @@ def main():
             )
             tm.plot_confusion_matrix(data_loader=tloader, epoch=None, mode=split)
             
-            # Update best_performance.json with test results
+            # 更新best_performance.json，添加测试结果
             try:
                 best_perf_path = os.path.join(args.save_dir, task, args.model, "best_performance.json")
                 if os.path.exists(best_perf_path):
                     with open(best_perf_path, 'r') as f:
                         best_perf = json.load(f)
                     
-                    # Only update test results for current best experiment
+                    # 只有当前实验是最佳实验时才更新测试结果
                     if best_perf.get('best_experiment_id') == experiment_id:
-                        best_perf[f'best_{split}_accuracy'] = t_a
-                        best_perf[f'best_{split}_loss'] = t_l
+                        # 使用字典格式存储测试准确率和F1分数
+                        if 'best_test_accuracies' not in best_perf:
+                            best_perf['best_test_accuracies'] = {}
+                        
+                        if 'best_test_f1_scores' not in best_perf:
+                            best_perf['best_test_f1_scores'] = {}
+                        
+                        # 添加/更新当前测试集的结果
+                        best_perf['best_test_accuracies'][split] = t_a
+                        best_perf['best_test_f1_scores'][split] = t_f1
                         
                         with open(best_perf_path, 'w') as f:
                             json.dump(best_perf, f, indent=2)
@@ -853,6 +898,7 @@ def main():
                 'best_validation': {
                     'accuracy': best_metrics[task]['val_acc'],
                     'loss': best_metrics[task]['val_loss'],
+                    'f1_score': best_metrics[task]['val_f1'],
                     'epoch': best_metrics[task]['best_epoch']
                 },
                 'test_results': test_results,
@@ -868,6 +914,7 @@ def main():
                 'best_validation': {
                     'accuracy': best_metrics[task]['val_acc'],
                     'loss': best_metrics[task]['val_loss'],
+                    'f1_score': best_metrics[task]['val_f1'],
                     'epoch': best_metrics[task]['best_epoch']
                 },
                 'test_results': test_results
