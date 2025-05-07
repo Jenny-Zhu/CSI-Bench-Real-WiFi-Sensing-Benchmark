@@ -6,6 +6,13 @@ WiFi Sensing Pipeline Runner - Local Environment
 This script serves as the main entry point for WiFi sensing benchmark.
 It incorporates functionality from train.py, run_model.py, and the original local_runner.py.
 
+配置文件管理说明：
+1. configs文件夹现在只包含模板配置文件
+2. 运行生成的配置文件会保存到results文件夹中，使用统一的目录结构: results/TASK/MODEL/EXPERIMENT_ID/
+   - 监督学习：results/TASK/MODEL/EXPERIMENT_ID/supervised_config.json
+   - 多任务学习：results/TASK/MODEL/EXPERIMENT_ID/multitask_config.json
+3. 所有运行时参数都应从配置文件加载，不再使用命令行参数
+
 Usage:
     python local_runner.py --config_file [config_path]
     
@@ -31,6 +38,10 @@ ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 print(f"root_dir is {ROOT_DIR}")
 CONFIG_DIR = os.path.join(ROOT_DIR, "configs")
 DEFAULT_CONFIG_PATH = os.path.join(CONFIG_DIR, "local_default_config.json")
+
+# 确保results目录存在
+DEFAULT_RESULTS_DIR = os.path.join(ROOT_DIR, "results")
+os.makedirs(DEFAULT_RESULTS_DIR, exist_ok=True)
 
 def validate_config(config, required_fields=None):
     """
@@ -311,12 +322,29 @@ def get_multitask_config(custom_config=None):
         print("Error: Configuration parameters must be provided!")
         sys.exit(1)
     
+    # 确保有任务名称
+    if 'task' not in custom_config and 'tasks' in custom_config:
+        # 如果没有单一任务名但有tasks列表，使用第一个任务作为task名
+        tasks = custom_config.get('tasks')
+        if isinstance(tasks, str):
+            # 如果是字符串，可能是逗号分隔的列表
+            task_list = tasks.split(',')
+            if task_list:
+                custom_config['task'] = task_list[0]
+        elif isinstance(tasks, list) and tasks:
+            # 如果是列表且不为空
+            custom_config['task'] = tasks[0]
+    
+    # 如果仍然没有task，设置默认值
+    if 'task' not in custom_config:
+        custom_config['task'] = 'multitask'
+    
     # Create configuration dictionary
     config = {
         # Data parameters
         'training_dir': custom_config['training_dir'],
         'output_dir': custom_config['output_dir'],
-        'results_subdir': f"{custom_config['model']}_{custom_config['task'].lower() if 'task' in custom_config else 'multitask'}",
+        'results_subdir': f"{custom_config['model']}_{custom_config['task'].lower()}",
         
         # Training parameters
         'batch_size': custom_config['batch_size'],
@@ -331,7 +359,7 @@ def get_multitask_config(custom_config=None):
         'emb_dim': custom_config.get('emb_dim', 128),
         'dropout': custom_config.get('dropout', 0.1),
         
-        # Task parameters - default to a single task
+        # Task parameters - 保留task和tasks
         'task': custom_config.get('task'),
         'tasks': custom_config.get('tasks'),
     }
@@ -373,13 +401,14 @@ def run_supervised_direct(config):
     # Get task and model names from config
     task_name = config.get('task')
     model_name = config.get('model')
+    experiment_id = config.get('experiment_id', f"params_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     
     # Get base directories
     base_output_dir = config.get('output_dir')
     training_dir = config.get('training_dir')
     
-    # Update save_dir to include task/model structure
-    model_output_dir = os.path.join(base_output_dir, task_name, model_name)
+    # Update save_dir to include task/model/experiment structure
+    model_output_dir = os.path.join(base_output_dir, task_name, model_name, experiment_id)
     
     # Ensure model directory exists
     os.makedirs(model_output_dir, exist_ok=True)
@@ -395,6 +424,7 @@ def run_supervised_direct(config):
     cmd += f" --feature_size={config.get('feature_size')}"
     cmd += f" --save_dir=\"{base_output_dir}\""
     cmd += f" --output_dir=\"{base_output_dir}\""
+    cmd += f" --experiment_id=\"{experiment_id}\""
     
     # Add test_splits if present in config
     if 'test_splits' in config:
@@ -428,13 +458,13 @@ def run_supervised_direct(config):
             cmd += f" --{key}={value}"
     
     # Run the command
-    print(f"Running supervised learning with: {cmd}")
+    print(f"运行监督学习: {cmd}")
     return_code = subprocess.call(cmd, shell=True)
     
     if return_code != 0:
-        print(f"Error running supervised learning: return code {return_code}")
+        print(f"运行监督学习出错: 返回码 {return_code}")
     else:
-        print("Supervised learning completed successfully.")
+        print("监督学习成功完成.")
     
     return return_code
 
@@ -448,19 +478,22 @@ def run_multitask_direct(config):
     Returns:
         Return code (0 for success, non-zero for failure)
     """
-    print("Running multitask learning with the following configuration:")
+    print("运行多任务学习，配置如下:")
     for key, value in config.items():
         print(f"  {key}: {value}")
     
     # Get the tasks parameter correctly
     tasks = config.get('tasks')
     if not tasks:
-        print("Error: 'tasks' parameter is missing or empty. Please specify at least one task.")
+        print("错误: 'tasks'参数缺失或为空。请至少指定一个任务。")
         return 1
     
     # Ensure tasks is properly formatted - should be a comma-separated string without spaces
     if isinstance(tasks, list):
         tasks = ','.join(tasks)
+    
+    # 获取experiment_id
+    experiment_id = config.get('experiment_id', f"params_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     
     # Build command directly as a string for better control of quotes and escaping
     cmd = f"{sys.executable} {os.path.join(SCRIPT_DIR, 'train_multitask_adapter.py')}"
@@ -471,6 +504,7 @@ def run_multitask_direct(config):
     cmd += f" --batch_size={config.get('batch_size')}"
     cmd += f" --win_len={config.get('win_len')}"
     cmd += f" --feature_size={config.get('feature_size')}"
+    cmd += f" --experiment_id=\"{experiment_id}\""
     
     # Add few-shot flag if specified
     if config.get('enable_few_shot', False) or config.get('evaluate_fewshot', False):
@@ -495,7 +529,7 @@ def run_multitask_direct(config):
         cmd += f" --test_splits=\"{config['test_splits']}\""
     
     # Run the command
-    print(f"Running command: {cmd}")
+    print(f"运行命令: {cmd}")
     return subprocess.call(cmd, shell=True)
 
 def save_config(config, pipeline='supervised'):
@@ -509,25 +543,42 @@ def save_config(config, pipeline='supervised'):
     Returns:
         Path to the saved config file
     """
-    # Create output directory if it doesn't exist
-    os.makedirs(os.path.join(CONFIG_DIR, pipeline), exist_ok=True)
+    # 注意：配置文件现在保存在results目录而不是configs目录
+    # 监督学习和多任务学习都使用相同的目录结构：results/TASK/MODEL/EXPERIMENT_ID/
+    # 获取基本参数
+    base_output_dir = config.get('output_dir', './results')
+    model = config.get('model')
     
-    # Generate config filename
-    if pipeline == 'multitask':
-        tasks = config.get('tasks')
-        model = config.get('model')
+    # 使用传入的experiment_id或生成一个新的
+    experiment_id = config.get('experiment_id')
+    if not experiment_id:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        config_filename = os.path.join(CONFIG_DIR, pipeline,f"multitask_{model}_{timestamp}.json")
-    else:
-        model = config.get('model')
-        task_name = config.get('task').lower()
-        config_filename = os.path.join(CONFIG_DIR, pipeline,f"supervised_{model}_{task_name}_config.json")
+        experiment_id = f"params_{timestamp}"
+        # 将新生成的experiment_id添加到配置中
+        config['experiment_id'] = experiment_id
     
-    # Save config
+    # 获取task名称
+    task_name = config.get('task', 'default_task').lower()
+    
+    # 创建目录结构 - 无论是监督学习还是多任务学习都使用相同结构
+    task_dir = os.path.join(base_output_dir, task_name)
+    model_dir = os.path.join(task_dir, model)
+    experiment_dir = os.path.join(model_dir, experiment_id)
+    
+    # 确保目录存在
+    os.makedirs(experiment_dir, exist_ok=True)
+    
+    # 生成配置文件名
+    if pipeline == 'multitask':
+        config_filename = os.path.join(experiment_dir, f"multitask_config.json")
+    else:
+        config_filename = os.path.join(experiment_dir, f"supervised_config.json")
+    
+    # 保存配置
     with open(config_filename, 'w') as f:
         json.dump(config, f, indent=2)
     
-    print(f"Configuration saved to {config_filename}")
+    print(f"配置已保存到 {config_filename}")
     return config_filename
 
 def main():
@@ -558,11 +609,18 @@ def main():
     if 'training_dir' in config:
         os.environ['WIFI_DATA_DIR'] = config['training_dir']
     
+    # Generate a unique experiment ID
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    experiment_id = f"params_{timestamp}"
+    
     # Get pipeline-specific configuration
     if pipeline == 'multitask':
         config = get_multitask_config(config)
     else:  # Default to supervised
         config = get_supervised_config(config)
+    
+    # 添加experiment_id到配置中
+    config['experiment_id'] = experiment_id
     
     # Save configuration for future reference
     config_file = save_config(config, pipeline)
