@@ -1,16 +1,9 @@
 {
-  "model": "transformer",
-  "task": "MotionSourceRecognition",
-  "batch_size": 16,
-  "epochs": 5,
   "learning_rate": 0.0005,
   "weight_decay": 1e-5,
-  "win_len": 500,
-  "feature_size": 232,
-  "emb_dim": 128,
-  "dropout": 0.1,
-  "results_subdir": "transformer_msr",
-  "training_dir": "wifi_benchmark_dataset",
-  "output_dir": "./results"
+  "model_params": {
+    "emb_dim": 128,
+    "dropout": 0.1
+  }
 } 
 

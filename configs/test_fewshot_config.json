@@ -22,13 +22,14 @@
     "MotionSourceRecognition"
   ],
   "available_pipelines": ["supervised", "meta", "multitask", "fewshot"],
-  "supervised_fewshot": {
-    "evaluate_fewshot": false,
-    "fewshot_support_split": "val_id",
-    "fewshot_query_split": "test_cross_env",
-    "fewshot_adaptation_lr": 0.01,
-    "fewshot_adaptation_steps": 10,
-    "fewshot_finetune_all": false,
-    "fewshot_eval_shots": true
+  "fewshot": {
+    "enabled": false,
+    "k_shots": 5,
+    "adaptation_lr": 0.01,
+    "adaptation_steps": 10,
+    "support_split": "val_id",
+    "query_split": "test_cross_env",
+    "finetune_all": false,
+    "eval_shots": true
   }
 } 

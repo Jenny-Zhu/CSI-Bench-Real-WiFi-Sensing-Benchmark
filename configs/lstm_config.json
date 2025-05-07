@@ -1,19 +1,18 @@
 {
+  "pipeline": "supervised",
   "model": "lstm",
   "task": "MotionSourceRecognition",
   "batch_size": 32,
-  "num_epochs": 2,
+  "epochs": 30,
   "learning_rate": 1e-3,
   "weight_decay": 1e-5,
   "win_len": 232,
   "feature_size": 500,
-  "results_subdir": "lstm_msr",
-  "training_dir": "wifi_benchmark_dataset",
-  "output_dir": "./results",
-  "epochs": 30,
+  "model_params": {
+    "d_model": 256,
+    "dropout": 0.1
+  },
   "warmup_epochs": 5,
-  "patience": 15,
-  "d_model": 256,
-  "dropout": 0.1
+  "patience": 15
 }
 

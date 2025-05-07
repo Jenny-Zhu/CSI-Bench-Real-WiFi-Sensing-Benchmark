@@ -10,8 +10,6 @@
   "emb_dim": 128,
   "dropout": 0.1,
   "results_subdir": "transformer_motionsourcerecognition",
-  "training_dir": "wifi_benchmark_dataset",
-  "output_dir": "./results",
   "num_classes": 4
 }
 
