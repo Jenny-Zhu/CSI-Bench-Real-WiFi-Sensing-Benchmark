@@ -63,8 +63,8 @@ def load_default_config():
             "model_name": "transformer", 
             "instance_type": "ml.g4dn.xlarge",
             "instance_count": 1,
-            "framework_version": "1.13.1",
-            "py_version": "py39",
+            "framework_version": "1.12.1",
+            "py_version": "py38",
             "base_job_name": "wifi-sensing-supervised",
             "batch_wait_time": 30,
             "task_class_mapping": {
@@ -82,7 +82,11 @@ def load_default_config():
             },
             "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
             "available_tasks": ["MotionSourceRecognition", "HumanMotion", "DetectionandClassification", "HumanID", "NTUHAR", "HumanNonhuman", "NTUHumanID", "Widar", "ThreeClass", "Detection"],
-            "available_pipelines": ["supervised", "meta", "multitask"]
+            "available_pipelines": ["supervised", "meta", "multitask"],
+            "enable_few_shot": False,
+            "k_shot": 5,
+            "inner_lr": 0.01,
+            "num_inner_steps": 10
         }
 
 # Load the default configuration
@@ -101,8 +105,8 @@ AVAILABLE_PIPELINES = DEFAULT_CONFIG.get("available_pipelines", ["supervised", "
 # SageMaker settings
 INSTANCE_TYPE = DEFAULT_CONFIG.get("instance_type", "ml.g4dn.xlarge")
 INSTANCE_COUNT = DEFAULT_CONFIG.get("instance_count", 1)
-FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.13.1")
-PY_VERSION = DEFAULT_CONFIG.get("py_version", "py39")
+FRAMEWORK_VERSION = DEFAULT_CONFIG.get("framework_version", "1.12.1")
+PY_VERSION = DEFAULT_CONFIG.get("py_version", "py38")
 BASE_JOB_NAME = DEFAULT_CONFIG.get("base_job_name", "wifi-sensing-supervised")
 EBS_VOLUME_SIZE = DEFAULT_CONFIG.get("ebs_volume_size", 30)  # Set default to 30GB
 
@@ -210,94 +214,55 @@ class SageMakerRunner:
         else:
             return obj
     
-    def run_batch_by_task(self, tasks=None, models=None, mode='csi', instance_type=None, wait_time=BATCH_WAIT_TIME):
+    def run_batch_by_task(self, tasks=None, models=None, mode='csi', instance_type=None, wait_time=BATCH_WAIT_TIME, test_splits=None, enable_few_shot=False, k_shot=5, inner_lr=0.01, num_inner_steps=10):
         """
-        Run batch training jobs by task (each task using a single instance to run all models)
+        Run batch processing by task, with each task executed on a single instance.
         
         Args:
-            tasks (list): List of tasks to run. If None, use all available tasks
-            models (list): List of models to run. If None, use all available models
+            tasks (list): List of tasks to process (defaults to all available tasks)
+            models (list): List of models to run for each task (defaults to all available models)
             mode (str): Data modality ('csi' or 'acf')
             instance_type (str): SageMaker instance type
-            wait_time (int): Wait time between job submissions in seconds
+            wait_time (int): Wait time between task submission in seconds
+            test_splits (str): Test splits to use, comma-separated or 'all'
+            enable_few_shot (bool): Whether to enable few-shot learning
+            k_shot (int): Number of examples per class for few-shot learning
+            inner_lr (float): Learning rate for few-shot adaptation
+            num_inner_steps (int): Number of steps for few-shot adaptation
             
         Returns:
-            dict: Dictionary containing details of all launched jobs
+            list: List of job information dictionaries
         """
         print(f"Starting batch execution by task...")
         
-        # Use provided tasks or available tasks
-        if tasks is None or len(tasks) == 0:
-            tasks_to_run = AVAILABLE_TASKS
-        else:
-            tasks_to_run = [t for t in tasks if t in AVAILABLE_TASKS]
-            if len(tasks_to_run) < len(tasks):
-                print(f"Warning: Some requested tasks are not in the available tasks list.")
+        # Create batch timestamp for job naming
+        batch_timestamp = self.timestamp
         
-        # Use provided models or available models
-        if models is None or len(models) == 0:
-            models_to_run = AVAILABLE_MODELS
-        else:
-            models_to_run = [m for m in models if m in AVAILABLE_MODELS]
-            if len(models_to_run) < len(models):
-                print(f"Warning: Some requested models are not in the available models list.")
+        # Set defaults if not provided
+        tasks_to_run = tasks or AVAILABLE_TASKS
+        models_to_run = models or AVAILABLE_MODELS
         
-        print(f"Tasks to run ({len(tasks_to_run)}): {', '.join(tasks_to_run)}")
-        print(f"Models to run ({len(models_to_run)}): {', '.join(models_to_run)}")
+        # Convert to lists if strings are provided
+        if isinstance(tasks_to_run, str):
+            tasks_to_run = [tasks_to_run]
+        if isinstance(models_to_run, str):
+            models_to_run = [models_to_run]
         
-        # Create a batch timestamp to group jobs
-        batch_timestamp = self.timestamp  # Use the same timestamp for all jobs in batch
+        print(f"Tasks to run: {tasks_to_run}")
+        print(f"Models to run: {models_to_run}")
         
         # Store all jobs
         all_jobs = []
-        task_job_groups = {}
         
-        # For each task, launch a single training instance to run all models
-        for task_name in tasks_to_run:
+        # Process each task
+        for i, task_name in enumerate(tasks_to_run):
             print(f"\n----------------------------")
-            print(f"Processing task: {task_name}")
+            print(f"Processing task {i+1}/{len(tasks_to_run)}: {task_name}")
             print(f"----------------------------")
             
             # Determine number of classes for this task
             num_classes = TASK_CLASS_MAPPING.get(task_name, 2)
             print(f"Task has {num_classes} classes")
-            
-            # Check if S3 path exists for this task - helps with debugging data access issues
-            s3_client = boto3.client('s3')
-            try:
-                # Extract bucket and prefix from S3 data path
-                s3_parts = S3_DATA_BASE.replace('s3://', '').split('/', 1)
-                if len(s3_parts) == 2:
-                    bucket = s3_parts[0]
-                    prefix = s3_parts[1]
-                    if not prefix.endswith('/'):
-                        prefix += '/'
-                    
-                    # Check for specific path structures for this task
-                    task_paths_to_check = [
-                        f"{prefix}tasks/{task_name}/",
-                        f"{prefix}{task_name}/",
-                        f"{prefix}Benchmark/tasks/{task_name}/"
-                    ]
-                    
-                    print(f"Checking S3 for data paths:")
-                    for task_path in task_paths_to_check:
-                        try:
-                            response = s3_client.list_objects_v2(
-                                Bucket=bucket,
-                                Prefix=task_path,
-                                MaxKeys=5
-                            )
-                            if 'Contents' in response:
-                                print(f"  ✓ Found data at s3://{bucket}/{task_path}")
-                                for item in response['Contents'][:5]:
-                                    print(f"    - {item['Key']}")
-                            else:
-                                print(f"  ✗ No data found at s3://{bucket}/{task_path}")
-                        except Exception as e:
-                            print(f"  ! Error checking s3://{bucket}/{task_path}: {str(e)}")
-            except Exception as e:
-                print(f"Error checking S3 paths: {str(e)}")
             
             # Build hyperparameters dictionary
             hyperparameters = {
@@ -307,7 +272,6 @@ class SageMakerRunner:
                 "mode": mode,
                 "file_format": "h5",  # Add file format parameter
                 "num_workers": 4,     # Add number of workers parameter
-                "data_key": 'CSI_amps',  # Add data_key parameter
                 
                 # Model list - note this is a new parameter not supported by the standard script
                 "models": ",".join(models_to_run),  # Comma-separated list of models
@@ -326,75 +290,87 @@ class SageMakerRunner:
                 "seed": SEED,
                 "save_dir": "/opt/ml/model",  # Use SageMaker model directory
                 "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
+                "data_key": 'CSI_amps',  # Add data_key parameter
                 
-                # Adaptive path handling - always enable in SageMaker
-                "adaptive_path": "",  # Flag parameter (empty string means True)
-                "try_all_paths": "",  # Flag parameter (empty string means True)
+                # Testing parameters
+                "test_splits": test_splits or DEFAULT_CONFIG.get("test_splits", "all"),  # Default to all test splits
                 
-                # S3 upload parameters
-                "save_to_s3": S3_OUTPUT_BASE,  # S3 path to save results
-                "direct_upload": "",  # Flag parameter for direct S3 upload
+                # S3保存参数
+                "save_to_s3": S3_OUTPUT_BASE,  # 在S3上保存结果
                 
-                # Debug parameters
-                "debug": "",  # Enable detailed logging
+                # Few-shot learning parameters
+                "enable_few_shot": enable_few_shot,
+                "k_shot": k_shot,
+                "inner_lr": inner_lr,
+                "num_inner_steps": num_inner_steps
             }
             
-            # Additional model parameters that may be needed based on local_runner.py
-            if 'in_channels' in DEFAULT_CONFIG:
-                hyperparameters['in_channels'] = DEFAULT_CONFIG['in_channels']
-            if 'emb_dim' in DEFAULT_CONFIG:
-                hyperparameters['emb_dim'] = DEFAULT_CONFIG['emb_dim']
-            if 'd_model' in DEFAULT_CONFIG:
-                hyperparameters['d_model'] = DEFAULT_CONFIG['d_model']
-            if 'dropout' in DEFAULT_CONFIG:
-                hyperparameters['dropout'] = DEFAULT_CONFIG['dropout']
-            
-            # Flag parameters - pass empty string for flags that should be enabled
+            # 标志类型参数 - 传递空字符串而不是布尔值，这样在命令行中只会出现--flag而不是--flag True
             flag_parameters = [
-                "debug",              # Enable verbose logging
-                "adaptive_path",      # Auto-adapt data path
-                "try_all_paths",      # Try all path combinations
-                "direct_upload",      # Direct upload to S3
-                "upload_final_model", # Upload final model
+                "debug",              # 启用详细日志记录
+                "adaptive_path",      # 自动适应数据路径
+                "try_all_paths",      # 尝试所有路径组合
+                "direct_upload",      # 直接上传到S3
+                "upload_final_model", # 上传最终模型
+                "skip_train_for_debug", # 调试时跳过训练
             ]
             
-            # Set all flag parameters with empty string (indicates flag is present)
+            # Add enable_few_shot to flag parameters if it's enabled
+            if enable_few_shot:
+                flag_parameters.append("enable_few_shot")
+            
+            # 为所有标志类型参数设置空字符串
             for flag in flag_parameters:
                 hyperparameters[flag] = ""
             
-            # Print command line arguments for debugging
+            # 从配置文件添加额外参数（如果有）
+            # 仅添加在train_multi_model.py中定义的参数
+            allowed_params = [
+                "dataset_root", "task_name", "mode", "file_format", "num_workers",
+                "models", "batch_size", "epochs", "learning_rate", "weight_decay",
+                "warmup_epochs", "patience", "win_len", "feature_size", "seed",
+                "save_dir", "output_dir", "data_key", "debug", "test_splits",
+                "in_channels", "emb_dim", "d_model", "dropout", 
+                "enable_few_shot", "k_shot", "inner_lr", "num_inner_steps"
+            ]
+            
+            for key, value in DEFAULT_CONFIG.items():
+                if key in allowed_params and key not in hyperparameters:
+                    hyperparameters[key] = value
+            
+            # 打印完整的参数列表，用于调试命令行参数
             print("\nCommand line arguments that will be passed to the script:")
             cmd_args = []
             for key, value in hyperparameters.items():
                 if isinstance(value, str) and value == "":
-                    # For flag parameters, only add --key without value
+                    # 标志参数只添加--key，不添加值
                     cmd_args.append(f"--{key}")
                 elif not (isinstance(value, bool) and not value):  # Skip False values
-                    # For parameters with values, add --key value
+                    # 对于有值的参数，添加--key value
                     cmd_args.append(f"--{key} {value}")
             
-            # Group and display parameters for readability
-            print("\nFlag parameters:")
+            # 将参数分组显示，便于阅读
+            print("\n标志参数:")
             flag_args = [arg for arg in cmd_args if "=" not in arg and " " not in arg]
             print("  " + "\n  ".join(flag_args))
             
-            print("\nValue parameters:")
+            print("\n值参数:")
             value_args = [arg for arg in cmd_args if "=" in arg or " " in arg]
             print("  " + "\n  ".join(value_args))
             
-            # Validate command line format
-            print("\nFull command line:")
+            # 对将生成的命令行进行格式验证，确保没有明显问题
+            print("\n完整命令行:")
             full_cmd = "train_multi_model.py " + " ".join(cmd_args)
             print(full_cmd)
             
-            # Check command line length - too long can cause issues
+            # 检查命令行长度，过长可能会导致问题
             if len(full_cmd) > 1000:
-                print(f"\nWarning: Command line length ({len(full_cmd)}) is long and may cause issues")
+                print(f"\n警告: 命令行长度 ({len(full_cmd)}) 很长，可能导致问题")
             
-            # Validate required parameters
+            # 验证参数
             for param in ["dataset_root", "task_name", "models"]:
                 if param not in hyperparameters or not hyperparameters[param]:
-                    print(f"\nWarning: Required parameter {param} is missing or empty!")
+                    print(f"\n警告: 必需参数 {param} 缺失或为空!")
             
             print("\n")
             
@@ -420,19 +396,22 @@ class SageMakerRunner:
             print(f"Job name: {job_name}")
             print(f"Output path: {s3_output_path}")
             
-            # 更新批处理大小，减小以降低内存使用
-            if 'batch_size' in hyperparameters and int(hyperparameters['batch_size']) > 8:
-                print(f"注意: 已将batch_size从{hyperparameters['batch_size']}降低至8，以减少内存使用")
-                hyperparameters['batch_size'] = 8
-            
             # Create PyTorch estimator
-            # 使用内存更大的实例
-            instance_type_to_use = instance_type or "ml.g4dn.2xlarge"  # 默认使用更大的实例
-            print(f"使用实例类型: {instance_type_to_use}")
+            instance_type_to_use = instance_type or INSTANCE_TYPE
             
-            # Create estimator with optimized configuration
+            # Note: To reduce S3 storage of source code, you can:
+            # 1. Use git_config instead of source_dir (requires code to be in a git repo)
+            # 2. Use dependencies parameter for small scripts
+            # 3. Set custom SAGEMAKER_SUBMIT_DIRECTORY environment variable
             estimator = PyTorch(
-                entry_point="entry_script.py",  # Use our custom entry script to bypass Horovod/smdebug
+                entry_point="train_multi_model.py",  # Note: This uses a new training script
+                #source_dir=".",  # Using source_dir will upload a copy to S3 as sourcedir.tar.gz
+                source_dir=".",  # Still need this for local development
+                # If your code is in a git repo, you can use this to avoid creating sourcedir.tar.gz:
+                # git_config={
+                #    'repo': 'https://github.com/your-username/your-repo.git',
+                #    'branch': 'main'
+                # },
                 role=self.role,
                 framework_version=FRAMEWORK_VERSION,
                 py_version=PY_VERSION,
@@ -449,49 +428,20 @@ class SageMakerRunner:
                     {'Name': 'validation:loss', 'Regex': 'Val Loss: ([0-9\\.]+)'},
                     {'Name': 'validation:accuracy', 'Regex': 'Val Accuracy: ([0-9\\.]+)'}
                 ],
-                volume_size=200,  # 增加EBS卷大小至100GB，确保有足够的磁盘空间
+                volume_size=EBS_VOLUME_SIZE,  # Increase EBS volume size
                 debugger_hook_config=False,  # Disable debugger
                 disable_profiler=True,        # Disable profiler
-                code_location=None,           # 禁止将代码上传至S3特定位置
-                dependencies=None,            # 不上传dependencies
-                source_dir=".",               # 直接使用当前目录，不创建TAR文件
-                disable_upload=True,          # 尝试完全禁用源代码上传
                 environment={
-                    # Code directories
                     'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',  # Ensure code is properly located
                     'PYTHONPATH': '/opt/ml/code',                  # Add code directory to Python path
-                    
-                    # 指定实际要运行的脚本
-                    'SAGEMAKER_PROGRAM': 'train_multi_model.py',   # 指定入口脚本
-                    'SAGEMAKER_USER_ENTRY_POINT': 'entry_script.py', # 确保使用我们的入口脚本
-                    
-                    # Disable SageMaker debugging tools
                     'SAGEMAKER_MODEL_SERVER_WORKERS': '1',         # Limit number of model server workers
                     'SM_DISABLE_PROFILER': 'true',                 # Disable profiler via env var
                     'SM_DISABLE_DEBUGGER': 'true',                 # Disable debugger via env var
-                    'SMDEBUG_DISABLED': 'true',                    # Disable SMDebug tool
-                    
-                    # Disable Horovod integration
-                    'HOROVOD_WITH_PYTORCH': '0',                   # Disable Horovod for PyTorch
-                    'HOROVOD_WITHOUT_PYTORCH': '1',                # Explicitly disable Horovod-PyTorch integration
-                    'USE_HOROVOD': 'false',                        # Disable general Horovod usage
-                    
-                    # 内存优化设置
-                    'OMP_NUM_THREADS': '1',                        # 限制OpenMP线程数
-                    'MKL_NUM_THREADS': '1',                        # 限制MKL线程数
-                    'CUDA_LAUNCH_BLOCKING': '1',                   # 阻塞式CUDA操作，减少内存峰值
-                    'PYTORCH_CUDA_ALLOC_CONF': 'max_split_size_mb:128', # 限制CUDA内存分配
-                    
-                    # Miscellaneous settings
-                    'LOG_LEVEL': 'INFO',                           # Set logging level
-                    'TORCH_CUDNN_V8_API_ENABLED': '1',             # Enable CUDNN v8 API for PyTorch 1.13+
-                    
-                    # Disable unnecessary features
-                    'DISABLE_SMDATAPARALLEL': '1',                 # Disable SM distributed training
+                    'LOG_LEVEL': 'INFO'                            # Set logging level
                 }
             )
             
-            # Prepare data inputs with explicit configuration
+            # Prepare data inputs with more explicit configuration
             data_channels = {
                 'training': TrainingInput(
                     s3_data=S3_DATA_BASE,
@@ -502,9 +452,11 @@ class SageMakerRunner:
                 )
             }
             
-            # Add debug information
+            # 添加调试信息
             print(f"S3 data path for training: {S3_DATA_BASE}")
             print(f"Training input configuration: {data_channels['training']}")
+            
+            # 在实际的SageMaker环境中，数据将被下载到以下路径:
             print(f"In SageMaker environment, data will be downloaded to: /opt/ml/input/data/training/")
             print(f"Expected task path in SageMaker: /opt/ml/input/data/training/tasks/{task_name}/")
             
@@ -529,9 +481,8 @@ class SageMakerRunner:
             
             # Add to job lists
             all_jobs.append(job_info)
-            task_job_groups[task_name] = job_info
             
-            # Wait between tasks
+            # Wait longer between tasks
             if wait_time > 0 and task_name != tasks_to_run[-1]:
                 print(f"Waiting {wait_time} seconds before starting next task...")
                 try:
@@ -547,8 +498,7 @@ class SageMakerRunner:
             'tasks': tasks_to_run,
             'models': models_to_run,
             'instance_type': instance_type or INSTANCE_TYPE,
-            'jobs': all_jobs,
-            'task_groups': task_job_groups
+            'jobs': all_jobs
         }
         
         # Update batch summary to create initial status report
@@ -669,6 +619,9 @@ class SageMakerRunner:
             "output_dir": "./output",
             "data_key": 'CSI_amps',
             
+            # Testing parameters
+            "test_splits": DEFAULT_CONFIG.get("test_splits", "all"),  # Default to all test splits
+            
             # S3参数
             "save_to_s3": S3_OUTPUT_BASE,
         }
@@ -754,77 +707,142 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"测试参数解析时出错: {e}")
 
-    def run_multitask(self, tasks=None, model_type="transformer", instance_type=None):
+    def run_multitask(self, tasks=None, model_type="transformer", instance_type=None, test_splits=None, enable_few_shot=False, k_shot=5, inner_lr=0.01, num_inner_steps=10):
         """
-        Run multitask learning pipeline on SageMaker
+        Run multitask learning pipeline.
         
         Args:
-            tasks (list or str): List of tasks or comma-separated string of tasks
-            model_type (str): Base model type (transformer, vit, etc.)
+            tasks (str): Comma-separated list of tasks to train on
+            model_type (str): Model architecture to use
             instance_type (str): SageMaker instance type
+            test_splits (str): Test splits to use, comma-separated or 'all'
+            enable_few_shot (bool): Whether to enable few-shot learning
+            k_shot (int): Number of examples per class for few-shot learning
+            inner_lr (float): Learning rate for few-shot adaptation
+            num_inner_steps (int): Number of steps for few-shot adaptation
             
         Returns:
-            dict: Dictionary containing job details
+            dict: Job information
         """
-        print(f"Starting multitask learning job...")
+        print(f"Running multitask learning for model: {model_type}, tasks: {tasks}")
         
-        # Convert tasks to comma-separated string if it's a list
+        # Create batch timestamp for job naming
+        timestamp = self.timestamp
+        
+        # Ensure tasks is a string
         if isinstance(tasks, list):
-            tasks_str = ",".join(tasks)
-        else:
-            tasks_str = tasks or TASK  # Default to single task if not specified
+            tasks = ','.join(tasks)
+        elif tasks is None:
+            # Default to MotionSourceRecognition
+            tasks = "MotionSourceRecognition"
         
-        # Get task list for job naming
-        task_list = tasks_str.split(',')
-        print(f"Running multitask learning with tasks: {task_list}")
-        print(f"Using model type: {model_type}")
-        
-        # Create a timestamp for this job
-        job_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        
-        # Create job name with shortened task names
-        short_tasks = "_".join([t[:5].lower() for t in task_list[:3]])
-        if len(task_list) > 3:
-            short_tasks += f"_plus{len(task_list)-3}"
-        
-        job_name = f"wifi-multitask-{short_tasks}-{model_type}-{job_timestamp[-6:]}"
-        
-        # Ensure job name meets SageMaker requirements
-        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
-        if len(job_name) > 63:
-            job_name = job_name[:60] + job_timestamp[-3:]
-        
-        # Output path - use a structure that matches the local runner
-        s3_output_path = f"{S3_OUTPUT_BASE}multitask/"
-        
-        print(f"Creating multitask learning job: {job_name}")
-        print(f"Output path: {s3_output_path}")
-        
-        # Build hyperparameters
+        # Build hyperparameters dictionary
         hyperparameters = {
             # Data parameters
-            "data_dir": S3_DATA_BASE,
-            "tasks": tasks_str,
-            "model_type": model_type,
+            "dataset_root": S3_DATA_BASE,  # Use S3 path
+            "tasks": tasks,
+            "mode": MODE,
+            "file_format": "h5",  # Add file format parameter
+            "num_workers": 4,     # Add number of workers parameter
             
             # Training parameters
             "batch_size": BATCH_SIZE,
             "epochs": EPOCH_NUMBER,
-            "lr": 1e-4,
-            "patience": 10,
+            "lr": 1e-4,          # Note: multitask uses lr, not learning_rate
+            "patience": PATIENCE,
             
             # Model parameters
+            "model": model_type,
             "win_len": WIN_LEN,
             "feature_size": FEATURE_SIZE,
+            "seed": SEED,
+            "save_dir": "/opt/ml/model",  # Use SageMaker model directory
+            "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
             
             # LoRA parameters
             "lora_r": 8,
             "lora_alpha": 32,
             "lora_dropout": 0.05,
             
-            # Save directory (will be auto-set in SageMaker to use the correct structure)
-            "save_dir": "/opt/ml/model/results/multitask"
+            # Testing parameters
+            "test_splits": test_splits or DEFAULT_CONFIG.get("test_splits", "all"),  # Default to all test splits
+            
+            # S3保存参数
+            "save_to_s3": S3_OUTPUT_BASE,  # 在S3上保存结果
+            
+            # Few-shot learning parameters
+            "k_shot": k_shot,
+            "inner_lr": inner_lr,
+            "num_inner_steps": num_inner_steps
         }
+        
+        # 标志类型参数 - 传递空字符串而不是布尔值，这样在命令行中只会出现--flag而不是--flag True
+        flag_parameters = [
+            "debug",              # 启用详细日志记录
+            "adaptive_path",      # 自动适应数据路径
+            "direct_upload",      # 直接上传到S3
+            "upload_final_model", # 上传最终模型
+        ]
+        
+        # Add enable_few_shot to flag parameters if it's enabled
+        if enable_few_shot:
+            flag_parameters.append("enable_few_shot")
+        
+        # 为所有标志类型参数设置空字符串
+        for flag in flag_parameters:
+            hyperparameters[flag] = ""
+        
+        # 打印完整的参数列表，用于调试命令行参数
+        print("\nCommand line arguments that will be passed to the script:")
+        cmd_args = []
+        for key, value in hyperparameters.items():
+            if isinstance(value, str) and value == "":
+                # 标志参数只添加--key，不添加值
+                cmd_args.append(f"--{key}")
+            elif not (isinstance(value, bool) and not value):  # Skip False values
+                # 对于有值的参数，添加--key value
+                cmd_args.append(f"--{key} {value}")
+        
+        # 将参数分组显示，便于阅读
+        print("\n标志参数:")
+        flag_args = [arg for arg in cmd_args if "=" not in arg and " " not in arg]
+        print("  " + "\n  ".join(flag_args))
+        
+        print("\n值参数:")
+        value_args = [arg for arg in cmd_args if "=" in arg or " " in arg]
+        print("  " + "\n  ".join(value_args))
+        
+        # 对将生成的命令行进行格式验证，确保没有明显问题
+        print("\n完整命令行:")
+        full_cmd = "train_multitask_adapter.py " + " ".join(cmd_args)
+        print(full_cmd)
+        
+        # 检查命令行长度，过长可能会导致问题
+        if len(full_cmd) > 1000:
+            print(f"\n警告: 命令行长度 ({len(full_cmd)}) 很长，可能导致问题")
+        
+        # 验证参数
+        for param in ["dataset_root", "tasks", "model"]:
+            if param not in hyperparameters or not hyperparameters[param]:
+                print(f"\n警告: 必需参数 {param} 缺失或为空!")
+        
+        print("\n")
+        
+        # Shorten task name for job naming (use first 8 chars or full name if shorter)
+        short_tasks = tasks.lower()[:8]
+        # Create job name with shortened format for timestamp and task name
+        job_name = f"{BASE_JOB_NAME}-{short_tasks}-{model_type}-{timestamp[-6:]}"
+        
+        # Ensure job name meets SageMaker requirements
+        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
+        if len(job_name) > 63:
+            job_name = job_name[:60] + timestamp[-3:]
+        
+        # Output path - use a structure that matches the local runner
+        s3_output_path = f"{S3_OUTPUT_BASE}multitask/"
+        
+        print(f"Creating multitask learning job: {job_name}")
+        print(f"Output path: {s3_output_path}")
         
         # Create PyTorch estimator
         instance_type_to_use = instance_type or INSTANCE_TYPE
@@ -869,7 +887,7 @@ if __name__ == '__main__':
             'estimator': estimator,
             'inputs': data_channels,
             'config': {
-                'tasks': tasks_str,
+                'tasks': tasks,
                 'model_type': model_type,
                 'output_dir': s3_output_path,
                 'save_dir': '/opt/ml/model/results/multitask'
@@ -881,310 +899,212 @@ if __name__ == '__main__':
         
         return job_info
     
-    def run_batch_multitask(self, task_groups=None, model_type="transformer", instance_type=None, wait_time=BATCH_WAIT_TIME):
+    def run_batch_multitask(self, task_groups=None, model_type="transformer", instance_type=None, wait_time=BATCH_WAIT_TIME, test_splits=None, enable_few_shot=False, k_shot=5, inner_lr=0.01, num_inner_steps=10):
         """
-        Run batch multitask training jobs
+        Run batch of multitask learning jobs, each with a different group of tasks.
         
         Args:
             task_groups (list): List of task groups, where each group is a list of tasks
-            model_type (str): Base model type (transformer, vit, etc.)
+            model_type (str): Model architecture to use
             instance_type (str): SageMaker instance type
-            wait_time (int): Wait time between job submissions in seconds
+            wait_time (int): Wait time between job submission in seconds
+            test_splits (str): Test splits to use, comma-separated or 'all'
+            enable_few_shot (bool): Whether to enable few-shot learning
+            k_shot (int): Number of examples per class for few-shot learning
+            inner_lr (float): Learning rate for few-shot adaptation
+            num_inner_steps (int): Number of steps for few-shot adaptation
             
         Returns:
             list: List of job information dictionaries
         """
-        print(f"Starting batch multitask execution...")
-        
-        # If no task groups provided, use a default
-        if not task_groups:
-            # Example: Group related tasks together
-            task_groups = [
-                ["MotionSourceRecognition", "HumanMotion"],
-                ["HumanNonhuman", "HumanID"],
-                ["NTUHAR", "NTUHumanID"]
-            ]
-        
-        # Validate task groups
-        valid_task_groups = []
-        for group in task_groups:
-            valid_tasks = [t for t in group if t in AVAILABLE_TASKS]
-            if len(valid_tasks) >= 2:  # At least 2 tasks for multitask learning
-                valid_task_groups.append(valid_tasks)
-            else:
-                print(f"Warning: Skipping task group {group} (not enough valid tasks)")
-        
-        if not valid_task_groups:
-            print("Error: No valid task groups found")
-            return []
+        print(f"Starting batch execution of multitask learning jobs...")
         
         # Create batch timestamp
         batch_timestamp = self.timestamp
         
+        # Default task groups if none provided
+        if task_groups is None:
+            # Create two default groups
+            task_groups = [
+                ['MotionSourceRecognition', 'HumanMotion'],
+                ['MotionSourceRecognition', 'HumanID'],
+                ['MotionSourceRecognition', 'HumanMotion', 'HumanID']
+            ]
+        
+        # Convert strings to lists if needed
+        processed_groups = []
+        for group in task_groups:
+            if isinstance(group, str):
+                # If it's a comma-separated string
+                processed_groups.append(group.split(','))
+            else:
+                # Keep as is if already a list
+                processed_groups.append(group)
+        
+        print(f"Running {len(processed_groups)} task groups with model type: {model_type}")
+        for i, group in enumerate(processed_groups):
+            print(f"Group {i+1}: {', '.join(group)}")
+        
         # Store all jobs
         all_jobs = []
         
-        # For each task group, launch a training job
-        for i, task_group in enumerate(valid_task_groups):
+        # Run each task group
+        for i, task_group in enumerate(processed_groups):
             print(f"\n----------------------------")
-            print(f"Processing task group {i+1}/{len(valid_task_groups)}: {task_group}")
+            print(f"Processing task group {i+1}/{len(processed_groups)}: {', '.join(task_group)}")
             print(f"----------------------------")
             
-            # Run multitask job for this group
+            # Run multitask job
             job_info = self.run_multitask(
                 tasks=task_group,
                 model_type=model_type,
-                instance_type=instance_type
+                instance_type=instance_type,
+                test_splits=test_splits,
+                enable_few_shot=enable_few_shot,
+                k_shot=k_shot,
+                inner_lr=inner_lr,
+                num_inner_steps=num_inner_steps
             )
             
-            # Add to job list
+            # Add batch information
             job_info['batch_id'] = batch_timestamp
-            job_info['group_id'] = i
             all_jobs.append(job_info)
             
             # Wait between submissions
-            if wait_time > 0 and i < len(valid_task_groups) - 1:
-                print(f"Waiting {wait_time} seconds before next submission...")
+            if wait_time > 0 and i < len(processed_groups) - 1:
+                print(f"Waiting {wait_time} seconds before starting next task group...")
                 try:
                     time.sleep(wait_time)
                 except KeyboardInterrupt:
                     print("\nBatch submission interrupted by user.")
                     break
         
-        # Create batch summary
-        self._update_batch_summary(all_jobs, f"multitask_{batch_timestamp}")
+        # Return batch information
+        batch_info = {
+            'batch_timestamp': batch_timestamp,
+            'batch_mode': 'multitask-groups',
+            'task_groups': processed_groups,
+            'model_type': model_type,
+            'instance_type': instance_type or INSTANCE_TYPE,
+            'enable_few_shot': enable_few_shot,
+            'k_shot': k_shot,
+            'inner_lr': inner_lr,
+            'num_inner_steps': num_inner_steps,
+            'jobs': all_jobs
+        }
         
-        print(f"\nBatch multitask execution initiated!")
+        # Update batch summary
+        self._update_batch_summary(all_jobs, batch_timestamp)
+        
+        print(f"\nBatch execution initiated!")
+        print(f"Task Groups: {len(processed_groups)}")
+        print(f"Model: {model_type}")
         print(f"Total jobs: {len(all_jobs)}")
-        print(f"Batch ID: multitask_{batch_timestamp}")
+        print(f"Batch ID: {batch_timestamp}")
+        print(f"Few-shot learning: {'Enabled' if enable_few_shot else 'Disabled'}")
+        if enable_few_shot:
+            print(f"K-shot: {k_shot}, Inner LR: {inner_lr}, Inner Steps: {num_inner_steps}")
+        print(f"You can monitor the jobs in SageMaker console.")
         
-        return all_jobs
-
-    def test_environment_only(self, instance_type=None, wait=False):
-        """
-        提交一个极简的作业来仅测试环境配置，无需完整数据下载。
-        这个方法使用特殊的'test_environment'标志来指示我们只进行环境测试。
-        
-        Args:
-            instance_type (str): SageMaker实例类型，默认使用小型实例
-            wait (bool): 是否等待作业完成
-            
-        Returns:
-            dict: 包含作业详细信息的字典
-        """
-        print(f"启动快速环境测试作业...")
-        
-        # 创建此作业的时间戳
-        job_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        
-        # 创建作业名称
-        job_name = f"wifi-env-test-{job_timestamp[-6:]}"
-        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
-        
-        # 输出路径
-        s3_output_path = f"{S3_OUTPUT_BASE}env_tests/"
-        
-        print(f"创建环境测试作业: {job_name}")
-        print(f"输出路径: {s3_output_path}")
-        
-        # 构建超参数 - 只需要极少的参数
-        hyperparameters = {
-            "test_only": "",  # 标记这只是一个测试作业
-        }
-        
-        # 使用测试脚本
-        test_script = "test_sagemaker_env.py"
-        
-        # 创建PyTorch估计器 - 使用较大内存的实例
-        instance_type_to_use = instance_type or "ml.g4dn.2xlarge"
-        print(f"使用实例类型: {instance_type_to_use}")
-        
-        estimator = PyTorch(
-            entry_point="entry_script.py",  # 使用自定义入口脚本，它会禁用Horovod并处理依赖
-            role=self.role,
-            framework_version=FRAMEWORK_VERSION,
-            py_version=PY_VERSION,
-            instance_count=1,
-            instance_type=instance_type_to_use,
-            max_run=900,  # 最多15分钟 - 环境测试不需要更长时间
-            output_path=s3_output_path,
-            base_job_name=job_name,
-            hyperparameters=hyperparameters,
-            volume_size=50,  # 增加卷大小到50GB
-            debugger_hook_config=False,  # 禁用调试器
-            disable_profiler=True,        # 禁用分析器
-            source_dir=".",               # 直接使用当前目录，不创建TAR文件
-            code_location=None,           # 禁止将代码上传至S3特定位置
-            dependencies=None,            # 不上传dependencies
-            environment={
-                # 代码目录
-                'SAGEMAKER_SUBMIT_DIRECTORY': '/opt/ml/code',
-                'PYTHONPATH': '/opt/ml/code',
-                
-                # 指定实际要运行的脚本
-                'SAGEMAKER_PROGRAM': test_script,
-                
-                # 禁用SageMaker调试工具
-                'SM_DISABLE_PROFILER': 'true',
-                'SM_DISABLE_DEBUGGER': 'true',
-                'SMDEBUG_DISABLED': 'true',
-                
-                # 禁用Horovod集成
-                'HOROVOD_WITH_PYTORCH': '0',
-                'HOROVOD_WITHOUT_PYTORCH': '1',
-                'USE_HOROVOD': 'false',
-                
-                # 内存优化设置
-                'OMP_NUM_THREADS': '1',                # 限制OpenMP线程数
-                'MKL_NUM_THREADS': '1',                # 限制MKL线程数
-                'CUDA_LAUNCH_BLOCKING': '1',           # 阻塞式CUDA操作，减少内存峰值
-                
-                # 其他设置
-                'LOG_LEVEL': 'INFO',
-                'TORCH_CUDNN_V8_API_ENABLED': '1',
-                
-                # 禁用不必要的功能
-                'DISABLE_SMDATAPARALLEL': '1'
-            }
-        )
-        
-        # 创建一个空的或非常小的输入数据集
-        # 使用与培训任务相同的格式，但内容极少
-        try:
-            # 准备一个空目录作为输入
-            import tempfile
-            tmp_dir = tempfile.mkdtemp()
-            os.makedirs(os.path.join(tmp_dir, 'tasks'), exist_ok=True)
-            
-            # 在临时目录中创建一个空文件以确保数据通道有效
-            with open(os.path.join(tmp_dir, 'tasks', 'test_file.txt'), 'w') as f:
-                f.write("This is a minimal test file to make the data channel valid.\n")
-            
-            # 使用Session上传到S3
-            s3_prefix = f"test-env-inputs/{job_timestamp}"
-            s3_test_input = self.session.upload_data(tmp_dir, 
-                                                bucket=S3_DATA_BASE.split('/')[2],
-                                                key_prefix=s3_prefix)
-            
-            print(f"已创建最小测试输入数据: {s3_test_input}")
-        except Exception as e:
-            print(f"创建测试输入数据时出错: {e}")
-            # 如果失败，回退到标准数据位置，但仍然会避免下载大部分内容
-            s3_test_input = S3_DATA_BASE
-        
-        # 使用我们的测试输入准备数据通道
-        data_channels = {
-            'training': TrainingInput(
-                s3_data=s3_test_input,
-                distribution='FullyReplicated',
-                content_type='application/x-directory',
-                s3_data_type='S3Prefix',
-                input_mode='File'
-            )
-        }
-        
-        # 启动作业
-        print(f"启动SageMaker环境测试作业...")
-        estimator.fit(inputs=data_channels, job_name=job_name, wait=wait)
-        
-        if wait:
-            print("作业已完成。")
-            # 打印CloudWatch Logs的URL
-            region = boto3.session.Session().region_name
-            log_url = f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logStream:group=/aws/sagemaker/TrainingJobs;prefix={job_name}"
-            print(f"CloudWatch Logs URL: {log_url}")
-        else:
-            print(f"作业已提交，继续在后台运行...")
-            print(f"在SageMaker控制台监控作业: {job_name}")
-        
-        # 返回作业信息
-        job_info = {
-            'job_name': job_name,
-            'estimator': estimator,
-            'inputs': data_channels,
-            'config': {
-                'task_name': 'env_test',
-                'output_dir': s3_output_path
-            }
-        }
-        
-        return job_info
+        return batch_info
 
 def main():
-    """Main function to execute from command line"""
-    parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline on SageMaker')
-    parser.add_argument('--tasks', type=str, nargs='+',
-                      help='List of tasks to run. Use space to separate multiple tasks')
-    parser.add_argument('--models', type=str, nargs='+',
-                      help='List of models to run. Use space to separate multiple models')
-    parser.add_argument('--mode', type=str, default=MODE,
-                      choices=['csi', 'acf'],
-                      help='Data modality to use')
-    parser.add_argument('--instance-type', dest='instance_type', type=str, default=INSTANCE_TYPE,
-                      help='SageMaker instance type for training')
-    parser.add_argument('--batch-wait', dest='batch_wait', type=int, default=BATCH_WAIT_TIME,
-                      help='Wait time between batch job submissions in seconds')
-    parser.add_argument('--volume-size', dest='volume_size', type=int, default=EBS_VOLUME_SIZE,
-                      help='Size of the EBS volume in GB')
-    parser.add_argument('--test-args', dest='test_args', action='store_true',
-                      help='Test argument parsing without running a job')
-    parser.add_argument('--test-env', dest='test_env', action='store_true',
-                      help='Test environment configuration by submitting a minimal job')
-    parser.add_argument('--wait', dest='wait', action='store_true',
-                      help='Wait for the job to complete (when using --test-env)')
-    parser.add_argument('--pipeline', type=str, default='supervised',
-                      choices=AVAILABLE_PIPELINES,
-                      help='Pipeline to run (supervised, meta, or multitask)')
-    parser.add_argument('--task-groups', dest='task_groups', type=str, nargs='+',
-                      help='Task groups for multitask learning, format: "task1,task2 task3,task4"')
-    parser.add_argument('--model-type', dest='model_type', type=str, default='transformer',
-                      help='Base model type for multitask learning')
+    """Main entry point for SageMaker runner"""
+    parser = argparse.ArgumentParser(description="Run SageMaker training jobs for WiFi sensing")
     
+    # Subparsers for different modes
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+    
+    # Supervised batch parser
+    batch_parser = subparsers.add_parser('batch', help='Run batch of supervised learning jobs')
+    batch_parser.add_argument('--tasks', type=str, nargs='+', help='List of tasks to run')
+    batch_parser.add_argument('--models', type=str, nargs='+', help='List of models to run')
+    batch_parser.add_argument('--mode', type=str, default='csi', help='Data modality (csi or acf)')
+    batch_parser.add_argument('--instance_type', type=str, help='SageMaker instance type')
+    batch_parser.add_argument('--wait_time', type=int, default=BATCH_WAIT_TIME, help='Wait time between jobs')
+    batch_parser.add_argument('--test_splits', type=str, help='Test splits to use (comma-separated or "all")')
+    
+    # Few-shot learning parameters
+    batch_parser.add_argument('--enable_few_shot', action='store_true', help='Enable few-shot learning adaptation')
+    batch_parser.add_argument('--k_shot', type=int, default=5, help='Number of examples per class for few-shot adaptation')
+    batch_parser.add_argument('--inner_lr', type=float, default=0.01, help='Learning rate for few-shot adaptation')
+    batch_parser.add_argument('--num_inner_steps', type=int, default=10, help='Number of adaptation steps for few-shot learning')
+    
+    # Multitask parser
+    multitask_parser = subparsers.add_parser('multitask', help='Run multitask learning job')
+    multitask_parser.add_argument('--tasks', type=str, required=True, help='Comma-separated list of tasks')
+    multitask_parser.add_argument('--model', type=str, default='transformer', help='Model architecture')
+    multitask_parser.add_argument('--instance_type', type=str, help='SageMaker instance type')
+    multitask_parser.add_argument('--test_splits', type=str, help='Test splits to use (comma-separated or "all")')
+    
+    # Few-shot learning parameters for multitask
+    multitask_parser.add_argument('--enable_few_shot', action='store_true', help='Enable few-shot learning adaptation')
+    multitask_parser.add_argument('--k_shot', type=int, default=5, help='Number of examples per class for few-shot adaptation')
+    multitask_parser.add_argument('--inner_lr', type=float, default=0.01, help='Learning rate for few-shot adaptation')
+    multitask_parser.add_argument('--num_inner_steps', type=int, default=10, help='Number of adaptation steps for few-shot learning')
+    
+    # Batch multitask parser
+    batch_mt_parser = subparsers.add_parser('batch-multitask', help='Run batch of multitask learning jobs')
+    batch_mt_parser.add_argument('--task_groups', type=str, nargs='+', help='List of task groups (format: "task1,task2 task3,task4")')
+    batch_mt_parser.add_argument('--model', type=str, default='transformer', help='Model architecture')
+    batch_mt_parser.add_argument('--instance_type', type=str, help='SageMaker instance type')
+    batch_mt_parser.add_argument('--wait_time', type=int, default=BATCH_WAIT_TIME, help='Wait time between jobs')
+    batch_mt_parser.add_argument('--test_splits', type=str, help='Test splits to use (comma-separated or "all")')
+    
+    # Few-shot learning parameters for batch multitask
+    batch_mt_parser.add_argument('--enable_few_shot', action='store_true', help='Enable few-shot learning adaptation')
+    batch_mt_parser.add_argument('--k_shot', type=int, default=5, help='Number of examples per class for few-shot adaptation')
+    batch_mt_parser.add_argument('--inner_lr', type=float, default=0.01, help='Learning rate for few-shot adaptation')
+    batch_mt_parser.add_argument('--num_inner_steps', type=int, default=10, help='Number of adaptation steps for few-shot learning')
+    
+    # Parse arguments
     args = parser.parse_args()
     
-    # Create SageMaker runner instance
+    # Create SageMaker runner
     runner = SageMakerRunner()
     
-    # 如果要仅测试环境配置
-    if args.test_env:
-        print("正在进行快速环境测试 - 将提交最小作业，只测试环境配置")
-        runner.test_environment_only(
-            instance_type=args.instance_type,
-            wait=args.wait
-        )
-        return
-    
-    # If using test mode, only test argument parsing
-    if args.test_args:
-        print("Running in test mode - will only test argument parsing")
-        for task in args.tasks or AVAILABLE_TASKS[:1]:
-            runner.test_hyperparameters(task_name=task, models=args.models)
-        return
-    
-    # Handle different pipelines
-    if args.pipeline == 'multitask':
-        # Parse task groups if provided
-        task_groups = None
-        if args.task_groups:
-            task_groups = [group.split(',') for group in args.task_groups]
-        
-        # Run multitask batch
-        runner.run_batch_multitask(
-            task_groups=task_groups,
-            model_type=args.model_type,
-            instance_type=args.instance_type,
-            wait_time=args.batch_wait
-        )
-    else:
-        # Default to supervised pipeline with batch execution
-        print(f"Running batch jobs with {len(args.tasks or AVAILABLE_TASKS)} tasks and {len(args.models or AVAILABLE_MODELS)} models")
+    if args.command == 'batch':
+        # Run batch jobs
         runner.run_batch_by_task(
             tasks=args.tasks,
             models=args.models,
             mode=args.mode,
             instance_type=args.instance_type,
-            wait_time=args.batch_wait
+            wait_time=args.wait_time,
+            test_splits=args.test_splits,
+            enable_few_shot=args.enable_few_shot,
+            k_shot=args.k_shot,
+            inner_lr=args.inner_lr,
+            num_inner_steps=args.num_inner_steps
         )
+    elif args.command == 'multitask':
+        # Run multitask job
+        runner.run_multitask(
+            tasks=args.tasks,
+            model_type=args.model,
+            instance_type=args.instance_type,
+            test_splits=args.test_splits,
+            enable_few_shot=args.enable_few_shot,
+            k_shot=args.k_shot,
+            inner_lr=args.inner_lr,
+            num_inner_steps=args.num_inner_steps
+        )
+    elif args.command == 'batch-multitask':
+        # Run batch multitask jobs
+        runner.run_batch_multitask(
+            task_groups=args.task_groups,
+            model_type=args.model,
+            instance_type=args.instance_type,
+            wait_time=args.wait_time,
+            test_splits=args.test_splits,
+            enable_few_shot=args.enable_few_shot,
+            k_shot=args.k_shot,
+            inner_lr=args.inner_lr,
+            num_inner_steps=args.num_inner_steps
+        )
+    else:
+        # If no command provided, show help
+        parser.print_help()
 
 if __name__ == "__main__":
     main()

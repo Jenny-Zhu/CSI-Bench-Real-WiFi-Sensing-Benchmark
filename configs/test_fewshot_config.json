@@ -1,0 +1,34 @@
+{
+  "pipeline": "supervised",
+  "training_dir": "C:\\Guozhen\\Code\\Github\\WiAL-Real-WiFi-Sensing-Benchmark\\wifi_benchmark_dataset",
+  "test_dirs": [],
+  "output_dir": "./results",
+  "mode": "csi",
+  "freeze_backbone": false,
+  "integrated_loader": true,
+  "task": "MotionSourceRecognition",
+  "win_len": 500,
+  "feature_size": 232,
+  "seed": 42,
+  "batch_size": 8,
+  "epochs": 5,
+  "model": "transformer",
+  "test_splits": "all",
+  "task_class_mapping": {
+    "MotionSourceRecognition": 4
+  },
+  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
+  "available_tasks": [
+    "MotionSourceRecognition"
+  ],
+  "available_pipelines": ["supervised", "meta", "multitask", "fewshot"],
+  "supervised_fewshot": {
+    "evaluate_fewshot": false,
+    "fewshot_support_split": "val_id",
+    "fewshot_query_split": "test_cross_env",
+    "fewshot_adaptation_lr": 0.01,
+    "fewshot_adaptation_steps": 10,
+    "fewshot_finetune_all": false,
+    "fewshot_eval_shots": true
+  }
+} 

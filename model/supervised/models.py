@@ -6,13 +6,14 @@ from torchvision.models import resnet18
 
 class MLPClassifier(nn.Module):
     """Multi-layer Perceptron for WiFi sensing"""
-    def __init__(self, win_len=250, feature_size=98, num_classes=2):
+    def __init__(self, win_len=500, feature_size=232, num_classes=2):
         super(MLPClassifier, self).__init__()
         # Calculate input size but limit it to prevent memory issues
         input_size = min(win_len * feature_size, 10000)
         
         self.win_len = win_len
         self.feature_size = feature_size
+        self.num_classes = num_classes
         
         self.fc = nn.Sequential(
             nn.Linear(input_size, 512),
@@ -23,6 +24,14 @@ class MLPClassifier(nn.Module):
             nn.Dropout(0.3),
             nn.Linear(128, num_classes)
         )
+    
+    def get_init_params(self):
+        """Return the initialization parameters to support model cloning for few-shot learning"""
+        return {
+            'win_len': self.win_len,
+            'feature_size': self.feature_size,
+            'num_classes': self.num_classes
+        }
         
     def forward(self, x):
         # Flatten input: [batch, channels, win_len, feature_size] -> [batch, win_len*feature_size]
@@ -34,10 +43,14 @@ class MLPClassifier(nn.Module):
 
 class LSTMClassifier(nn.Module):
     """LSTM model for WiFi sensing"""
-    def __init__(self, feature_size=98, hidden_size=256, num_layers=2, num_classes=2, dropout=0.3):
+    def __init__(self, feature_size=232, hidden_size=256, num_layers=2, num_classes=2, dropout=0.3):
         super(LSTMClassifier, self).__init__()
         
         self.feature_size = feature_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.num_classes = num_classes
+        self.dropout = dropout
         
         self.lstm = nn.LSTM(
             input_size=feature_size,
@@ -54,6 +67,16 @@ class LSTMClassifier(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_size, num_classes)
         )
+    
+    def get_init_params(self):
+        """Return the initialization parameters to support model cloning for few-shot learning"""
+        return {
+            'feature_size': self.feature_size,
+            'hidden_size': self.hidden_size,
+            'num_layers': self.num_layers,
+            'num_classes': self.num_classes,
+            'dropout': self.dropout
+        }
         
     def forward(self, x):
         # Input shape: [batch, channels, win_len, feature_size]
@@ -80,20 +103,32 @@ class LSTMClassifier(nn.Module):
 
 class ResNet18Classifier(nn.Module):
     """Modified ResNet-18 for WiFi sensing"""
-    def __init__(self, win_len=250, feature_size=98, num_classes=2, in_channels=1):
+    def __init__(self, win_len=500, feature_size=232, num_classes=2, in_channels=1):
         super(ResNet18Classifier, self).__init__()
         
-        # Save the in_channels parameter but don't use it in initialization
+        # Save the parameters
+        self.win_len = win_len
+        self.feature_size = feature_size
+        self.num_classes = num_classes
         self.in_channels = in_channels
         
         # Load pretrained ResNet-18
         self.resnet = resnet18(pretrained=False)
         
         # Modify first conv layer to accept single channel
-        self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         
         # Modify final fc layer
         self.resnet.fc = nn.Linear(512, num_classes)
+    
+    def get_init_params(self):
+        """Return the initialization parameters to support model cloning for few-shot learning"""
+        return {
+            'win_len': self.win_len,
+            'feature_size': self.feature_size,
+            'num_classes': self.num_classes,
+            'in_channels': self.in_channels
+        }
         
     def forward(self, x):
         # ResNet forward pass
@@ -102,12 +137,19 @@ class ResNet18Classifier(nn.Module):
 class TransformerClassifier(nn.Module):
     """Transformer model for WiFi sensing"""
     def __init__(self, feature_size=98, d_model=256, nhead=8, 
-                 num_layers=4, dropout=0.1, num_classes=2):
+                 num_layers=4, dropout=0.1, num_classes=2, win_len=None):
         super(TransformerClassifier, self).__init__()
         
         self.feature_size = feature_size
+        self.d_model = d_model
+        self.nhead = nhead
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.num_classes = num_classes
+        self.win_len = win_len
         
-        # Input projection
+        # Create input projection with the given feature_size as a placeholder
+        # It will be replaced in the forward method if needed
         self.input_proj = nn.Linear(feature_size, d_model)
         
         # Positional encoding
@@ -130,19 +172,65 @@ class TransformerClassifier(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(d_model * 2, num_classes)
         )
+    
+    def get_init_params(self):
+        """Return the initialization parameters to support model cloning for few-shot learning"""
+        return {
+            'feature_size': self.feature_size,
+            'd_model': self.d_model,
+            'nhead': self.nhead,
+            'num_layers': self.num_layers,
+            'dropout': self.dropout,
+            'num_classes': self.num_classes,
+            'win_len': self.win_len
+        }
+    
+    def _get_state_dict(self):
+        """Get state_dict but exclude dynamically created input_proj if it's different from the initial one"""
+        state_dict = super(TransformerClassifier, self).state_dict()
+        # If the input_proj has been dynamically created with a different size, exclude it
+        if hasattr(self.input_proj, 'in_features') and self.input_proj.in_features != self.feature_size:
+            # Remove input_proj keys since they'll be dynamically created based on actual input
+            keys_to_remove = [k for k in state_dict.keys() if k.startswith('input_proj')]
+            for key in keys_to_remove:
+                del state_dict[key]
+        return state_dict
+    
+    def state_dict(self, *args, **kwargs):
+        """Override state_dict to handle dynamically created input_proj"""
+        return self._get_state_dict()
+    
+    def load_state_dict(self, state_dict, strict=True):
+        """Override load_state_dict to handle potentially missing input_proj"""
+        # Check for input_proj keys
+        input_proj_keys = [k for k in state_dict.keys() if k.startswith('input_proj')]
+        
+        # If the state_dict has input_proj but with a different size, skip those keys
+        if not input_proj_keys:
+            # Create a new state dict excluding input_proj keys from current model
+            model_state_dict = self.state_dict()
+            # Load the rest of the state dict normally
+            return super(TransformerClassifier, self).load_state_dict(state_dict, strict=False)
+        else:
+            # Try normal loading
+            try:
+                return super(TransformerClassifier, self).load_state_dict(state_dict, strict=strict)
+            except RuntimeError as e:
+                # If error due to input_proj, try loading without strict
+                if "input_proj" in str(e):
+                    return super(TransformerClassifier, self).load_state_dict(state_dict, strict=False)
+                raise e
         
     def forward(self, x):
         # Input shape: [batch, channels, win_len, feature_size]
         # Transform to: [batch, win_len, feature_size]
         x = x.squeeze(1)  # Remove channel dimension
         
-        # Check and fix dimensions if needed
-        if x.shape[2] == self.feature_size:
-            # If feature_size is in the last dimension, we're good
-            pass
-        else:
-            # If feature_size is not in the last dimension, transpose
-            x = x.transpose(1, 2)
+        # Determine the actual feature size from the input tensor
+        actual_feature_size = x.shape[-1]
+        if self.input_proj.in_features != actual_feature_size:
+            # Create a new linear layer with the correct input size
+            self.input_proj = nn.Linear(actual_feature_size, self.d_model).to(x.device)
         
         # Project to d_model dimensions
         x = self.input_proj(x)
@@ -280,7 +368,7 @@ class TransformerEncoder(nn.Module):
         return x
 
 class ViTClassifier(nn.Module):
-    def __init__(self, win_len=250, feature_size=98, in_channels=1, emb_dim=128, depth=6, num_heads=4, mlp_ratio=4.0, dropout=0.1, num_classes=2):
+    def __init__(self, win_len=500, feature_size=232, in_channels=1, emb_dim=128, depth=6, num_heads=4, mlp_ratio=4.0, dropout=0.1, num_classes=2):
         super().__init__()
         self.embedding = ViTEmbedding(win_len, feature_size, emb_dim, in_channels)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, emb_dim))
@@ -317,8 +405,8 @@ class PatchTST(nn.Module):
     """
     def __init__(
         self, 
-        win_len=250, 
-        feature_size=98, 
+        win_len=500, 
+        feature_size=232, 
         patch_len=16,
         stride=8,
         emb_dim=128, 
@@ -438,8 +526,8 @@ class TimesFormer1D(nn.Module):
     """
     def __init__(
         self,
-        win_len=250,
-        feature_size=98,
+        win_len=500,
+        feature_size=232,
         patch_size=4,
         emb_dim=128,
         depth=4,

@@ -50,18 +50,83 @@ def load_benchmark_supervised(
     # Create all split names
     all_splits = [train_split, val_split] + test_splits
     
-    # Create metadata path
-    if "tasks" in dataset_root and os.path.isdir(os.path.join(dataset_root, task_name)):
-        task_dir = os.path.join(dataset_root, task_name)
-    else:
-        task_dir = os.path.join(dataset_root, "tasks", task_name)
-    metadata_path = os.path.join(task_dir, 'metadata', 'sample_metadata.csv')
+    # Try multiple directory structures to find the task directory
+    possible_paths = [
+        os.path.join(dataset_root, "tasks", task_name),              # dataset_root/tasks/task_name
+        os.path.join(dataset_root, task_name),                        # dataset_root/task_name
+        os.path.join(dataset_root, task_name.lower()),                # dataset_root/task_name_lowercase
+        os.path.join(dataset_root, "tasks", task_name.lower())        # dataset_root/tasks/task_name_lowercase
+    ]
+    data_dir_debug = os.path.join(dataset_root, "tasks", task_name)
+    print(f"________________________DATA DEBUG________{data_dir_debug}")
+    task_dir = None
+    for path in possible_paths:
+        print(f"Checking path: {path}")
+        if os.path.isdir(path):
+            # Check if this directory has metadata and splits
+            has_metadata = os.path.exists(os.path.join(path, 'metadata'))
+            has_splits = os.path.exists(os.path.join(path, 'splits'))
+            print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+            
+            if has_metadata or has_splits:
+                task_dir = path
+                break
+    
+    # If not found, try walking the directory to find it
+    if task_dir is None:
+        print(f"Task directory not found in predefined paths, searching recursively...")
+        for root, dirs, files in os.walk(dataset_root):
+            if task_name in dirs or task_name.lower() in dirs:
+                # Try with exact case first
+                if task_name in dirs:
+                    potential_task_dir = os.path.join(root, task_name)
+                else:
+                    potential_task_dir = os.path.join(root, task_name.lower())
+                
+                # Check if this directory has metadata or splits
+                has_metadata = os.path.exists(os.path.join(potential_task_dir, 'metadata'))
+                has_splits = os.path.exists(os.path.join(potential_task_dir, 'splits'))
+                print(f"Found potential directory: {potential_task_dir}")
+                print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+                
+                if has_metadata or has_splits:
+                    task_dir = potential_task_dir
+                    break
+    
+    if task_dir is None:
+        raise ValueError(f"Could not find task directory for {task_name} in {dataset_root}")
+    
+    print(f"Using task directory: {task_dir}")
+    metadata_path = os.path.join(task_dir, 'metadata', 'subset_metadata.csv')
     mapping_path = os.path.join(task_dir, 'metadata', 'label_mapping.json')
+    
+    # Check if metadata file exists
+    if not os.path.exists(metadata_path):
+        # Try alternative metadata file names
+        alternate_paths = [
+            os.path.join(task_dir, 'metadata', 'metadata.csv'),
+            os.path.join(task_dir, 'subset_metadata.csv'),
+            os.path.join(task_dir, 'metadata.csv')
+        ]
+        
+        for alt_path in alternate_paths:
+            print(f"Checking alternate metadata path: {alt_path}")
+            if os.path.exists(alt_path):
+                metadata_path = alt_path
+                break
+        
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
+        
+    print(f"Using metadata path: {metadata_path}")
     
     # Create or load label mapper
     if os.path.exists(mapping_path):
         label_mapper = LabelMapper.load(mapping_path)
     else:
+        # Try to create the metadata directory if it doesn't exist
+        os.makedirs(os.path.dirname(mapping_path), exist_ok=True)
+        
         label_mapper, _ = create_label_mapper_from_metadata(
             metadata_path, 
             label_column=label_column,
@@ -81,7 +146,8 @@ def load_benchmark_supervised(
             data_column=data_column,
             label_column=label_column,
             data_key=data_key,
-            label_mapper=label_mapper
+            label_mapper=label_mapper,
+            task_dir=task_dir  # Pass the found task_dir to the dataset
         )
         datasets[split_name] = dataset
     

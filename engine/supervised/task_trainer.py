@@ -102,8 +102,13 @@ class TaskTrainer(BaseTrainer):
             patience = 15
         else:
             # Number of epochs and patience from config
-            epochs = getattr(self.config, 'epochs', 30)
-            patience = getattr(self.config, 'patience', 15)
+            # Handle both object attributes and dictionary keys
+            if isinstance(self.config, dict):
+                epochs = self.config.get('epochs', 30)
+                patience = self.config.get('patience', 15)
+            else:
+                epochs = getattr(self.config, 'epochs', 30)
+                patience = getattr(self.config, 'patience', 15)
         
         # Best model state
         best_model = None
@@ -596,9 +601,14 @@ class TaskTrainer(BaseTrainer):
                 warmup_epochs = 5
             else:
                 # Use config
-                patience = getattr(self.config, 'patience', 7)
-                epochs = getattr(self.config, 'epochs', 30)
-                warmup_epochs = getattr(self.config, 'warmup_epochs', 5)
+                if isinstance(self.config, dict):
+                    patience = self.config.get('patience', 7)
+                    epochs = self.config.get('epochs', 30)
+                    warmup_epochs = self.config.get('warmup_epochs', 5)
+                else:
+                    patience = getattr(self.config, 'patience', 7)
+                    epochs = getattr(self.config, 'epochs', 30)
+                    warmup_epochs = getattr(self.config, 'warmup_epochs', 5)
                 
             # Create scheduler
             self.scheduler = WarmupCosineScheduler(

@@ -13,6 +13,8 @@ from load.supervised.benchmark_loader import load_benchmark_supervised
 from model.multitask.models import MultiTaskAdapterModel, PatchTSTAdapterModel, TimesFormerAdapterModel
 from scripts.train_supervised import MODEL_TYPES
 from engine.supervised.task_trainer import TaskTrainer
+from engine.few_shot import FewShotAdapter
+import matplotlib.pyplot as plt
 
 
 def generate_experiment_id():
@@ -73,8 +75,24 @@ def parse_args():
                         help='Dropout rate for attention layers')
     parser.add_argument('--mlp_ratio', type=float, default=4.0,
                         help='MLP ratio for transformer blocks')
+    
+    # Testing specific parameters
+    parser.add_argument('--test_splits', type=str, default='all',
+                        help='Comma-separated list of test splits to use. If "all", all available test splits will be used. '
+                             'Examples: test_id,test_cross_env,test_cross_user,test_cross_device,hard_cases')
 
-    args, _ = parser.parse_known_args()
+    # Few-shot learning parameters
+    parser.add_argument('--enable_few_shot', action='store_true',
+                        help='Enable few-shot learning adaptation for cross-domain scenarios')
+    parser.add_argument('--k_shot', type=int, default=5,
+                        help='Number of examples per class for few-shot adaptation')
+    parser.add_argument('--inner_lr', type=float, default=0.01,
+                        help='Learning rate for few-shot adaptation')
+    parser.add_argument('--num_inner_steps', type=int, default=10,
+                        help='Number of gradient steps for few-shot adaptation')
+                        
+    parser.add_argument('--help', '-h', action='help')
+    args = parser.parse_args()
     return args
 
 
@@ -93,20 +111,63 @@ def main():
     experiment_id = generate_experiment_id()
     print(f"Experiment ID: {experiment_id}")
 
+    # Process tasks list
+    tasks = args.tasks.split(',')
+    print(f"Training on {len(tasks)} tasks: {tasks}")
+    
+    # Check for available test splits for each task
+    available_test_splits = {}
+    for task in tasks:
+        task_dir = os.path.join(args.data_dir, "tasks", task) if os.path.exists(os.path.join(args.data_dir, "tasks", task)) else os.path.join(args.data_dir, task)
+        splits_dir = os.path.join(task_dir, "splits")
+        task_splits = []
+        
+        if os.path.exists(splits_dir):
+            for filename in os.listdir(splits_dir):
+                if filename.endswith(".json"):
+                    split_name = filename.replace(".json", "")
+                    if split_name.startswith("test_") or split_name == "hard_cases":
+                        task_splits.append(split_name)
+        
+        available_test_splits[task] = task_splits
+        print(f"Available test splits for task {task}: {task_splits}")
+    
+    # Determine which test splits to use
+    test_splits_to_use = {}
+    for task, task_splits in available_test_splits.items():
+        if args.test_splits == "all":
+            test_splits_to_use[task] = task_splits
+        elif args.test_splits is not None:
+            requested_splits = args.test_splits.split(',')
+            valid_splits = []
+            for split in requested_splits:
+                if split in task_splits or split == "test_id":
+                    valid_splits.append(split)
+                else:
+                    print(f"Warning: Requested test split '{split}' not found for task {task}.")
+            test_splits_to_use[task] = valid_splits
+        else:
+            # Default to test_id (in-distribution test)
+            test_splits_to_use[task] = ["test_id"]
+        
+        print(f"Using test splits for task {task}: {test_splits_to_use[task]}")
+
     # Prepare loaders
     train_loaders, val_loaders, test_loaders = {}, {}, {}
     task_classes = {}
-    for task in args.tasks.split(','):
+    for task in tasks:
         data = load_benchmark_supervised(
             dataset_root=args.data_dir,
             task_name=task,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            test_splits=test_splits_to_use[task]
         )
         ld = data['loaders']
         train_loaders[task] = ld['train']
         val_loaders[task] = ld.get('val', ld['train'])
         test_loaders[task] = {k: v for k, v in ld.items() if k.startswith('test')}
         task_classes[task] = data['num_classes']
+        print(f"Loaded {len(test_loaders[task])} test splits for task {task}: {list(test_loaders[task].keys())}")
 
     # Infer feature_size if needed
     first_loader = next(iter(train_loaders.values()))
@@ -626,9 +687,15 @@ def main():
         model.set_active_task(task)
         
         test_results = {}
+        
+        # Create a summary table for this task's test results
+        print(f"\nTest Results for {task}:")
+        print(f"{'Split':<20} {'Accuracy':<15} {'Loss':<15}")
+        print('-' * 50)
+        
         for split, tloader in tdict.items():
             t_l, t_a = evaluate(tloader)
-            print(f"{task} [{split}]: loss={t_l:.4f}, acc={t_a:.4f}")
+            print(f"{split:<20} {t_a:.4f}{'':<10} {t_l:.4f}")
             
             # Save test results
             test_results[split] = {
@@ -652,10 +719,163 @@ def main():
                 config=None
             )
             tm.plot_confusion_matrix(data_loader=tloader, epoch=None, mode=split)
+            
+            # Update best_performance.json with test results
+            try:
+                best_perf_path = os.path.join(args.save_dir, task, args.model, "best_performance.json")
+                if os.path.exists(best_perf_path):
+                    with open(best_perf_path, 'r') as f:
+                        best_perf = json.load(f)
+                    
+                    # Only update test results for current best experiment
+                    if best_perf.get('best_experiment_id') == experiment_id:
+                        best_perf[f'best_{split}_accuracy'] = t_a
+                        best_perf[f'best_{split}_loss'] = t_l
+                        
+                        with open(best_perf_path, 'w') as f:
+                            json.dump(best_perf, f, indent=2)
+            except Exception as e:
+                print(f"Error updating best_performance.json with test results: {e}")
         
         # Save test results to a file
         with open(os.path.join(task_dir, f"{args.model}_{task}_test_results.json"), 'w') as f:
             json.dump(test_results, f, indent=2)
+        
+        # Apply few-shot learning if enabled
+        if args.enable_few_shot:
+            print(f"\n=== Few-Shot Learning Adaptation for {task} ===")
+            
+            # Create few-shot adapter
+            few_shot_adapter = FewShotAdapter(
+                model=model,
+                device=device,
+                inner_lr=args.inner_lr,
+                num_inner_steps=args.num_inner_steps,
+                k_shot=args.k_shot
+            )
+            
+            # Apply few-shot adaptation on each cross-domain test split
+            fs_results = {}
+            for split, tloader in tdict.items():
+                # Skip in-distribution test set (no need for adaptation)
+                if split == 'test_id':
+                    continue
+                    
+                print(f"\nApplying few-shot adaptation on {split}...")
+                adaptation_results = few_shot_adapter.adapt_and_evaluate(tloader)
+                fs_results[split] = adaptation_results
+                
+                # Print improvement
+                if 'improvement' in adaptation_results:
+                    acc_imp = adaptation_results['improvement']['accuracy']
+                    f1_imp = adaptation_results['improvement']['f1_score']
+                    print(f"Few-shot improved {split}: Accuracy +{acc_imp:.4f}, F1-Score +{f1_imp:.4f}")
+            
+            # Create comparison table for original vs. few-shot adapted
+            print(f"\nComparison for {task}: Original vs. Few-Shot Adapted")
+            print(f"{'Split':<20} {'Original Acc':<15} {'Adapted Acc':<15} {'Improvement':<15}")
+            print('-' * 70)
+            
+            for split, results in fs_results.items():
+                orig_acc = results['original']['accuracy']
+                adapted_acc = results['adapted']['accuracy']
+                improvement = results['improvement']['accuracy']
+                print(f"{split:<20} {orig_acc:.4f}{'':>9} {adapted_acc:.4f}{'':>9} {improvement:+.4f}{'':>9}")
+            
+            # Plot comparison bar chart
+            plt.figure(figsize=(12, 6))
+            splits = list(fs_results.keys())
+            x = range(len(splits))
+            original_accs = [fs_results[split]['original']['accuracy'] for split in splits]
+            adapted_accs = [fs_results[split]['adapted']['accuracy'] for split in splits]
+            
+            width = 0.35
+            plt.bar([i - width/2 for i in x], original_accs, width, label='Original')
+            plt.bar([i + width/2 for i in x], adapted_accs, width, label='Few-Shot Adapted')
+            
+            plt.xlabel('Test Split')
+            plt.ylabel('Accuracy')
+            plt.title(f'{task}: Few-Shot Adaptation Results ({args.k_shot}-shot, {args.num_inner_steps} steps)')
+            plt.xticks(x, splits)
+            plt.legend()
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
+            # Add value labels on bars
+            for i, v in enumerate(original_accs):
+                plt.text(i - width/2, v + 0.01, f'{v:.3f}', ha='center')
+            for i, v in enumerate(adapted_accs):
+                plt.text(i + width/2, v + 0.01, f'{v:.3f}', ha='center')
+            
+            plt.tight_layout()
+            few_shot_plot_path = os.path.join(task_dir, f"{args.model}_{task}_few_shot_comparison.png")
+            plt.savefig(few_shot_plot_path)
+            print(f"Few-shot comparison plot saved to: {few_shot_plot_path}")
+            
+            # Save few-shot results to JSON
+            fs_results_serializable = {}
+            for split, res in fs_results.items():
+                fs_results_serializable[split] = {
+                    'original': {k: float(v) if isinstance(v, (int, float)) else v 
+                                for k, v in res['original'].items() 
+                                if k not in ['confusion_matrix']},
+                    'adapted': {k: float(v) if isinstance(v, (int, float)) else v 
+                               for k, v in res['adapted'].items() 
+                               if k not in ['confusion_matrix']},
+                    'improvement': {k: float(v) for k, v in res['improvement'].items()},
+                    'support_set_size': int(res['support_set_size']),
+                    'k_shot': args.k_shot,
+                    'inner_lr': args.inner_lr,
+                    'num_inner_steps': args.num_inner_steps
+                }
+                
+                # Save adapted model for this split
+                adapted_model_path = os.path.join(task_dir, f"adapted_{split}.pth")
+                torch.save({
+                    'model_state_dict': few_shot_adapter.model.state_dict(),
+                    'support_set_size': res['support_set_size'],
+                    'adaptation_steps': args.num_inner_steps,
+                    'inner_lr': args.inner_lr,
+                    'k_shot': args.k_shot
+                }, adapted_model_path)
+                print(f"Saved adapted model to {adapted_model_path}")
+                
+            few_shot_results_file = os.path.join(task_dir, f"{args.model}_{task}_few_shot_results.json")
+            with open(few_shot_results_file, 'w') as f:
+                json.dump(fs_results_serializable, f, indent=2)
+            print(f"Few-shot results saved to: {few_shot_results_file}")
+            
+            # Update test_summary with few-shot results
+            test_summary = {
+                'task': task,
+                'model': args.model,
+                'experiment_id': experiment_id,
+                'test_splits': list(test_results.keys()),
+                'best_validation': {
+                    'accuracy': best_metrics[task]['val_acc'],
+                    'loss': best_metrics[task]['val_loss'],
+                    'epoch': best_metrics[task]['best_epoch']
+                },
+                'test_results': test_results,
+                'few_shot_results': fs_results_serializable
+            }
+        else:
+            # Create a comprehensive test summary that includes all splits
+            test_summary = {
+                'task': task,
+                'model': args.model,
+                'experiment_id': experiment_id,
+                'test_splits': list(test_results.keys()),
+                'best_validation': {
+                    'accuracy': best_metrics[task]['val_acc'],
+                    'loss': best_metrics[task]['val_loss'],
+                    'epoch': best_metrics[task]['best_epoch']
+                },
+                'test_results': test_results
+            }
+        
+        # Save comprehensive test summary
+        with open(os.path.join(task_dir, f"{args.model}_{task}_test_summary.json"), 'w') as f:
+            json.dump(test_summary, f, indent=2)
 
     # Save full multitask model (the overall best state)
     full_model_dir = os.path.join(args.save_dir, "shared_models")

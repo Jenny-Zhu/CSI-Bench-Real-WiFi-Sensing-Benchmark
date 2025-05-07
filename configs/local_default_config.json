@@ -11,15 +11,34 @@
   "feature_size": 232,
   "seed": 42,
   "batch_size": 8,
-  "epochs": 10,
+  "epochs": 2,
   "model": "transformer",
+  "test_splits": "all",
   "task_class_mapping": {
-    "HumanNonhuman": 2, 
     "MotionSourceRecognition": 4
   },
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
     "MotionSourceRecognition"
-  ]
+  ],
+  "available_pipelines": ["supervised", "meta", "multitask", "fewshot"],
+  "fewshot": {
+    "adaptation_lr": 0.01,
+    "adaptation_steps": 10,
+    "finetune_all": false,
+    "k_shots": 5,
+    "support_split": "val_id",
+    "query_split": "test_cross_env",
+    "eval_shots": true
+  },
+  "supervised_fewshot": {
+    "evaluate_fewshot": false,
+    "fewshot_support_split": "val_id",
+    "fewshot_query_split": "test_cross_env",
+    "fewshot_adaptation_lr": 0.01,
+    "fewshot_adaptation_steps": 10,
+    "fewshot_finetune_all": false,
+    "fewshot_eval_shots": true
+  }
 } 
 
