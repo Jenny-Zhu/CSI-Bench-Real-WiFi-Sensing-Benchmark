@@ -438,7 +438,7 @@ class SageMakerRunner:
     def run_test_env(self):
         """
         运行一个快速的环境测试作业，用于验证依赖项和环境配置
-        不下载完整数据集，只进行最小化的环境验证
+        使用假数据进行环境测试，不需要下载完整数据集
         
         Returns:
             dict: 包含作业信息的字典
@@ -460,6 +460,9 @@ class SageMakerRunner:
             'feature_size': 10  # 使用很小的特征大小
         }
         
+        # 创建和上传假数据到S3
+        fake_data_s3_path = self._create_fake_test_data()
+        
         # 创建测试环境的估算器
         estimator = PyTorch(
             entry_point='entry_script.py',
@@ -474,23 +477,21 @@ class SageMakerRunner:
             max_run=3600  # 最多运行1小时
         )
         
-        # 准备一个最小的输入数据配置
-        # SageMaker要求至少有一个输入数据通道，即使是在测试环境中
+        # 准备使用假数据的输入配置
         minimal_inputs = {
             'training': TrainingInput(
-                s3_data=f"{self.s3_data_base}/",
-                content_type='application/x-recordio',
-                s3_data_type='S3Prefix',
-                input_mode='File'
+                s3_data=fake_data_s3_path,
+                content_type='application/octet-stream',
+                s3_data_type='S3Prefix'
             )
         }
         
-        print(f"使用最小数据配置用于环境测试，路径: {self.s3_data_base}/")
+        print(f"使用假数据进行环境测试，路径: {fake_data_s3_path}")
         
         # 启动训练作业
         job_name = f"env-test-{self.timestamp}"
         estimator.fit(
-            inputs=minimal_inputs,  # 提供最小的输入数据配置
+            inputs=minimal_inputs,
             job_name=job_name,
             wait=False
         )
@@ -500,12 +501,78 @@ class SageMakerRunner:
             'job_name': job_name,
             'type': 'environment_test',
             'status': 'InProgress',
-            'estimator': estimator
+            'estimator': estimator,
+            'fake_data_path': fake_data_s3_path
         }
         
         print(f"提交环境测试作业: {job_name}")
-        print(f"此作业不会下载完整数据集，仅用于验证环境设置和依赖项")
+        print(f"此作业使用假数据，仅用于验证环境设置和依赖项")
         return job_info
+
+    def _create_fake_test_data(self):
+        """
+        创建假数据并上传到S3
+        
+        Returns:
+            str: 假数据的S3路径
+        """
+        import tempfile
+        import numpy as np
+        import os
+        import time
+        
+        print("创建假数据用于环境测试...")
+        
+        # 创建一个临时目录
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 创建一个简单的numpy数组作为假数据
+            fake_x = np.random.rand(100, 10, 10).astype(np.float32)  # 100个样本，窗口长度10，特征数10
+            fake_y = np.random.randint(0, 4, size=(100,)).astype(np.int32)  # 100个标签，值在0-3之间
+            
+            # 保存到临时文件
+            data_file = os.path.join(temp_dir, 'fake_data.npz')
+            np.savez(data_file, x=fake_x, y=fake_y)
+            
+            # 为确保唯一性，使用时间戳创建S3路径
+            timestamp = int(time.time())
+            s3_bucket = self.s3_data_base.split('/')[2]
+            s3_prefix = f"test_env_data/{timestamp}"
+            
+            s3_fake_data_path = f"s3://{s3_bucket}/{s3_prefix}/fake_data.npz"
+            
+            # 上传到S3
+            s3 = boto3.client('s3')
+            print(f"上传假数据到 {s3_fake_data_path}...")
+            
+            try:
+                s3.upload_file(
+                    Filename=data_file,
+                    Bucket=s3_bucket,
+                    Key=f"{s3_prefix}/fake_data.npz"
+                )
+                print("假数据上传成功")
+            except Exception as e:
+                print(f"上传假数据时出错: {e}")
+                # 如果上传失败，创建一个更简单的文件再试一次
+                simple_file = os.path.join(temp_dir, 'test.txt')
+                with open(simple_file, 'w') as f:
+                    f.write("This is a test file for SageMaker environment testing.")
+                
+                try:
+                    s3.upload_file(
+                        Filename=simple_file,
+                        Bucket=s3_bucket,
+                        Key=f"{s3_prefix}/test.txt"
+                    )
+                    print("简单测试文件上传成功")
+                    s3_fake_data_path = f"s3://{s3_bucket}/{s3_prefix}/"
+                except Exception as e2:
+                    print(f"上传简单测试文件也失败: {e2}")
+                    # 最后一种选择：使用已知存在的路径
+                    s3_fake_data_path = f"s3://{s3_bucket}/test_env_data/"
+                    print(f"使用可能存在的默认路径: {s3_fake_data_path}")
+        
+        return s3_fake_data_path
 
 def run_from_config(config_path=None):
     """
