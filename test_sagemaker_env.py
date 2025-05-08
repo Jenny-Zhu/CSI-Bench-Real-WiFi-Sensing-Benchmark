@@ -179,6 +179,55 @@ def check_data_access(minimal_check=True):
         else:
             print(f"  - 目录不存在!")
 
+def check_arg_format_conversion():
+    """测试参数格式转换逻辑"""
+    print_header("参数格式转换测试")
+    
+    # 创建测试参数列表，包括带有破折号和下划线的参数
+    test_args = [
+        "--learning-rate", "0.001",
+        "--batch-size", "32",
+        "--win_len", "250",
+        "--feature_size", "98"
+    ]
+    
+    print(f"测试参数: {test_args}")
+    
+    # 模拟参数转换逻辑
+    formatted_args = []
+    i = 0
+    while i < len(test_args):
+        arg = test_args[i]
+        if arg.startswith('--'):
+            fixed_arg = arg.replace('-', '_')
+            if fixed_arg != arg:
+                print(f"  转换: {arg} -> {fixed_arg}")
+                formatted_args.append(fixed_arg)
+            else:
+                formatted_args.append(arg)
+        else:
+            formatted_args.append(arg)
+        i += 1
+    
+    print(f"转换后的参数: {formatted_args}")
+    
+    # 验证结果
+    expected_args = [
+        "--learning_rate", "0.001",
+        "--batch_size", "32",
+        "--win_len", "250",
+        "--feature_size", "98"
+    ]
+    
+    if formatted_args == expected_args:
+        print("✓ 参数转换测试通过!")
+        return True
+    else:
+        print("✗ 参数转换测试失败!")
+        print(f"  预期结果: {expected_args}")
+        print(f"  实际结果: {formatted_args}")
+        return False
+
 def check_environment():
     """执行全面的环境检查"""
     print_header("SageMaker环境快速测试")
@@ -228,6 +277,9 @@ def check_environment():
     # 检查数据访问 (快速检查，不列出大型目录)
     check_data_access(minimal_check=True)
     
+    # 测试参数格式转换
+    arg_format_success = check_arg_format_conversion()
+    
     # 检查当前目录下的文件
     print_header("工作目录文件")
     try:
@@ -267,6 +319,11 @@ def check_environment():
     else:
         print(f"✗ SMDebug可能会导致问题: {smdebug_status}")
     
+    if arg_format_success:
+        print(f"✓ 参数格式转换正常")
+    else:
+        print(f"✗ 参数格式转换存在问题")
+        
     # 保存报告
     try:
         model_dir = os.environ.get('SM_MODEL_DIR', '.')
@@ -284,6 +341,9 @@ def check_environment():
                 "success": smdebug_success,
                 "status": smdebug_status
             },
+            "arg_format_conversion": {
+                "success": arg_format_success
+            },
             "in_sagemaker": len(sm_vars) > 0
         }
         
@@ -293,7 +353,15 @@ def check_environment():
     except Exception as e:
         print(f"✗ 保存报告失败: {e}")
     
-    print("\n总结: " + ("✓ 环境配置正常，可以运行训练作业" if horovod_success and torch_status.get("installed") else "✗ 环境配置存在问题，需要修复"))
+    # 对所有测试结果进行汇总评估
+    all_tests_passed = (
+        torch_status.get("installed") and 
+        horovod_success and 
+        smdebug_success and
+        arg_format_success
+    )
+    
+    print("\n总结: " + ("✓ 环境配置正常，可以运行训练作业" if all_tests_passed else "✗ 环境配置存在问题，需要修复"))
 
 def main():
     parser = argparse.ArgumentParser(description='SageMaker环境快速测试工具')

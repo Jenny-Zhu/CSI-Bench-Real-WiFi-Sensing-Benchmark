@@ -8,13 +8,11 @@ It creates a SageMaker PyTorch Estimator for submitting training jobs.
 
 Key features:
 1. Batch execution of training tasks, with each task using a single instance to run multiple models
-2. Support for overriding default settings using JSON configuration files
+2. Support for configuration from JSON files
 
 Usage example:
 ```
-import sagemaker_runner
-runner = sagemaker_runner.SageMakerRunner(config_file="configs/sagemaker_custom_config.json")
-runner.run_batch_by_task()
+python sagemaker_runner.py --config configs/my_custom_config.json
 ```
 """
 
@@ -72,14 +70,14 @@ DEFAULT_CONFIG = load_config()
 class SageMakerRunner:
     """Class to handle SageMaker training job creation and execution"""
     
-    def __init__(self, config_file=None, role=None):
+    def __init__(self, config):
         """Initialize SageMaker session and role"""
         self.session = sagemaker.Session()
-        self.role = role or sagemaker.get_execution_role()
+        self.role = sagemaker.get_execution_role()
         self.timestamp = datetime.now().strftime("%Y%m%d-%H%M")  # Shorter format for job names
         
         # Load configuration
-        self.config = load_config(config_file)
+        self.config = config
         
         # Extract common parameters from config
         self.s3_data_base = self.config.get("s3_data_base")
@@ -96,20 +94,20 @@ class SageMakerRunner:
     def _verify_s3_bucket(self):
         """Verify that the S3 bucket exists and list available data"""
         try:
-        s3 = boto3.resource('s3')
+            s3 = boto3.resource('s3')
             bucket_name = self.s3_data_base.split('/')[2]  # Extract bucket name from S3 path
             
             # Check if bucket exists
-        if bucket_name not in [bucket.name for bucket in s3.buckets.all()]:
-            print(f"Error: The bucket '{bucket_name}' does not exist. Please create it first.")
-            sys.exit(1)
+            if bucket_name not in [bucket.name for bucket in s3.buckets.all()]:
+                print(f"Error: The bucket '{bucket_name}' does not exist. Please create it first.")
+                sys.exit(1)
         
             # Check contents of S3 path
-        s3_client = boto3.client('s3')
+            s3_client = boto3.client('s3')
             bucket = self.s3_data_base.split('/')[2]
             prefix = '/'.join(self.s3_data_base.split('/')[3:])
-        if not prefix.endswith('/'):
-            prefix += '/'
+            if not prefix.endswith('/'):
+                prefix += '/'
         
             # Try to list S3 path contents
             response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter='/')
@@ -139,12 +137,6 @@ class SageMakerRunner:
     def convert_to_json_serializable(self, obj):
         """
         Recursively convert all NumPy types to Python native types for JSON serialization
-        
-        Args:
-            obj: Object to convert
-            
-        Returns:
-            JSON serializable object
         """
         if isinstance(obj, (np.integer, np.int64)):
             return int(obj)
@@ -234,7 +226,7 @@ class SageMakerRunner:
             if len(tasks_to_run) > 1 and task != tasks_to_run[-1]:
                 wait_time = task_config.get('batch_wait_time', 30)
                 print(f"Waiting {wait_time} seconds before submitting next job...")
-                    time.sleep(wait_time)
+                time.sleep(wait_time)
         
         # Update batch summary file
         self._update_batch_summary(jobs, batch_timestamp)
@@ -244,20 +236,11 @@ class SageMakerRunner:
     def _create_estimator(self, config, base_job_name, models):
         """
         Create a SageMaker PyTorch Estimator from the given configuration
-        
-        Args:
-            config (dict): Configuration dictionary
-            base_job_name (str): Base job name
-            models (list): List of models to run
-            
-        Returns:
-            PyTorch: SageMaker PyTorch Estimator
         """
         # Prepare hyperparameters
         hyperparameters = {
             'models': ','.join(models),
-            'task': config.get('task'),
-            'mode': config.get('mode', 'csi'),
+            'task_name': config.get('task'),
             'win_len': config.get('win_len', 500),
             'feature_size': config.get('feature_size', 232),
             'batch_size': config.get('batch_size', 16),
@@ -279,7 +262,7 @@ class SageMakerRunner:
         
         # Create estimator
         estimator = PyTorch(
-            entry_point='sagemaker_entry_point.py',
+            entry_point='entry_script.py',
             source_dir=CODE_DIR,
             role=self.role,
             framework_version=config.get('framework_version', '1.12.1'),
@@ -297,20 +280,22 @@ class SageMakerRunner:
     def _prepare_inputs(self, config):
         """
         Prepare input data channels for training
-        
-        Args:
-            config (dict): Configuration dictionary
-        
-        Returns:
-            dict: Dictionary of input channels
+        确保只使用特定任务的数据路径
         """
         task = config.get('task')
         s3_data_base = config.get('s3_data_base')
         
-        # Build S3 path to the specific task data
+        # 构建特定任务的数据路径
+        # 确保路径末尾有斜杠
+        if not s3_data_base.endswith('/'):
+            s3_data_base += '/'
+        
+        # 构建特定任务的数据路径
         task_data_path = f"{s3_data_base}tasks/{task}/"
         
-        # Define input channels
+        print(f"使用任务特定的数据路径: {task_data_path}")
+        
+        # 定义输入通道
         input_data = {
             'training': TrainingInput(
                 s3_data=task_data_path,
@@ -324,10 +309,6 @@ class SageMakerRunner:
     def _update_batch_summary(self, jobs, batch_timestamp):
         """
         Update batch summary file in S3 with job information
-        
-        Args:
-            jobs (list): List of job information dictionaries
-            batch_timestamp (str): Timestamp for the batch
         """
         # Convert jobs to JSON serializable format
         jobs_info = []
@@ -372,14 +353,6 @@ class SageMakerRunner:
     def run_multitask(self, tasks=None, model_type="transformer", override_config=None):
         """
         Run a multitask learning job
-        
-        Args:
-            tasks (list): List of tasks for multitask learning
-            model_type (str): Model architecture to use
-            override_config (dict): Configuration override parameters
-            
-        Returns:
-            dict: Job information
         """
         print(f"Starting multitask learning job...")
         
@@ -432,19 +405,12 @@ class SageMakerRunner:
     def _create_multitask_estimator(self, config):
         """
         Create a SageMaker PyTorch Estimator for multitask learning
-        
-        Args:
-            config (dict): Configuration dictionary
-            
-        Returns:
-            PyTorch: SageMaker PyTorch Estimator
         """
         # Prepare hyperparameters
         hyperparameters = {
             'pipeline': 'multitask',
             'tasks': config.get('tasks'),
             'model': config.get('model', 'transformer'),
-            'mode': config.get('mode', 'csi'),
             'win_len': config.get('win_len', 500),
             'feature_size': config.get('feature_size', 232),
             'batch_size': config.get('batch_size', 16),
@@ -463,7 +429,9 @@ class SageMakerRunner:
         # Add model-specific parameters if present
         if 'model_params' in config:
             for key, value in config['model_params'].items():
-                hyperparameters[key] = value
+                # 将参数名称中的破折号替换为下划线
+                fixed_key = key.replace('-', '_')
+                hyperparameters[fixed_key] = value
         else:
             # Add common parameters
             for param in ['lr', 'emb_dim', 'dropout', 'patience']:
@@ -472,7 +440,7 @@ class SageMakerRunner:
         
         # Create estimator
         estimator = PyTorch(
-            entry_point='sagemaker_entry_point.py',
+            entry_point='entry_script.py',
             source_dir=CODE_DIR,
             role=self.role,
             framework_version=config.get('framework_version', '1.12.1'),
@@ -490,20 +458,41 @@ class SageMakerRunner:
     def _prepare_multitask_inputs(self, config):
         """
         Prepare input data channels for multitask training
-        
-        Args:
-            config (dict): Configuration dictionary
-            
-        Returns:
-            dict: Dictionary of input channels
+        确保只下载需要的任务数据
         """
         s3_data_base = config.get('s3_data_base')
         
-        # For multitask, we use the main data directory
-        # Each task should be a subfolder
-        data_path = s3_data_base
+        # 确保路径末尾有斜杠
+        if not s3_data_base.endswith('/'):
+            s3_data_base += '/'
         
-        # Define input channels
+        # 获取任务列表
+        tasks_str = config.get('tasks', '')
+        tasks_list = [t.strip() for t in tasks_str.split(',') if t.strip()]
+        
+        if not tasks_list:
+            print("警告: 未指定任务，将使用整个数据目录")
+            data_path = s3_data_base
+        else:
+            # 为多任务学习准备输入数据
+            # 只使用指定任务的数据路径
+            data_paths = []
+            for task in tasks_list:
+                task_path = f"{s3_data_base}tasks/{task}/"
+                data_paths.append(task_path)
+            
+            # 如果只有一个任务，直接使用该任务的路径
+            if len(data_paths) == 1:
+                data_path = data_paths[0]
+                print(f"多任务学习使用单一任务数据路径: {data_path}")
+            else:
+                # 如果有多个任务，则需要通过 manifest 文件或其他方式组合
+                # 但当前 SageMaker 实现中，我们只能指定一个路径，所以使用父目录
+                data_path = f"{s3_data_base}tasks/"
+                print(f"多任务学习使用多个任务({len(tasks_list)}个)，数据路径: {data_path}")
+                print(f"任务列表: {', '.join(tasks_list)}")
+        
+        # 定义输入通道
         input_data = {
             'training': TrainingInput(
                 s3_data=data_path,
@@ -514,35 +503,68 @@ class SageMakerRunner:
         
         return input_data
 
+def run_from_config(config_path=None):
+    """
+    运行SageMaker训练任务，基于配置文件
+    
+    Args:
+        config_path: 配置文件路径，如果为None则使用默认配置
+    """
+    # 加载配置
+    config = load_config(config_path)
+    
+    # 创建SageMaker运行器
+    runner = SageMakerRunner(config)
+    
+    # 从配置中获取任务和模型
+    tasks = config.get('task')
+    models = config.get('model')
+    pipeline = config.get('pipeline', 'supervised')
+    
+    # 根据配置的pipeline类型运行相应的任务
+    if pipeline == 'multitask':
+        # 对于多任务学习，需要确保有tasks参数
+        if 'tasks' in config:
+            tasks = config['tasks']
+        else:
+            # 如果未指定tasks，但指定了task，则使用task
+            if tasks:
+                tasks = [tasks]
+            else:
+                # 使用默认任务列表中的前两个任务
+                tasks = config.get('available_tasks', [])[:2]
+        
+        # 运行多任务学习
+        result = runner.run_multitask(tasks=tasks, model_type=models)
+    else:
+        # 对于监督学习，可以运行单个任务或多个任务
+        if tasks and not isinstance(tasks, list):
+            tasks = [tasks]
+        
+        # 如果指定了模型，确保是列表格式
+        if models and not isinstance(models, list):
+            if ',' in models:
+                models = models.split(',')
+            else:
+                models = [models]
+        
+        # 运行批处理任务
+        result = runner.run_batch_by_task(tasks=tasks, models=models)
+    
+    return result
+
 def main():
-    """Main entry point when script is executed directly"""
+    """主入口函数"""
     parser = argparse.ArgumentParser(description='Run SageMaker WiFi Sensing pipeline')
     
-    # Basic parameters
-    parser.add_argument('--config_file', type=str, default=None,
-                        help='JSON configuration file to override defaults')
-    parser.add_argument('--tasks', type=str, default=None,
-                        help='Comma-separated list of tasks to run')
-    parser.add_argument('--models', type=str, default=None, 
-                        help='Comma-separated list of models to run for each task')
-    parser.add_argument('--pipeline', type=str, default='supervised',
-                        choices=['supervised', 'multitask'],
-                        help='Type of pipeline to run')
+    # 只保留配置文件参数
+    parser.add_argument('--config', type=str, default=None,
+                        help='JSON configuration file path')
     
     args = parser.parse_args()
     
-    # Create SageMaker runner
-    runner = SageMakerRunner(config_file=args.config_file)
-    
-    # Process tasks and models
-    tasks = args.tasks.split(',') if args.tasks else None
-    models = args.models.split(',') if args.models else None
-    
-    # Run appropriate pipeline
-    if args.pipeline == 'multitask':
-        runner.run_multitask(tasks=tasks)
-    else:  # Default to supervised
-        runner.run_batch_by_task(tasks=tasks, models=models)
+    # 运行从配置文件加载的作业
+    run_from_config(args.config)
 
 if __name__ == "__main__":
     main()

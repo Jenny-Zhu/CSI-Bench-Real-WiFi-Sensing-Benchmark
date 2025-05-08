@@ -289,13 +289,21 @@ def get_args():
     # 添加S3相关参数
     parser.add_argument('--save_to_s3', type=str, default=None,
                       help='S3路径用于保存结果, 格式: s3://bucket-name/path/')
-    
+
     # 修改解析逻辑，处理SageMaker传递的非标准参数
     # 首先获取原始参数，进行预处理
     args_to_parse = []
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
+        
+        # 修复参数名称格式 - 将带破折号的参数转换为带下划线的格式
+        if arg.startswith('--'):
+            # 替换破折号为下划线 (例如 --learning-rate 变成 --learning_rate)
+            fixed_arg = arg.replace('-', '_')
+            if fixed_arg != arg:
+                logger.info(f"修复参数格式: {arg} -> {fixed_arg}")
+                arg = fixed_arg
         
         # 处理标志参数后面跟着True或False的情况
         if arg.startswith('--') and i + 1 < len(sys.argv):
@@ -397,80 +405,38 @@ def train_model(model_name, data, args, device):
     ModelClass = MODEL_TYPES[model_name.lower()]
     
     # Common model parameters
-    model_params = {
-        'num_classes': num_classes
+    model_kwargs = {
+        'num_classes': num_classes,
+        'in_channels': args.in_channels,
+        'win_len': args.win_len,
+        'feature_size': args.feature_size,
+        'emb_dim': args.emb_dim,
+        'dropout': args.dropout
     }
     
-    # Add extra parameters based on model type
-    if model_name.lower() in ['mlp', 'vit']:
-        model_params.update({
-            'win_len': args.win_len,
-            'feature_size': args.feature_size
-        })
-    
-    if model_name.lower() == 'resnet18':
-        model_params.update({
-            'in_channels': args.in_channels
-        })
-    
-    if model_name.lower() == 'lstm':
-        model_params.update({
-            'feature_size': args.feature_size,
-            'dropout': args.dropout
-        })
-    
+    # Model-specific parameters - 根据模型类型添加特定参数
     if model_name.lower() == 'transformer':
-        model_params.update({
-            'feature_size': args.feature_size,
-            'd_model': args.d_model,
-            'dropout': args.dropout
-        })
+        model_kwargs['d_model'] = args.d_model
     
-    if model_name.lower() == 'vit':
-        model_params.update({
-            'emb_dim': args.emb_dim,
-            'dropout': args.dropout,
-            'in_channels': args.in_channels
-        })
+    # Create model instance
+    model = ModelClass(**model_kwargs)
+    model = model.to(device)
     
-    # Create model instance and move to device
-    model = ModelClass(**model_params).to(device)
-    logger.info(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
+    logger.info(f"Model created: {model_name}")
     
-    # 添加测试以检查输入张量形状
-    try:
-        # 获取一个样本批次来测试模型
-        sample_batch = next(iter(train_loader))
-        if isinstance(sample_batch, (list, tuple)) and len(sample_batch) >= 2:
-            inputs, labels = sample_batch[0], sample_batch[1]
-        else:
-            logger.error(f"Unexpected dataloader batch format: {type(sample_batch)}")
-            inputs = sample_batch
-        
-        logger.info(f"Input tensor shape: {inputs.shape}")
-        if model_name.lower() == 'lstm' or model_name.lower() == 'transformer':
-            # 这些模型对输入形状比较敏感
-            logger.info(f"Expected feature_size: {args.feature_size}")
-            logger.info(f"Actual feature dimension size: {inputs.shape[3] if len(inputs.shape) > 3 else 'N/A'}")
-        
-        # 尝试进行一次前向传播来验证形状兼容性
-        with torch.no_grad():
-            inputs = inputs.to(device)
-            outputs = model(inputs)
-            logger.info(f"Forward pass successful! Output shape: {outputs.shape}")
-    except Exception as e:
-        logger.error(f"Error during model input testing: {e}")
-        logger.warning("继续执行，但模型可能在训练阶段出现问题")
+    # 设置基础输出目录 - 这些目录将在创建experiment_id后添加子目录
+    if is_sagemaker:
+        # For SageMaker, use /opt/ml/model as the base path for saving models
+        model_base_dir = '/opt/ml/model'
+    else:
+        model_base_dir = args.save_dir
     
-    # Create specific save and output directories for each model
-    # Format: output_path/task/model/
-    model_save_dir = os.path.join(args.save_dir, args.task_name, model_name)
+    # 创建模型类型层级的目录，不包含experiment_id
+    model_save_dir = os.path.join(model_base_dir, args.task_name, model_name)
     model_output_dir = os.path.join(args.output_dir, args.task_name, model_name)
     
     # Ensure directories exist
     os.makedirs(model_save_dir, exist_ok=True)
-    if model_output_dir != model_save_dir:
-        os.makedirs(model_output_dir, exist_ok=True)
     
     # Create config object
     config = argparse.Namespace(
@@ -481,20 +447,36 @@ def train_model(model_name, data, args, device):
         patience=args.patience,
         num_classes=num_classes,
         device=str(device),
-        save_dir=model_save_dir,
-        output_dir=model_output_dir,
+        save_dir=model_save_dir,  # 这是没有experiment_id的基础目录
+        output_dir=model_output_dir,  # 这是没有experiment_id的基础目录
         results_subdir='supervised',
         model_name=model_name,
-        task_name=args.task_name
+        task_name=args.task_name,
+        # 稍后在添加experiment_id后，config_dict会更新这些路径
     )
     
-    # Save configuration
-    config_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_config.json")
+    # 先不保存配置，等有了experiment_id之后再保存到同一目录
+
+    # Create experiment ID from timestamp and model name
+    import hashlib
+    timestamp = int(time.time())
+    experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{timestamp}'.encode()).hexdigest()[:8]}"
+    
+    # 更新输出目录，确保包含experiment_id
+    model_output_dir = os.path.join(args.output_dir, args.task_name, model_name, experiment_id)
+    os.makedirs(model_output_dir, exist_ok=True)
+    
+    # 现在保存配置到实验目录
+    config_path = os.path.join(model_output_dir, "supervised_config.json")
     with open(config_path, "w") as f:
         config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
+        # 更新路径以反映新位置
+        config_dict['output_dir'] = model_output_dir
+        config_dict['save_dir'] = os.path.join(args.save_dir, args.task_name, model_name, experiment_id)
+        config_dict['experiment_id'] = experiment_id
         json.dump(config_dict, f, indent=4)
     
-    logger.info(f"Configuration saved to {config_path}")
+    logger.info(f"配置已保存到模型目录: {config_path}")
     
     # Create trainer
     criterion = nn.CrossEntropyLoss()
@@ -569,11 +551,11 @@ def train_model(model_name, data, args, device):
         test_accuracies = [v for k, v in overall_metrics.items() if k.endswith('_accuracy') and k.startswith('test')]
         overall_metrics['test_accuracy'] = sum(test_accuracies) / len(test_accuracies)
     
-    # Save model summary
-    summary_file = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_summary.json")
+    # 保存模型摘要到experiment_id目录
+    summary_file = os.path.join(model_output_dir, f"model_summary.json")
     
-    # Combine results
-    summary_results = {**train_history, **overall_metrics}
+    # 合并结果并添加experiment_id
+    summary_results = {**train_history, **overall_metrics, "experiment_id": experiment_id}
     
     # Ensure all data is JSON serializable
     def convert_to_json_serializable(obj):
@@ -600,13 +582,11 @@ def train_model(model_name, data, args, device):
     logger.info(f"Model summary saved to {summary_file}")
     
     # Update or create best_performance.json
-    best_performance_file = os.path.join(os.path.dirname(model_output_dir), model_name, "best_performance.json")
+    best_performance_file = os.path.join(os.path.dirname(os.path.dirname(model_output_dir)), model_name, "best_performance.json")
     os.makedirs(os.path.dirname(best_performance_file), exist_ok=True)
     
-    # Create experiment ID from timestamp and model name
-    import hashlib
-    timestamp = int(time.time())
-    experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{timestamp}'.encode()).hexdigest()[:8]}"
+    # experiment_id已经在之前创建，不需要再次创建
+    # 使用之前定义的timestamp和experiment_id
     
     # Check if best_performance.json exists and compare results
     best_performance = {

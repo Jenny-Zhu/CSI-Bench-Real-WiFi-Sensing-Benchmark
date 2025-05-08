@@ -2,7 +2,6 @@
   "pipeline": "supervised",
   "training_dir": "F:\\BenchmarkDataset",
   "output_dir": "./results",
-  "mode": "csi",
   "model": "transformer",
   "task": "MotionSourceRecognition",
   "win_len": 500,

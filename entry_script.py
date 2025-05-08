@@ -97,8 +97,31 @@ from subprocess import check_call
 script_to_run = os.environ.get('SAGEMAKER_PROGRAM', 'train_multi_model.py')
 print(f"将要执行的脚本: {script_to_run}")
 
-# 获取并优化命令行参数 - 减小batch_size以降低内存使用
+# 获取并优化命令行参数
 args = sys.argv[1:]
+print(f"原始命令行参数: {args}")
+
+# 修复参数名称格式 - 将带破折号的参数转换为带下划线的格式
+formatted_args = []
+i = 0
+while i < len(args):
+    arg = args[i]
+    # 修复参数名称格式 (例如 --learning-rate 变成 --learning_rate)
+    if arg.startswith('--'):
+        fixed_arg = arg.replace('-', '_')
+        if fixed_arg != arg:
+            print(f"修复参数格式: {arg} -> {fixed_arg}")
+            formatted_args.append(fixed_arg)
+        else:
+            formatted_args.append(arg)
+    else:
+        formatted_args.append(arg)
+    i += 1
+
+args = formatted_args
+print(f"格式修复后的参数: {args}")
+
+# 继续进行其他参数优化 - 减小batch_size以降低内存使用
 modified_args = []
 i = 0
 while i < len(args):
@@ -211,6 +234,29 @@ sys.modules['smdebug'] = None
 os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
+# 预处理命令行参数 - 修复参数格式（破折号改为下划线）
+args = sys.argv[1:]
+print(f"原始命令行参数: {args}")
+
+formatted_args = []
+i = 0
+while i < len(args):
+    arg = args[i]
+    # 修复参数名称格式 (例如 --learning-rate 变成 --learning_rate)
+    if arg.startswith('--'):
+        fixed_arg = arg.replace('-', '_')
+        if fixed_arg != arg:
+            print(f"修复参数格式: {arg} -> {fixed_arg}")
+            formatted_args.append(fixed_arg)
+        else:
+            formatted_args.append(arg)
+    else:
+        formatted_args.append(arg)
+    i += 1
+
+sys.argv[1:] = formatted_args
+print(f"格式修复后的参数: {formatted_args}")
+
 # 导入torch并配置内存优化
 try:
     import torch
@@ -223,7 +269,7 @@ try:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 except Exception as e:
-    print(f"配置PyTorch时出错: {{e}}")
+    print(f"配置PyTorch时出错: {e}")
 
 # 主动执行垃圾回收
 gc.collect()

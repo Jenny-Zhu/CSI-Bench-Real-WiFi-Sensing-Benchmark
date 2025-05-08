@@ -42,4 +42,85 @@
 1. 所有结果和配置文件都统一存储在results目录下，使用一致的目录结构
 2. 最佳模型判断标准统一为验证准确率，与实际机器学习实践更为一致
 3. 测试结果存储格式统一为字典格式，便于处理多个测试集的结果
-4. 添加了F1分数，为评估提供了更全面的指标 
+4. 添加了F1分数，为评估提供了更全面的指标
+
+# SageMaker运行环境的改进
+
+我们对SageMaker运行环境进行了以下改进：
+
+## 1. 参数格式统一化
+
+- 在`sagemaker_runner.py`中修改了hyperparameters字典中的参数名称，将`task`改为`task_name`，使其与`train_multi_model.py`中的参数名称一致
+- 在`sagemaker_runner.py`中添加了逻辑，将model_params中的破折号格式参数名转换为下划线格式，确保与Python命令行参数规范一致
+- 在`entry_script.py`中添加了参数转换逻辑，用于处理SageMaker传递的参数，将破折号格式转换为下划线格式
+- 在生成的wrapper_script中也添加了相同的参数格式转换逻辑，确保无论通过哪种方式运行，参数格式都能统一处理
+
+## 2. 环境测试改进
+
+- 增强了`test_sagemaker_env.py`脚本，添加了参数格式转换测试功能
+- 增加了全面的环境评估报告，包括PyTorch、Horovod、SMDebug状态以及参数格式转换测试结果
+- 提供了更详细的报告输出，帮助诊断可能出现的环境问题
+
+## 3. 配置保存位置规范化
+
+保持本地运行和SageMaker运行中配置保存位置的一致性，确保配置文件与模型结果保存在同一目录中。
+
+这些改进确保了在SageMaker环境中运行深度学习任务时参数传递的一致性和正确性，解决了之前由于参数名称格式不一致导致的问题。同时提供了更好的环境诊断工具，帮助快速识别和解决可能的环境配置问题。
+
+# SageMaker运行器简化
+
+我们对SageMaker运行器进行了简化，使其更易于使用，与本地运行器类似：
+
+## 1. 简化参数处理
+
+- 移除了命令行参数的复杂解析，改为只支持从JSON配置文件读取参数
+- 添加了新的`run_from_config`函数作为主要入口点，类似于local_runner.py
+- 将命令行参数简化为只需要一个`--config`参数来指定配置文件路径
+
+## 2. 精简默认配置
+
+- 清理了`configs/sagemaker_default_config.json`，移除了不必要的参数
+- 移除了冗余的`mode`、`task_class_mapping`等参数
+- 保持与`local_default_config.json`格式的一致性
+
+## 3. 改进接口
+
+- 将entry_point更改为统一使用`entry_script.py`而非`sagemaker_entry_point.py`
+- 简化了SageMakerRunner类的初始化方式，直接接受配置对象
+- 添加了更良好的参数类型处理，确保任务和模型参数总是以合适的格式传递
+
+## 4. 使用示例
+
+```python
+# 从命令行运行
+python sagemaker_runner.py --config configs/my_custom_config.json
+
+# 或在代码中使用
+from sagemaker_runner import run_from_config
+run_from_config('configs/my_custom_config.json')
+```
+
+这些改进使SageMaker运行器在功能和风格上更接近本地运行器，便于在不同环境中使用类似的代码和配置方式。
+
+# 数据路径优化
+
+为了提高SageMaker训练效率和减少不必要的数据下载，我们对数据处理逻辑进行了优化：
+
+## 1. 任务特定的数据路径
+
+- 修改了`_prepare_inputs`方法，确保每个训练作业只下载特定任务的数据
+- 数据路径现在格式为`s3://rnd-sagemaker/Data/Benchmark/tasks/{TASK_NAME}/`
+- 这避免了下载整个数据集（400多GB）到每个训练实例
+
+## 2. 多任务学习的数据路径优化
+
+- 针对多任务学习改进了`_prepare_multitask_inputs`方法
+- 当只有一个任务时，直接使用该任务的路径
+- 当有多个任务时，使用任务的父目录路径，并提供详细的日志信息
+
+## 3. 增加EBS卷大小
+
+- 将默认EBS卷大小从30GB增加到500GB以适应400多GB的数据集
+- 根据实际使用情况，用户可以根据需要在配置文件中进一步调整此参数
+
+这些优化确保了SageMaker只下载必要的数据到训练实例，减少了数据传输时间和存储成本。对于大型数据集特别有意义，可以显著提高训练效率。 
