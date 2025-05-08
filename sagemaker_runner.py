@@ -474,10 +474,23 @@ class SageMakerRunner:
             max_run=3600  # 最多运行1小时
         )
         
+        # 准备一个最小的输入数据配置
+        # SageMaker要求至少有一个输入数据通道，即使是在测试环境中
+        minimal_inputs = {
+            'training': TrainingInput(
+                s3_data=f"{self.s3_data_base}/",
+                content_type='application/x-recordio',
+                s3_data_type='S3Prefix',
+                input_mode='File'
+            )
+        }
+        
+        print(f"使用最小数据配置用于环境测试，路径: {self.s3_data_base}/")
+        
         # 启动训练作业
         job_name = f"env-test-{self.timestamp}"
         estimator.fit(
-            inputs={},  # 不提供输入数据
+            inputs=minimal_inputs,  # 提供最小的输入数据配置
             job_name=job_name,
             wait=False
         )
