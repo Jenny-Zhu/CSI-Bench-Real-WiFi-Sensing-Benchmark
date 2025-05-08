@@ -268,10 +268,9 @@ class SageMakerRunner:
             framework_version=config.get('framework_version', '1.12.1'),
             py_version=config.get('py_version', 'py38'),
             instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.xlarge'),
+            instance_type=config.get('instance_type', 'ml.g4dn.2xlarge'),
             base_job_name=base_job_name,
             hyperparameters=hyperparameters,
-            volume_size=config.get('ebs_volume_size', 30),
             max_run=172800  # 48 hours max run time
         )
         
@@ -446,10 +445,9 @@ class SageMakerRunner:
             framework_version=config.get('framework_version', '1.12.1'),
             py_version=config.get('py_version', 'py38'),
             instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.xlarge'),
+            instance_type=config.get('instance_type', 'ml.g4dn.2xlarge'),
             base_job_name='wifi-sensing-multitask',
             hyperparameters=hyperparameters,
-            volume_size=config.get('ebs_volume_size', 30),
             max_run=172800  # 48 hours max run time
         )
         
