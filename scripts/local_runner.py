@@ -435,7 +435,7 @@ def run_supervised_direct(config):
     
     # 添加其他模型特定参数
     important_params = ['learning_rate', 'weight_decay', 'warmup_epochs', 'patience', 
-                        'emb_dim', 'dropout', 'd_model']
+                         'emb_dim', 'dropout', 'd_model']
     for param in important_params:
         if param in config:
             cmd += f" --{param}={config[param]}"
@@ -445,14 +445,47 @@ def run_supervised_direct(config):
         for key, value in config['model_params'].items():
             cmd += f" --{key}={value}"
     
-    # 运行命令
+    # 运行命令并捕获输出
     print(f"运行监督学习: {cmd}")
-    return_code = subprocess.call(cmd, shell=True)
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+        shell=True
+    )
+    
+    # 追踪experiment_id
+    experiment_id = None
+    for line in iter(process.stdout.readline, ""):
+        print(line, end="")
+        # 从输出中解析experiment_id
+        if "Experiment ID:" in line:
+            experiment_id = line.split("Experiment ID:")[1].strip()
+    
+    return_code = process.wait()
     
     if return_code != 0:
         print(f"运行监督学习出错: 返回码 {return_code}")
     else:
         print("监督学习成功完成.")
+        
+        # 如果成功获取experiment_id，直接保存配置到实验目录
+        if experiment_id:
+            exp_dir = os.path.join(base_output_dir, task_name, model_name, experiment_id)
+            config_filename = os.path.join(exp_dir, "supervised_config.json")
+            
+            try:
+                # 确保目录存在
+                os.makedirs(exp_dir, exist_ok=True)
+                
+                # 保存配置文件
+                with open(config_filename, 'w') as f:
+                    json.dump(config, f, indent=2)
+                
+                print(f"配置已保存到模型目录: {config_filename}")
+            except Exception as e:
+                print(f"保存配置文件时出错: {str(e)}")
     
     return return_code
 
@@ -480,10 +513,15 @@ def run_multitask_direct(config):
     if isinstance(tasks, list):
         tasks = ','.join(tasks)
     
+    # 获取基本参数
+    task_name = config.get('task', 'multitask').lower()
+    model_name = config.get('model')
+    base_output_dir = config.get('output_dir')
+    
     # 构建命令
     cmd = f"{sys.executable} {os.path.join(SCRIPT_DIR, 'train_multitask_adapter.py')}"
     cmd += f" --tasks=\"{tasks}\""
-    cmd += f" --model={config.get('model')}"
+    cmd += f" --model={model_name}"
     cmd += f" --data_dir=\"{config.get('training_dir')}\""
     cmd += f" --epochs={config.get('epochs')}"
     cmd += f" --batch_size={config.get('batch_size')}"
@@ -512,52 +550,49 @@ def run_multitask_direct(config):
     if 'test_splits' in config:
         cmd += f" --test_splits=\"{config['test_splits']}\""
     
-    # 运行命令
+    # 运行命令并捕获输出
     print(f"运行命令: {cmd}")
-    return subprocess.call(cmd, shell=True)
-
-def save_config(config, pipeline='supervised'):
-    """
-    保存配置到文件
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+        shell=True
+    )
     
-    Args:
-        config: 配置字典
-        pipeline: 流水线类型 ('supervised' 或 'multitask')
-        
-    Returns:
-        保存的配置文件路径
-    """
-    # 获取基本参数
-    base_output_dir = config.get('output_dir', './results')
-    model = config.get('model')
+    # 追踪experiment_id
+    experiment_id = None
+    for line in iter(process.stdout.readline, ""):
+        print(line, end="")
+        # 从输出中解析experiment_id
+        if "Experiment ID:" in line:
+            experiment_id = line.split("Experiment ID:")[1].strip()
     
-    # 为配置文件生成一个时间戳，不用于模型训练
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    config_id = f"config_{timestamp}"
+    return_code = process.wait()
     
-    # 获取task名称
-    task_name = config.get('task', 'default_task').lower()
-    
-    # 创建目录结构：results/TASK/MODEL/CONFIG_ID/
-    task_dir = os.path.join(base_output_dir, task_name)
-    model_dir = os.path.join(task_dir, model)
-    config_dir = os.path.join(model_dir, config_id)
-    
-    # 确保目录存在
-    os.makedirs(config_dir, exist_ok=True)
-    
-    # 生成配置文件名
-    if pipeline == 'multitask':
-        config_filename = os.path.join(config_dir, f"multitask_config.json")
+    if return_code != 0:
+        print(f"运行多任务学习出错: 返回码 {return_code}")
     else:
-        config_filename = os.path.join(config_dir, f"supervised_config.json")
+        print("多任务学习成功完成.")
+        
+        # 如果成功获取experiment_id，直接保存配置到实验目录
+        if experiment_id:
+            exp_dir = os.path.join(base_output_dir, task_name, model_name, experiment_id)
+            config_filename = os.path.join(exp_dir, "multitask_config.json")
+            
+            try:
+                # 确保目录存在
+                os.makedirs(exp_dir, exist_ok=True)
+                
+                # 保存配置文件
+                with open(config_filename, 'w') as f:
+                    json.dump(config, f, indent=2)
+                
+                print(f"配置已保存到模型目录: {config_filename}")
+            except Exception as e:
+                print(f"保存配置文件时出错: {str(e)}")
     
-    # 保存配置
-    with open(config_filename, 'w') as f:
-        json.dump(config, f, indent=2)
-    
-    print(f"配置已保存到 {config_filename}")
-    return config_filename
+    return return_code
 
 def main():
     """主入口点函数"""
@@ -593,13 +628,10 @@ def main():
     else:  # 默认为监督学习
         config = get_supervised_config(config)
     
-    # 保存配置以供将来参考
-    config_file = save_config(config, pipeline)
-    
-    # Run appropriate pipeline
+    # 运行适当的流水线 - 配置文件将在训练完成后保存到实验目录
     if pipeline == 'multitask':
         return run_multitask_direct(config)
-    else:  # Default to supervised
+    else:  # 默认为监督学习
         return run_supervised_direct(config)
 
 if __name__ == "__main__":
