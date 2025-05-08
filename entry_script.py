@@ -179,6 +179,94 @@ try:
         print(f"当前分配的GPU内存: {torch.cuda.memory_allocated(0) / (1024**3):.2f} GB")
         print(f"当前GPU内存缓存: {torch.cuda.memory_reserved(0) / (1024**3):.2f} GB")
     print("PyTorch成功导入，没有Horovod冲突")
+
+    # 添加环境测试功能
+    # 检查是否在环境测试模式
+    test_env = os.environ.get('SM_HP_TEST_ENV') == 'True'
+    if test_env:
+        print("\n==========================================")
+        print("运行环境测试模式，跳过数据下载和完整训练...")
+        print("==========================================\n")
+        
+        # 创建一个简单的模拟测试
+        import time
+        import importlib
+        
+        print("验证PyTorch GPU可用性...")
+        if torch.cuda.is_available():
+            print(f"GPU可用: {torch.cuda.get_device_name(0)}")
+            # 执行一些简单的GPU计算以验证功能
+            x = torch.rand(1000, 1000).cuda()
+            y = torch.rand(1000, 1000).cuda()
+            start = time.time()
+            for _ in range(10):
+                z = x @ y
+            torch.cuda.synchronize()
+            end = time.time()
+            print(f"GPU矩阵乘法测试用时: {end-start:.4f}秒")
+        else:
+            print("警告: GPU不可用")
+        
+        print("\n验证常见库导入...\n")
+        import_tests = [
+            "numpy", "pandas", "matplotlib", "scipy", "sklearn", 
+            "torch", "einops", "h5py", "torchvision", "typing_extensions"
+        ]
+        
+        success = 0
+        failed = 0
+        
+        for module in import_tests:
+            try:
+                importlib.import_module(module)
+                version = "未知"
+                try:
+                    mod = importlib.import_module(module)
+                    if hasattr(mod, "__version__"):
+                        version = mod.__version__
+                    elif hasattr(mod, "VERSION"):
+                        version = mod.VERSION
+                    elif hasattr(mod, "version"):
+                        version = mod.version
+                except:
+                    pass
+                
+                print(f"✓ 成功导入 {module} (版本: {version})")
+                success += 1
+            except ImportError as e:
+                print(f"✗ 无法导入 {module}: {e}")
+                failed += 1
+        
+        print(f"\n导入测试结果: {success} 成功, {failed} 失败")
+        
+        # 检查CUDA版本和PyTorch兼容性
+        print("\n环境兼容性检查:")
+        if torch.cuda.is_available():
+            print(f"✓ CUDA可用: {torch.version.cuda}")
+            print(f"✓ PyTorch使用CUDA: {torch.version.cuda}")
+            print(f"✓ GPU设备: {torch.cuda.get_device_name(0)}")
+            print(f"✓ GPU内存: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.1f} GB")
+        else:
+            print("✗ CUDA不可用，将使用CPU")
+        
+        # 检查依赖关系
+        try:
+            import peft
+            print(f"✓ PEFT库可用，版本: {peft.__version__}")
+        except ImportError:
+            print("✗ PEFT库不可用")
+        
+        # 检查数据目录
+        data_dir = os.environ.get('SM_CHANNEL_TRAINING', None)
+        if data_dir and os.path.exists(data_dir):
+            print(f"✓ 数据目录存在: {data_dir}")
+            print(f"  文件数量: {len(os.listdir(data_dir))}")
+        else:
+            print("✗ 数据目录不存在或为空")
+        
+        print("\n环境测试完成，所有依赖关系验证已完成")
+        print("==========================================\n")
+        sys.exit(0)  # 成功退出
 except Exception as e:
     print(f"导入PyTorch时出错: {e}")
     sys.exit(1)  # Exit if we can't import PyTorch
@@ -206,7 +294,7 @@ if not os.path.exists(script_to_run):
 # 创建优化版本的包装脚本
 print(f"\n创建优化版本包装脚本...")
 
-# 创建一个简单的包装脚本，它将先导入我们的修改后再执行实际代码
+# 修改包装脚本模板，添加测试环境支持
 wrapper_content = f"""#!/usr/bin/env python3
 # 自动生成的包装脚本，用于避免Horovod依赖冲突并优化内存使用
 import sys
@@ -257,6 +345,10 @@ while i < len(args):
 sys.argv[1:] = formatted_args
 print(f"格式修复后的参数: {formatted_args}")
 
+# 环境测试模式检查
+if os.environ.get('SM_HP_TEST_ENV') == 'True':
+    print("包装脚本检测到环境测试模式...")
+
 # 导入torch并配置内存优化
 try:
     import torch
@@ -268,8 +360,8 @@ try:
         # 使用确定性算法，可能会降低性能但提高稳定性
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-except Exception as e:
-    print(f"配置PyTorch时出错: {e}")
+except Exception as error:
+    print(f"配置PyTorch时出错: {error}")
 
 # 主动执行垃圾回收
 gc.collect()

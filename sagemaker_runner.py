@@ -435,6 +435,65 @@ class SageMakerRunner:
         
         return input_data
 
+    def run_test_env(self):
+        """
+        运行一个快速的环境测试作业，用于验证依赖项和环境配置
+        不下载完整数据集，只进行最小化的环境验证
+        
+        Returns:
+            dict: 包含作业信息的字典
+        """
+        print(f"正在启动环境测试作业...")
+        
+        # 创建一个特化的测试配置
+        test_config = dict(self.config)
+        test_config['epochs'] = 1  # 设置为1轮
+        test_config['batch_size'] = 2  # 使用小批量
+        
+        # 创建一个特殊的环境测试脚本参数
+        hyperparameters = {
+            'test_env': 'True',  # 告诉入口脚本这是环境测试
+            'batch_size': 2,
+            'epochs': 1,
+            'seed': 42,
+            'win_len': 10,  # 使用很小的窗口大小
+            'feature_size': 10  # 使用很小的特征大小
+        }
+        
+        # 创建测试环境的估算器
+        estimator = PyTorch(
+            entry_point='entry_script.py',
+            source_dir=CODE_DIR,
+            role=self.role,
+            framework_version=test_config.get('framework_version', '1.12.1'),
+            py_version=test_config.get('py_version', 'py38'),
+            instance_count=1,
+            instance_type=test_config.get('instance_type', 'ml.g4dn.2xlarge'),
+            base_job_name='wifi-sensing-env-test',
+            hyperparameters=hyperparameters,
+            max_run=3600  # 最多运行1小时
+        )
+        
+        # 启动训练作业
+        job_name = f"env-test-{self.timestamp}"
+        estimator.fit(
+            inputs={},  # 不提供输入数据
+            job_name=job_name,
+            wait=False
+        )
+        
+        # 返回作业信息
+        job_info = {
+            'job_name': job_name,
+            'type': 'environment_test',
+            'status': 'InProgress',
+            'estimator': estimator
+        }
+        
+        print(f"提交环境测试作业: {job_name}")
+        print(f"此作业不会下载完整数据集，仅用于验证环境设置和依赖项")
+        return job_info
+
 def run_from_config(config_path=None):
     """
     运行SageMaker训练任务，基于配置文件
@@ -489,14 +548,22 @@ def main():
     """主入口函数"""
     parser = argparse.ArgumentParser(description='Run SageMaker WiFi Sensing pipeline')
     
-    # 只保留配置文件参数
+    # 只保留配置文件参数并添加测试环境选项
     parser.add_argument('--config', type=str, default=None,
                         help='JSON configuration file path')
+    parser.add_argument('--test-env', action='store_true',
+                        help='只测试环境配置和依赖项，而不进行完整训练')
     
     args = parser.parse_args()
     
-    # 运行从配置文件加载的作业
-    run_from_config(args.config)
+    if args.test_env:
+        # 运行环境测试作业
+        config = load_config(args.config)
+        runner = SageMakerRunner(config)
+        runner.run_test_env()
+    else:
+        # 运行从配置文件加载的正常作业
+        run_from_config(args.config)
 
 if __name__ == "__main__":
     main()
