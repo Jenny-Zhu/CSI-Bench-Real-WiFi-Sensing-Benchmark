@@ -15,6 +15,7 @@ from scripts.train_supervised import MODEL_TYPES
 from engine.supervised.task_trainer import TaskTrainer
 from engine.few_shot import FewShotAdapter
 import matplotlib.pyplot as plt
+from sklearn.metrics import f1_score
 
 
 def generate_experiment_id():
@@ -451,49 +452,57 @@ def main():
     best_metrics = {task: {'val_loss': float('inf'), 'val_acc': 0, 'best_epoch': 0} for task in task_classes}
     best_task_states = {}
 
-    def evaluate(loader):
-        """评估模型在给定数据加载器上的性能。
+    def evaluate(model, loader, criterion, device):
+        """Evaluate model performance on the given data loader.
         
         Args:
-            loader: 数据加载器
+            model: Model to evaluate
+            loader: Data loader
+            criterion: Loss function
+            device: Device to run evaluation on
             
         Returns:
-            tuple: (损失, 准确率, F1分数)
+            tuple: (loss, accuracy, F1 score)
         """
         model.eval()
-        tot_loss = tot_correct = tot_n = 0
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        
         all_preds = []
         all_labels = []
         
         with torch.no_grad():
-            for x, y in loader:
-                x, y = x.to(device), y.to(device)
-                logits = model(x)
-                loss = criterion(logits, y)
-                b = y.size(0)
-                tot_loss += loss.item() * b
+            for batch in loader:
+                # Record predictions and true labels for calculating F1 score
+                inputs, labels = batch
+                inputs, labels = inputs.to(device), labels.to(device)
                 
-                # 记录预测和真实标签用于计算F1分数
-                preds = logits.argmax(1)
-                all_preds.extend(preds.cpu().numpy())
-                all_labels.extend(y.cpu().numpy())
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
                 
-                # 计算准确率
-                tot_correct += (preds == y).sum().item()
-                tot_n += b
+                total_loss += loss.item()
+                
+                # Calculate accuracy
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                
+                # Calculate F1 score
+                if len(set(labels.cpu().numpy())) > 1:  # Ensure there are multiple classes
+                    all_preds.extend(predicted.cpu().numpy())
+                    all_labels.extend(labels.cpu().numpy())
         
-        # 计算F1分数
-        if len(set(all_labels)) > 1:  # 确保有多个类别
+        if len(all_preds) > 0 and len(all_labels) > 0:
             try:
-                from sklearn.metrics import f1_score
-                f1 = f1_score(all_labels, all_preds, average='macro')
+                f1 = f1_score(all_labels, all_preds, average='weighted')
             except Exception as e:
-                print(f"Failed to calculate F1 score: {e}")
+                print(f"Error calculating F1 score: {e}")
                 f1 = 0.0
         else:
             f1 = 0.0
         
-        return tot_loss / tot_n, tot_correct / tot_n, f1
+        return total_loss / len(loader), correct / total, f1
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -513,7 +522,7 @@ def main():
         print(f"\nValidation after epoch {epoch}:")
         for task, vloader in val_loaders.items():
             model.set_active_task(task)
-            v_l, v_a, v_f1 = evaluate(vloader)
+            v_l, v_a, v_f1 = evaluate(model, vloader, criterion, device)
             val_losses.append(v_l)
             row[f"{task}_val_loss"] = v_l
             row[f"{task}_val_acc"] = v_a
@@ -684,7 +693,7 @@ def main():
                 with open(best_perf_path, 'r') as f:
                     best_perf = json.load(f)
                 
-                # 只有当验证准确率提高时才更新
+                # Update only when validation accuracy improves
                 if best_metrics[task]['val_acc'] > best_perf.get('best_val_accuracy', 0):
                     best_perf = {
                         'best_experiment_id': experiment_id,
@@ -730,17 +739,17 @@ def main():
         print('-' * 50)
         
         for split, tloader in tdict.items():
-            t_l, t_a, t_f1 = evaluate(tloader)
+            t_l, t_a, t_f1 = evaluate(model, tloader, criterion, device)
             print(f"{split:<20} {t_a:.4f}{'':<10} {t_l:.4f} F1: {t_f1:.4f}")
             
-            # 保存测试结果
+            # Save test results
             test_results[split] = {
                 'loss': t_l,
                 'accuracy': t_a,
                 'f1_score': t_f1
             }
             
-            # 生成混淆矩阵用于测试集
+            # Generate confusion matrix for test set
             tm = TaskTrainer(
                 model=model,
                 train_loader=None,
@@ -757,23 +766,23 @@ def main():
             )
             tm.plot_confusion_matrix(data_loader=tloader, epoch=None, mode=split)
             
-            # 更新best_performance.json，添加测试结果
+            # Update best_performance.json, add test results
             try:
                 best_perf_path = os.path.join(args.save_dir, task, args.model, "best_performance.json")
                 if os.path.exists(best_perf_path):
                     with open(best_perf_path, 'r') as f:
                         best_perf = json.load(f)
                     
-                    # 只有当前实验是最佳实验时才更新测试结果
+                    # Update only when validation accuracy improves
                     if best_perf.get('best_experiment_id') == experiment_id:
-                        # 使用字典格式存储测试准确率和F1分数
+                        # Update test results
                         if 'best_test_accuracies' not in best_perf:
                             best_perf['best_test_accuracies'] = {}
                         
                         if 'best_test_f1_scores' not in best_perf:
                             best_perf['best_test_f1_scores'] = {}
                         
-                        # 添加/更新当前测试集的结果
+                        # Update test results
                         best_perf['best_test_accuracies'][split] = t_a
                         best_perf['best_test_f1_scores'][split] = t_f1
                         

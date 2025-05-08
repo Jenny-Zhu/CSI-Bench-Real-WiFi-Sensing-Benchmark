@@ -48,7 +48,7 @@ class CSIDatasetMAT(Dataset):
             'NTUHumanID': {f'person{i}': i for i in range(15)},
             'NTUHAR': {'walking': 0, 'sitting': 1, 'standing': 2, 'jumping': 3, 'falling': 4, 'lying': 5},
             'Widar': {f'activity{i}': i for i in range(22)},
-            'demo': {'Human': 0, 'Pet': 1, 'IRobot': 2, 'Fan': 3}  # 为demo任务添加标签映射
+            'demo': {'Human': 0, 'Pet': 1, 'IRobot': 2, 'Fan': 3}  # Add label mapping for demo task
         }
         
         # Create class name mapping (for test set analysis)
@@ -143,23 +143,23 @@ class CSIDatasetMAT(Dataset):
             else:
                 return None
         
-        # Demo任务 - 使用与FourClass相同的逻辑但简化为二分类：人或非人
+        # Demo task - Uses the same logic as FourClass but simplified to a four-class task: Human, Pet, IRobot, Fan
         elif self.task == 'demo':
             if 'human' in file_name:
-                return 0  # Human类别索引为0
+                return 0  # Human class index is 0
             elif 'pet' in file_name:
-                return 1  # Pet类别索引为1
+                return 1  # Pet class index is 1
             elif 'irobot' in file_name:
-                return 2  # IRobot类别索引为2
+                return 2  # IRobot class index is 2
             elif 'fan' in file_name:
-                return 3  # Fan类别索引为3
+                return 3  # Fan class index is 3
             elif 'empty' in file_name or 'nomotion' in file_name:
-                # 对于empty文件，通常归类为Fan/空场景
+                # For empty files, usually classified as Fan/empty scene
                 return 3
             else:
-                # 如果没有明确的匹配，尝试额外处理
+                # If no clear match, try additional processing
                 if 'brendon' in file_name or any(x in file_name for x in ['person', 'walk', 'run']):
-                    return 0  # 可能是Human
+                    return 0  # Might be Human
                 print(f"Demo task: Could not determine label for {file_path}")
                 return None
         
@@ -242,7 +242,7 @@ class CSIDatasetMAT(Dataset):
                     return ind
             return None
         
-        # 尝试从目录名确定标签
+        # Try to determine label from directory name
         print(f'No label determined for {file_path}')
         
         return None

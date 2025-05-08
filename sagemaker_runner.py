@@ -257,22 +257,22 @@ class SageMakerRunner:
     def _prepare_inputs(self, config):
         """
         Prepare input data channels for training
-        确保只使用特定任务的数据路径
+        Ensure to only use data paths specific to the task
         """
         task = config.get('task')
         s3_data_base = config.get('s3_data_base')
         
-        # 构建特定任务的数据路径
-        # 确保路径末尾有斜杠
+        # Build specific task data path
+        # Ensure path ends with a slash
         if not s3_data_base.endswith('/'):
             s3_data_base += '/'
         
-        # 构建特定任务的数据路径
+        # Build specific task data path
         task_data_path = f"{s3_data_base}tasks/{task}/"
         
-        print(f"使用任务特定的数据路径: {task_data_path}")
+        print(f"Using task-specific data path: {task_data_path}")
         
-        # 定义输入通道
+        # Define input channel
         input_data = {
             'training': TrainingInput(
                 s3_data=task_data_path,
@@ -362,7 +362,7 @@ class SageMakerRunner:
         # Add model-specific parameters if present
         if 'model_params' in config:
             for key, value in config['model_params'].items():
-                # 将参数名称中的破折号替换为下划线
+                # Replace dashes with underscores in parameter names
                 fixed_key = key.replace('-', '_')
                 hyperparameters[fixed_key] = value
         else:
@@ -390,41 +390,41 @@ class SageMakerRunner:
     def _prepare_multitask_inputs(self, config):
         """
         Prepare input data channels for multitask training
-        确保只下载需要的任务数据
+        Ensure to only download data needed for the tasks
         """
         s3_data_base = config.get('s3_data_base')
         
-        # 确保路径末尾有斜杠
+        # Ensure path ends with a slash
         if not s3_data_base.endswith('/'):
             s3_data_base += '/'
         
-        # 获取任务列表
+        # Get the task list
         tasks_str = config.get('tasks', '')
         tasks_list = [t.strip() for t in tasks_str.split(',') if t.strip()]
         
         if not tasks_list:
-            print("警告: 未指定任务，将使用整个数据目录")
+            print("Warning: No tasks specified, using entire data directory")
             data_path = s3_data_base
         else:
-            # 为多任务学习准备输入数据
-            # 只使用指定任务的数据路径
+            # Prepare input data for multitask learning
+            # Only use data paths for specified tasks
             data_paths = []
             for task in tasks_list:
                 task_path = f"{s3_data_base}tasks/{task}/"
                 data_paths.append(task_path)
             
-            # 如果只有一个任务，直接使用该任务的路径
+            # If there is only one task, use that task's path directly
             if len(data_paths) == 1:
                 data_path = data_paths[0]
-                print(f"多任务学习使用单一任务数据路径: {data_path}")
+                print(f"Multitask learning using single task data path: {data_path}")
             else:
-                # 如果有多个任务，则需要通过 manifest 文件或其他方式组合
-                # 但当前 SageMaker 实现中，我们只能指定一个路径，所以使用父目录
+                # If there are multiple tasks, we would need to combine via manifest file or other means
+                # But in the current SageMaker implementation, we can only specify one path, so use the parent directory
                 data_path = f"{s3_data_base}tasks/"
-                print(f"多任务学习使用多个任务({len(tasks_list)}个)，数据路径: {data_path}")
-                print(f"任务列表: {', '.join(tasks_list)}")
+                print(f"Multitask learning using multiple tasks ({len(tasks_list)} tasks), data path: {data_path}")
+                print(f"Task list: {', '.join(tasks_list)}")
         
-        # 定义输入通道
+        # Define input channel
         input_data = {
             'training': TrainingInput(
                 s3_data=data_path,
@@ -437,33 +437,33 @@ class SageMakerRunner:
 
     def run_test_env(self):
         """
-        运行一个快速的环境测试作业，用于验证依赖项和环境配置
-        使用假数据进行环境测试，不需要下载完整数据集
+        Run a quick environment test job to verify dependencies and environment configuration
+        Use fake data for environment testing, no need to download the full dataset
         
         Returns:
-            dict: 包含作业信息的字典
+            dict: Dictionary containing job information
         """
-        print(f"正在启动环境测试作业...")
+        print(f"Starting environment test job...")
         
-        # 创建一个特化的测试配置
+        # Create a specialized test configuration
         test_config = dict(self.config)
-        test_config['epochs'] = 1  # 设置为1轮
-        test_config['batch_size'] = 2  # 使用小批量
+        test_config['epochs'] = 1  # Set to 1 round
+        test_config['batch_size'] = 2  # Use small batch
         
-        # 创建一个特殊的环境测试脚本参数
+        # Create special environment test script parameters
         hyperparameters = {
-            'test_env': 'True',  # 告诉入口脚本这是环境测试
+            'test_env': 'True',  # Tell entry script this is environment test
             'batch_size': 2,
             'epochs': 1,
             'seed': 42,
-            'win_len': 10,  # 使用很小的窗口大小
-            'feature_size': 10  # 使用很小的特征大小
+            'win_len': 10,  # Use very small window size
+            'feature_size': 10  # Use very small feature size
         }
         
-        # 创建和上传假数据到S3
+        # Create and upload fake data to S3
         fake_data_s3_path = self._create_fake_test_data()
         
-        # 创建测试环境的估算器
+        # Create test environment estimator
         estimator = PyTorch(
             entry_point='entry_script.py',
             source_dir=CODE_DIR,
@@ -474,10 +474,10 @@ class SageMakerRunner:
             instance_type=test_config.get('instance_type', 'ml.g4dn.2xlarge'),
             base_job_name='wifi-sensing-env-test',
             hyperparameters=hyperparameters,
-            max_run=3600  # 最多运行1小时
+            max_run=3600  # Maximum run time 1 hour
         )
         
-        # 准备使用假数据的输入配置
+        # Prepare using fake data input configuration
         minimal_inputs = {
             'training': TrainingInput(
                 s3_data=fake_data_s3_path,
@@ -486,9 +486,9 @@ class SageMakerRunner:
             )
         }
         
-        print(f"使用假数据进行环境测试，路径: {fake_data_s3_path}")
+        print(f"Using fake data for environment test, path: {fake_data_s3_path}")
         
-        # 启动训练作业
+        # Start training job
         job_name = f"env-test-{self.timestamp}"
         estimator.fit(
             inputs=minimal_inputs,
@@ -496,7 +496,7 @@ class SageMakerRunner:
             wait=False
         )
         
-        # 返回作业信息
+        # Return job info
         job_info = {
             'job_name': job_name,
             'type': 'environment_test',
@@ -505,44 +505,44 @@ class SageMakerRunner:
             'fake_data_path': fake_data_s3_path
         }
         
-        print(f"提交环境测试作业: {job_name}")
-        print(f"此作业使用假数据，仅用于验证环境设置和依赖项")
+        print(f"Submitted environment test job: {job_name}")
+        print(f"This job uses fake data, only for verifying environment setup and dependencies")
         return job_info
 
     def _create_fake_test_data(self):
         """
-        创建假数据并上传到S3
+        Create fake data and upload to S3
         
         Returns:
-            str: 假数据的S3路径
+            str: Fake data S3 path
         """
         import tempfile
         import numpy as np
         import os
         import time
         
-        print("创建假数据用于环境测试...")
+        print("Creating fake data for environment test...")
         
-        # 创建一个临时目录
+        # Create a temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
-            # 创建一个简单的numpy数组作为假数据
-            fake_x = np.random.rand(100, 10, 10).astype(np.float32)  # 100个样本，窗口长度10，特征数10
-            fake_y = np.random.randint(0, 4, size=(100,)).astype(np.int32)  # 100个标签，值在0-3之间
+            # Create a simple numpy array as fake data
+            fake_x = np.random.rand(100, 10, 10).astype(np.float32)  # 100 samples, window length 10, feature number 10
+            fake_y = np.random.randint(0, 4, size=(100,)).astype(np.int32)  # 100 labels, values in 0-3
             
-            # 保存到临时文件
+            # Save to temporary file
             data_file = os.path.join(temp_dir, 'fake_data.npz')
             np.savez(data_file, x=fake_x, y=fake_y)
             
-            # 为确保唯一性，使用时间戳创建S3路径
+            # Ensure uniqueness, use timestamp to create S3 path
             timestamp = int(time.time())
             s3_bucket = self.s3_data_base.split('/')[2]
             s3_prefix = f"test_env_data/{timestamp}"
             
             s3_fake_data_path = f"s3://{s3_bucket}/{s3_prefix}/fake_data.npz"
             
-            # 上传到S3
+            # Upload to S3
             s3 = boto3.client('s3')
-            print(f"上传假数据到 {s3_fake_data_path}...")
+            print(f"Uploading fake data to {s3_fake_data_path}...")
             
             try:
                 s3.upload_file(
@@ -550,10 +550,10 @@ class SageMakerRunner:
                     Bucket=s3_bucket,
                     Key=f"{s3_prefix}/fake_data.npz"
                 )
-                print("假数据上传成功")
+                print("Fake data upload succeeded")
             except Exception as e:
-                print(f"上传假数据时出错: {e}")
-                # 如果上传失败，创建一个更简单的文件再试一次
+                print(f"Error uploading fake data: {e}")
+                # If upload fails, create a simpler file and try again
                 simple_file = os.path.join(temp_dir, 'test.txt')
                 with open(simple_file, 'w') as f:
                     f.write("This is a test file for SageMaker environment testing.")
@@ -564,85 +564,85 @@ class SageMakerRunner:
                         Bucket=s3_bucket,
                         Key=f"{s3_prefix}/test.txt"
                     )
-                    print("简单测试文件上传成功")
+                    print("Simple test file upload succeeded")
                     s3_fake_data_path = f"s3://{s3_bucket}/{s3_prefix}/"
                 except Exception as e2:
-                    print(f"上传简单测试文件也失败: {e2}")
-                    # 最后一种选择：使用已知存在的路径
+                    print(f"Failed to upload simple test file: {e2}")
+                    # Last option: use known existing path
                     s3_fake_data_path = f"s3://{s3_bucket}/test_env_data/"
-                    print(f"使用可能存在的默认路径: {s3_fake_data_path}")
+                    print(f"Using possibly existing default path: {s3_fake_data_path}")
         
         return s3_fake_data_path
 
 def run_from_config(config_path=None):
     """
-    运行SageMaker训练任务，基于配置文件
+    Run SageMaker training task based on configuration file
     
     Args:
-        config_path: 配置文件路径，如果为None则使用默认配置
+        config_path: Configuration file path, if None use default configuration
     """
-    # 加载配置
+    # Load configuration
     config = load_config(config_path)
     
-    # 创建SageMaker运行器
+    # Create SageMaker runner
     runner = SageMakerRunner(config)
     
-    # 从配置中获取任务和模型
+    # Get tasks and models from configuration
     tasks = config.get('task')
     models = config.get('model')
     pipeline = config.get('pipeline', 'supervised')
     
-    # 根据配置的pipeline类型运行相应的任务
+    # Run corresponding task based on configuration's pipeline type
     if pipeline == 'multitask':
-        # 对于多任务学习，需要确保有tasks参数
+        # For multitask learning, ensure tasks parameter is provided
         if 'tasks' in config:
             tasks = config['tasks']
         else:
-            # 如果未指定tasks，但指定了task，则使用task
+            # If tasks are not specified but task is provided, use task
             if tasks:
                 tasks = [tasks]
             else:
-                # 使用默认任务列表中的前两个任务
+                # Use first two tasks from default task list
                 tasks = config.get('available_tasks', [])[:2]
         
-        # 运行多任务学习
+        # Run multitask learning
         result = runner.run_multitask(tasks=tasks, model_type=models)
     else:
-        # 对于监督学习，可以运行单个任务或多个任务
+        # For supervised learning, can run single task or multiple tasks
         if tasks and not isinstance(tasks, list):
             tasks = [tasks]
         
-        # 如果指定了模型，确保是列表格式
+        # If model is specified, ensure it's in list format
         if models and not isinstance(models, list):
             if ',' in models:
                 models = models.split(',')
             else:
                 models = [models]
         
-        # 运行批处理任务
+        # Run batch processing task
         result = runner.run_batch_by_task(tasks=tasks, models=models)
     
     return result
 
 def main():
-    """主入口函数"""
+    """Main entry function"""
     parser = argparse.ArgumentParser(description='Run SageMaker WiFi Sensing pipeline')
     
-    # 只保留配置文件参数并添加测试环境选项
+    # Keep configuration file parameter and add test environment option
     parser.add_argument('--config', type=str, default=None,
                         help='JSON configuration file path')
     parser.add_argument('--test-env', action='store_true',
-                        help='只测试环境配置和依赖项，而不进行完整训练')
+                        help='Only test environment configuration and dependencies, without full training')
     
     args = parser.parse_args()
     
     if args.test_env:
-        # 运行环境测试作业
+        # Run environment test job
         config = load_config(args.config)
         runner = SageMakerRunner(config)
         runner.run_test_env()
     else:
-        # 运行从配置文件加载的正常作业
+        # Run normal job from configuration file
         run_from_config(args.config)
 
 if __name__ == "__main__":

@@ -7,14 +7,19 @@ This script can be run in a SageMaker environment to train and evaluate multiple
 on the same task.
 """
 
-# 禁用SMDebug和Horovod以避免PyTorch版本冲突
-import os
-os.environ['SM_DISABLE_PROFILER'] = 'true'
-os.environ['SM_DISABLE_DEBUGGER'] = 'true'
-os.environ['SMDEBUG_DISABLED'] = 'true'
-os.environ['HOROVOD_WITH_PYTORCH'] = '0'
-os.environ['HOROVOD_WITHOUT_PYTORCH'] = '1'
-os.environ['USE_HOROVOD'] = 'false'
+# Disable SMDebug and Horovod to avoid PyTorch version conflicts
+try:
+    sys.modules['smdebug'] = None
+    os.environ['SMDEBUG_DISABLED'] = 'true'
+    os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+    
+    # Also disable Horovod
+    sys.modules['horovod'] = None
+    sys.modules['horovod.torch'] = None
+    
+    print("Disabled SMDebug and Horovod to avoid conflicts")
+except Exception as e:
+    print(f"Warning when disabling modules: {e}")
 
 import sys
 import argparse
@@ -27,21 +32,17 @@ import torch.nn as nn
 from tqdm import tqdm
 import logging
 
-# 检测是否在SageMaker环境中运行
-is_sagemaker = os.path.exists('/opt/ml/model')
+# Detect if running in SageMaker environment
+is_sagemaker = 'SM_MODEL_DIR' in os.environ
 
-# 如果在SageMaker中运行，导入S3工具
+# If running in SageMaker, import S3 tools
 if is_sagemaker:
-    try:
-        import boto3
-        s3_client = boto3.client('s3')
-    except ImportError:
-        print("Warning: boto3 not installed, S3 upload disabled")
-        s3_client = None
+    import boto3
+    s3_client = boto3.client('s3')
 else:
     s3_client = None
 
-# 打印原始命令行参数，帮助诊断
+# Print original command line arguments for diagnostic purposes
 print("Original command line arguments:", sys.argv)
 
 # Set up logging
@@ -80,14 +81,14 @@ from engine.supervised.task_trainer import TaskTrainer
 
 def upload_to_s3(local_path, s3_path):
     """
-    将本地文件或目录上传到S3
+    Upload a local file or directory to S3
     
     Args:
-        local_path: 本地文件或目录路径
-        s3_path: S3路径，格式为's3://bucket-name/path/to/destination'
+        local_path: Path to the local file or directory
+        s3_path: S3 path, format: 's3://bucket-name/path/to/destination'
     
     Returns:
-        bool: 上传是否成功
+        bool: Whether the upload was successful
     """
     if not s3_client:
         logger.warning("S3 client not initialized, skipping upload")
@@ -98,7 +99,7 @@ def upload_to_s3(local_path, s3_path):
         return False
     
     try:
-        # 解析S3路径
+        # Parse S3 path
         s3_parts = s3_path.replace('s3://', '').split('/', 1)
         if len(s3_parts) != 2:
             logger.error(f"Invalid S3 path format: {s3_path}")
@@ -109,23 +110,23 @@ def upload_to_s3(local_path, s3_path):
         
         logger.info(f"Uploading {local_path} to S3 bucket {bucket_name}/{s3_key_prefix}")
         
-        # 检查是文件还是目录
+        # Check if it's a file or directory
         if os.path.isfile(local_path):
-            # 上传单个文件
+            # Upload a single file
             file_key = os.path.join(s3_key_prefix, os.path.basename(local_path))
             s3_client.upload_file(local_path, bucket_name, file_key)
             logger.info(f"Uploaded file to s3://{bucket_name}/{file_key}")
         else:
-            # 上传整个目录
+            # Upload entire directory
             for root, _, files in os.walk(local_path):
                 for file in files:
                     local_file_path = os.path.join(root, file)
                     
-                    # 计算相对路径
+                    # Calculate relative path
                     relative_path = os.path.relpath(local_file_path, local_path)
                     s3_key = os.path.join(s3_key_prefix, relative_path)
                     
-                    # 上传文件
+                    # Upload file
                     s3_client.upload_file(local_file_path, bucket_name, s3_key)
             
             logger.info(f"Uploaded directory contents to s3://{bucket_name}/{s3_key_prefix}")
@@ -137,34 +138,34 @@ def upload_to_s3(local_path, s3_path):
 
 def cleanup_sagemaker_storage():
     """
-    清理SageMaker环境中的不必要文件，减少存储使用
+    Clean up unnecessary files in SageMaker environment to reduce storage usage
     """
     if not is_sagemaker:
-        # 只在SageMaker环境中运行
+        # Only run in SageMaker environment
         return
     
     logger.info("Cleaning up unnecessary files to reduce storage usage...")
     
     try:
-        # 删除不必要的临时文件和日志
+        # Delete unnecessary temporary files and logs
         dirs_to_clean = [
-            "/tmp",                        # 临时目录
-            "/opt/ml/output/profiler",     # 分析器输出
-            "/opt/ml/output/tensors",      # 调试器张量
+            "/tmp",                        # Temporary directory
+            "/opt/ml/output/profiler",     # Profiler output
+            "/opt/ml/output/tensors",      # Debugger tensors
         ]
         
-        # 只保留最小的日志文件
+        # Only keep the smallest log files
         log_files = [
             "/opt/ml/output/data/logs/algo-1-stdout.log",
             "/opt/ml/output/data/logs/algo-1-stderr.log"
         ]
         
-        # 清理临时目录（但不全部删除）
+        # Clean up temporary directories (but don't delete all)
         import shutil
         for cleanup_dir in dirs_to_clean:
             if os.path.exists(cleanup_dir):
                 logger.info(f"Cleaning directory: {cleanup_dir}")
-                # 仅限读取目录内容，不递归删除
+                # Read-only access to directory content, don't delete recursively
                 try:
                     for item in os.listdir(cleanup_dir):
                         item_path = os.path.join(cleanup_dir, item)
@@ -181,16 +182,16 @@ def cleanup_sagemaker_storage():
                 except Exception as e:
                     logger.warning(f"Error cleaning directory {cleanup_dir}: {e}")
         
-        # 清理日志文件（保留最后10KB）
+        # Clean up log files (keep last 10KB)
         for log_file in log_files:
             if os.path.exists(log_file) and os.path.getsize(log_file) > 10240:
                 try:
                     with open(log_file, 'rb') as f:
-                        # 跳转到文件末尾前10KB的位置
-                        f.seek(-10240, 2)  # 2表示从文件末尾计算
+                        # Jump to 10KB before end of file
+                        f.seek(-10240, 2)  # 2 means from end of file
                         last_10kb = f.read()
                     
-                    # 重写日志文件，只保留最后10KB
+                    # Rewrite log file, keep only last 10KB
                     with open(log_file, 'wb') as f:
                         f.write(b"[...previous logs truncated...]\n")
                         f.write(last_10kb)
@@ -199,7 +200,7 @@ def cleanup_sagemaker_storage():
                 except Exception as e:
                     logger.warning(f"Could not truncate log file {log_file}: {e}")
         
-        # 清理sourcedir缓存
+        # Clean up sourcedir cache
         sourcedir_cache = "/opt/ml/code/.sourcedir.tar.gz"
         if os.path.exists(sourcedir_cache):
             try:
@@ -208,7 +209,7 @@ def cleanup_sagemaker_storage():
             except Exception as e:
                 logger.warning(f"Could not remove sourcedir cache: {e}")
         
-        # 尝试触发内存清理
+        # Try to trigger memory cleanup
         import gc
         gc.collect()
         
@@ -272,80 +273,80 @@ def get_args():
     parser.add_argument('--data_dir', type=str, default=None,
                         help='Root directory of the dataset (deprecated, use dataset_root instead)')
     
-    # 调试参数 - 所有布尔标志参数
+    # Debug parameters - All boolean flag parameters
     parser.add_argument('--debug', action='store_true', default=False,
-                        help='启用详细调试输出')
+                        help='Enable detailed debug output')
     parser.add_argument('--adaptive_path', action='store_true', default=False,
-                        help='自动适应数据路径结构')
+                        help='Automatically adapt to data path structure')
     parser.add_argument('--try_all_paths', action='store_true', default=False,
-                        help='尝试所有可能的路径组合')
+                        help='Try all possible path combinations')
     parser.add_argument('--direct_upload', action='store_true', default=False,
-                        help='直接上传结果到S3，不使用SageMaker自动打包')
+                        help='Directly upload results to S3 without using SageMaker auto-packaging')
     parser.add_argument('--upload_final_model', action='store_true', default=False,
-                        help='上传最终模型到S3')
+                        help='Upload final model to S3')
     parser.add_argument('--skip_train_for_debug', action='store_true', default=False,
-                     help='仅用于调试，跳过实际训练过程')
+                     help='Only for debugging, skip actual training process')
     
-    # 添加S3相关参数
+    # Add S3 related parameters
     parser.add_argument('--save_to_s3', type=str, default=None,
-                      help='S3路径用于保存结果, 格式: s3://bucket-name/path/')
+                      help='S3 path for saving results, format: s3://bucket-name/path/')
 
-    # 修改解析逻辑，处理SageMaker传递的非标准参数
-    # 首先获取原始参数，进行预处理
+    # Modify parsing logic, handle SageMaker passed non-standard parameters
+    # First get original parameters, do preliminary processing
     args_to_parse = []
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
         
-        # 修复参数名称格式 - 将带破折号的参数转换为带下划线的格式
+        # Fix parameter name format - Convert dash-separated parameters to underscore-separated format
         if arg.startswith('--'):
-            # 替换破折号为下划线 (例如 --learning-rate 变成 --learning_rate)
+            # Replace dash with underscore (e.g. --learning-rate becomes --learning_rate)
             fixed_arg = arg.replace('-', '_')
             if fixed_arg != arg:
-                logger.info(f"修复参数格式: {arg} -> {fixed_arg}")
+                logger.info(f"Fixed parameter format: {arg} -> {fixed_arg}")
                 arg = fixed_arg
         
-        # 处理标志参数后面跟着True或False的情况
+        # Handle flag parameters followed by True or False
         if arg.startswith('--') and i + 1 < len(sys.argv):
             next_arg = sys.argv[i+1]
             if next_arg.lower() == 'true':
-                # 对于--flag True的情况，只保留--flag
+                # For --flag True case, only keep --flag
                 args_to_parse.append(arg)
                 i += 2
                 continue
             elif next_arg.lower() == 'false':
-                # 对于--flag False的情况，跳过该参数
+                # For --flag False case, skip that parameter
                 i += 2
                 continue
             
-        # 正常添加参数
+        # Normal parameter addition
         args_to_parse.append(arg)
         i += 1
     
     try:
-        # 使用预处理后的参数进行解析
+        # Use preprocessed parameters for parsing
         args = parser.parse_args(args_to_parse)
         
-        # 打印实际解析的参数（调试用）
+        # Print actual parsed parameters (for debugging)
         logger.info(f"Parsed arguments: {args_to_parse}")
     except Exception as e:
         logger.error(f"Error parsing arguments: {e}")
         logger.error(f"Original arguments: {sys.argv}")
         logger.error(f"Processed arguments: {args_to_parse}")
         
-        # 尝试使用原始参数解析，忽略错误
+        # Try using original parameters parsing, ignore errors
         try:
             args = parser.parse_args()
         except:
-            # 最后的回退：使用默认参数
+            # Last fallback: Use default parameters
             logger.warning("Using default arguments due to parsing failure")
             args = parser.parse_args([])
     
-    # 如果启用调试模式，设置日志级别为DEBUG
+    # If debug mode is enabled, set log level to DEBUG
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled - verbose logging activated")
-        # 打印所有参数
+        # Print all parameters
         logger.debug("All command line arguments:")
         for arg, value in sorted(vars(args).items()):
             logger.debug(f"  {arg}: {value}")
@@ -414,7 +415,7 @@ def train_model(model_name, data, args, device):
         'dropout': args.dropout
     }
     
-    # Model-specific parameters - 根据模型类型添加特定参数
+    # Model-specific parameters - Add specific parameters based on model type
     if model_name.lower() == 'transformer':
         model_kwargs['d_model'] = args.d_model
     
@@ -424,14 +425,14 @@ def train_model(model_name, data, args, device):
     
     logger.info(f"Model created: {model_name}")
     
-    # 设置基础输出目录 - 这些目录将在创建experiment_id后添加子目录
+    # Set base output directory - These directories will be added with experiment_id
     if is_sagemaker:
         # For SageMaker, use /opt/ml/model as the base path for saving models
         model_base_dir = '/opt/ml/model'
     else:
         model_base_dir = args.save_dir
     
-    # 创建模型类型层级的目录，不包含experiment_id
+    # Create model type directory, without experiment_id
     model_save_dir = os.path.join(model_base_dir, args.task_name, model_name)
     model_output_dir = os.path.join(args.output_dir, args.task_name, model_name)
     
@@ -447,36 +448,36 @@ def train_model(model_name, data, args, device):
         patience=args.patience,
         num_classes=num_classes,
         device=str(device),
-        save_dir=model_save_dir,  # 这是没有experiment_id的基础目录
-        output_dir=model_output_dir,  # 这是没有experiment_id的基础目录
+        save_dir=model_save_dir,  # This is the base directory without experiment_id
+        output_dir=model_output_dir,  # This is the base directory without experiment_id
         results_subdir='supervised',
         model_name=model_name,
         task_name=args.task_name,
-        # 稍后在添加experiment_id后，config_dict会更新这些路径
+        # Later, when adding experiment_id, config_dict will update these paths
     )
     
-    # 先不保存配置，等有了experiment_id之后再保存到同一目录
+    # Don't save config yet, wait until after experiment_id is created
 
     # Create experiment ID from timestamp and model name
     import hashlib
     timestamp = int(time.time())
     experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{timestamp}'.encode()).hexdigest()[:8]}"
     
-    # 更新输出目录，确保包含experiment_id
+    # Update output directory, ensure it includes experiment_id
     model_output_dir = os.path.join(args.output_dir, args.task_name, model_name, experiment_id)
     os.makedirs(model_output_dir, exist_ok=True)
     
-    # 现在保存配置到实验目录
+    # Now save config to experiment directory
     config_path = os.path.join(model_output_dir, "supervised_config.json")
     with open(config_path, "w") as f:
         config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
-        # 更新路径以反映新位置
+        # Update paths to reflect new location
         config_dict['output_dir'] = model_output_dir
         config_dict['save_dir'] = os.path.join(args.save_dir, args.task_name, model_name, experiment_id)
         config_dict['experiment_id'] = experiment_id
         json.dump(config_dict, f, indent=4)
     
-    logger.info(f"配置已保存到模型目录: {config_path}")
+    logger.info(f"Config saved to model directory: {config_path}")
     
     # Create trainer
     criterion = nn.CrossEntropyLoss()
@@ -526,12 +527,12 @@ def train_model(model_name, data, args, device):
     # Add best model info
     if hasattr(trainer, 'best_val_accuracy'):
         train_history['best_val_accuracy'] = trainer.best_val_accuracy
-        # 添加安全检查，防止属性不存在
+        # Add safety check, prevent attribute from not existing
         if hasattr(trainer, 'best_epoch'):
             train_history['best_epoch'] = trainer.best_epoch
         else:
-            # 如果best_epoch不存在，使用当前epoch或设置为-1
-            train_history['best_epoch'] = args.epochs  # 默认使用最后一个epoch
+            # If best_epoch doesn't exist, use current epoch or set to -1
+            train_history['best_epoch'] = args.epochs  # Default use last epoch
             logger.warning(f"TaskTrainer missing best_epoch attribute, using last epoch ({args.epochs}) as best")
     
     # Run evaluation on each test set
@@ -551,10 +552,10 @@ def train_model(model_name, data, args, device):
         test_accuracies = [v for k, v in overall_metrics.items() if k.endswith('_accuracy') and k.startswith('test')]
         overall_metrics['test_accuracy'] = sum(test_accuracies) / len(test_accuracies)
     
-    # 保存模型摘要到experiment_id目录
+    # Save model summary to experiment_id directory
     summary_file = os.path.join(model_output_dir, f"model_summary.json")
     
-    # 合并结果并添加experiment_id
+    # Merge results and add experiment_id
     summary_results = {**train_history, **overall_metrics, "experiment_id": experiment_id}
     
     # Ensure all data is JSON serializable
@@ -585,8 +586,8 @@ def train_model(model_name, data, args, device):
     best_performance_file = os.path.join(os.path.dirname(os.path.dirname(model_output_dir)), model_name, "best_performance.json")
     os.makedirs(os.path.dirname(best_performance_file), exist_ok=True)
     
-    # experiment_id已经在之前创建，不需要再次创建
-    # 使用之前定义的timestamp和experiment_id
+    # experiment_id already created, no need to create again
+    # Use previously defined timestamp and experiment_id
     
     # Check if best_performance.json exists and compare results
     best_performance = {
@@ -630,15 +631,15 @@ def train_model(model_name, data, args, device):
 def main():
     """Main function to run multi-model training"""
     try:
-        # 记录环境变量，帮助调试SageMaker环境中的问题
+        # Record environment variables for debugging in SageMaker environment
         if is_sagemaker:
             logger.info("Running in SageMaker environment")
             logger.info("Environment variables:")
-            # 记录关键的环境变量
+            # Record key environment variables
             for key in sorted([k for k in os.environ.keys() if k.startswith(('SM_', 'SAGEMAKER_'))]):
                 logger.info(f"  {key}: {os.environ.get(key)}")
             
-            # 尝试从环境变量解析超参数
+            # Try parsing hyperparameters from environment variables
             if os.environ.get('SM_HPS') is not None:
                 try:
                     import json
@@ -647,10 +648,10 @@ def main():
                 except Exception as e:
                     logger.warning(f"Failed to parse SM_HPS: {e}")
         
-        # 获取参数
+        # Get parameters
         args = get_args()
         
-        # 打印解析后的参数
+        # Print parsed parameters
         logger.info("Parsed arguments:")
         for arg_name, arg_value in sorted(vars(args).items()):
             logger.info(f"  {arg_name}: {arg_value}")
@@ -678,50 +679,50 @@ def main():
             logger.info(f"SageMaker environment detected. Using local path: {dataset_root}")
             logger.info(f"Original S3 path: {original_path}")
             
-            # 在SageMaker环境中，检查可能的目录结构
-            # 1. 首先检查/opt/ml/input/data/training/tasks/TaskName结构
+            # In SageMaker environment, check possible directory structure
+            # 1. First check /opt/ml/input/data/training/tasks/TaskName structure
             tasks_task_path = os.path.join(dataset_root, 'tasks', args.task_name)
-            # 2. 检查/opt/ml/input/data/training/TaskName结构
+            # 2. Check /opt/ml/input/data/training/TaskName structure
             direct_task_path = os.path.join(dataset_root, args.task_name)
-            # 3. 检查/opt/ml/input/data/training本身是否就是任务目录
+            # 3. Check /opt/ml/input/data/training itself whether it's the task directory
             root_as_task_path = dataset_root
             
             if os.path.exists(tasks_task_path):
                 logger.info(f"Found task at path: {tasks_task_path}")
-                # 这是预期的结构：/opt/ml/input/data/training/tasks/TaskName
+                # This is expected structure: /opt/ml/input/data/training/tasks/TaskName
                 task_dir = tasks_task_path
             elif os.path.exists(direct_task_path):
                 logger.info(f"Found task directly at: {direct_task_path}")
-                # 替代结构：/opt/ml/input/data/training/TaskName
+                # Alternative structure: /opt/ml/input/data/training/TaskName
                 task_dir = direct_task_path
             elif os.path.exists(os.path.join(root_as_task_path, 'train')):
-                # 检查是否训练目录直接在根目录下
+                # Check whether train directory directly in root directory
                 logger.info(f"Root directory contains train subfolder, might be the task directory itself")
                 task_dir = root_as_task_path
             else:
-                # 记录目录内容以便调试
+                # Record directory content for debugging
                 logger.info(f"Contents of {dataset_root}: {os.listdir(dataset_root)}")
                 if os.path.exists(os.path.join(dataset_root, 'tasks')):
                     logger.info(f"Contents of {os.path.join(dataset_root, 'tasks')}: {os.listdir(os.path.join(dataset_root, 'tasks'))}")
-                task_dir = None  # 未找到任务目录
+                task_dir = None  # Task directory not found
         else:
             dataset_root = args.dataset_root
-            task_dir = None  # 初始化为None，稍后决定
+            task_dir = None  # Initialize as None, decide later
         
         logger.info(f"Actual dataset root path: {dataset_root}")
         
-        # 如果在SageMaker环境中已经找到任务目录，无需再次搜索
+        # If task directory found in SageMaker environment, no need to search again
         if not is_sagemaker or task_dir is None:
-            # 在非SageMaker环境中，或者在SageMaker环境中还未找到任务目录时
+            # In non-SageMaker environment, or in SageMaker environment where task directory not found yet
             if os.path.exists(dataset_root):
                 logger.info(f"Dataset root exists: {dataset_root}")
-                # 检查任务目录
+                # Check task directory
                 direct_task_path = os.path.join(dataset_root, args.task_name)
                 if os.path.exists(direct_task_path):
                     logger.info(f"Task directory found at {direct_task_path}")
                     task_dir = direct_task_path
                 else:
-                    # 尝试tasks/task_name
+                    # Try tasks/task_name
                     tasks_dir = os.path.join(dataset_root, 'tasks')
                     if os.path.exists(tasks_dir):
                         tasks_task_path = os.path.join(tasks_dir, args.task_name)
@@ -738,12 +739,12 @@ def main():
                 logger.warning(f"Dataset root path {dataset_root} does not exist")
                 task_dir = None
         
-        # 如果找到了任务目录，检查其内容
+        # If task directory found, check its content
         if task_dir and os.path.exists(task_dir):
             logger.info(f"Final task directory selected: {task_dir}")
             logger.info(f"Content of task directory {task_dir}: {os.listdir(task_dir)}")
             
-            # 进一步检查文件夹结构
+            # Further check folder structure
             if os.path.exists(os.path.join(task_dir, 'metadata')):
                 logger.info(f"Metadata directory found: {os.path.join(task_dir, 'metadata')}")
             if os.path.exists(os.path.join(task_dir, 'splits')):
@@ -752,23 +753,23 @@ def main():
             if os.path.exists(os.path.join(task_dir, 'train')):
                 logger.info(f"Train directory found: {os.path.join(task_dir, 'train')}")
         
-        # 自适应路径处理逻辑
+        # Adaptive path processing logic
         if args.adaptive_path:
             logger.info("Adaptive path mode enabled - will search for alternative data paths")
-            # 在SageMaker环境中尝试不同的常见路径结构
+            # In SageMaker environment try different common path structures
             possible_paths = []
             
-            # 考虑常见的路径变体
-            possible_paths.append(dataset_root)  # 直接使用下载路径
-            possible_paths.append(os.path.join(dataset_root, 'tasks'))  # tasks子目录
-            possible_paths.append(os.path.join(dataset_root, 'Benchmark'))  # Benchmark子目录
-            possible_paths.append(os.path.join(dataset_root, 'Data', 'Benchmark'))  # Data/Benchmark路径
+            # Consider common path variations
+            possible_paths.append(dataset_root)  # Directly use download path
+            possible_paths.append(os.path.join(dataset_root, 'tasks'))  # tasks subdirectory
+            possible_paths.append(os.path.join(dataset_root, 'Benchmark'))  # Benchmark subdirectory
+            possible_paths.append(os.path.join(dataset_root, 'Data', 'Benchmark'))  # Data/Benchmark path
             
-            # 检查每个可能的路径
+            # Check each possible path
             for path in possible_paths:
                 if os.path.exists(path):
                     logger.info(f"Found valid path: {path}")
-                    # 检查是否包含任务目录
+                    # Check whether task directory exists
                     task_path = os.path.join(path, args.task_name)
                     tasks_path = os.path.join(path, 'tasks', args.task_name)
                     
@@ -781,50 +782,50 @@ def main():
                         dataset_root = path
                         break
         
-        # 尝试所有路径组合（更彻底的搜索）
+        # Try all path combinations (more thorough search)
         if args.try_all_paths and is_sagemaker:
             logger.info("Try all paths mode enabled - will try multiple dataset_root options")
-            # 创建备份的原始路径
+            # Create backup of original path
             original_dataset_root = dataset_root
             
-            # 定义可能的数据集根目录
+            # Define possible dataset root directories
             dataset_roots_to_try = [
-                dataset_root,  # 原始路径
-                os.path.dirname(dataset_root),  # 上级目录
-                '/opt/ml/input/data',  # SageMaker数据根目录
-                '/opt/ml/input',  # 更上一级
+                dataset_root,  # Original path
+                os.path.dirname(dataset_root),  # Parent directory
+                '/opt/ml/input/data',  # SageMaker data root directory
+                '/opt/ml/input',  # One level up
             ]
             
-            # 将原始S3路径的各种变体添加到尝试列表
+            # Add various variations of original S3 path to try list
             if original_path.startswith('s3://'):
                 s3_parts = original_path.replace('s3://', '').split('/')
                 if len(s3_parts) > 1:
-                    # 尝试几种可能的映射方式
-                    dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[1]))  # bucket下的第一级目录
+                    # Try several possible mapping ways
+                    dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[1]))  # First level directory under bucket
                     if len(s3_parts) > 2:
-                        dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[2]))  # bucket下的第二级目录
-                        dataset_roots_to_try.append(os.path.join(dataset_root, '/'.join(s3_parts[1:3])))  # 前两级目录组合
+                        dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[2]))  # Second level directory under bucket
+                        dataset_roots_to_try.append(os.path.join(dataset_root, '/'.join(s3_parts[1:3])))  # First two levels directory combination
             
-            # 记录所有尝试的路径
+            # Record all tried paths
             for root in dataset_roots_to_try:
                 if os.path.exists(root):
                     logger.info(f"Testing dataset_root: {root}")
                     try:
                         task_found = False
-                        # 检查是否直接包含任务目录
+                        # Check whether task directory directly exists
                         if os.path.exists(os.path.join(root, args.task_name)):
                             logger.info(f"  - Found task directory directly: {os.path.join(root, args.task_name)}")
                             task_found = True
                         
-                        # 检查是否包含tasks/任务目录
+                        # Check whether task directory exists in tasks/ subdirectory
                         if os.path.exists(os.path.join(root, 'tasks', args.task_name)):
                             logger.info(f"  - Found task in tasks/ subdirectory: {os.path.join(root, 'tasks', args.task_name)}")
                             task_found = True
                         
-                        # 尝试列出该目录下的内容
+                        # Try listing contents of that directory
                         if not task_found:
                             logger.info(f"  - Directory contents: {os.listdir(root)}")
-                            # 检查是否有tasks目录
+                            # Check whether tasks directory exists
                             if 'tasks' in os.listdir(root):
                                 logger.info(f"    - tasks/ subdirectory contents: {os.listdir(os.path.join(root, 'tasks'))}")
                     except Exception as e:
@@ -849,20 +850,20 @@ def main():
             
             logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
             
-            # 增加更详细的数据集信息
+            # Add more detailed dataset information
             logger.info(f"Available loaders: {list(data['loaders'].keys())}")
             
-            # 检查数据集大小
+            # Check dataset size
             if 'datasets' in data:
                 for split_name, dataset in data['datasets'].items():
                     logger.info(f"Dataset '{split_name}' size: {len(dataset)}")
             
-            # 检查标签映射
+            # Check label mapping
             if 'label_mapper' in data:
                 label_mapper = data['label_mapper']
                 logger.info(f"Label mapping: {label_mapper.label_to_idx}")
             
-            # 添加数据形状验证
+            # Add data shape validation
             if 'train' in data['loaders']:
                 try:
                     sample_batch = next(iter(data['loaders']['train']))
@@ -870,23 +871,23 @@ def main():
                         x, y = sample_batch[0], sample_batch[1]
                         logger.info(f"Sample batch shapes - X: {x.shape}, y: {y.shape}")
                         
-                        # 根据数据形状自动确定哪些模型可能不兼容
+                        # Automatically determine which models might not be compatible with input data shape
                         incompatible_models = []
                         feature_size_actual = x.shape[3] if len(x.shape) > 3 else None
                         
-                        # LSTM期望[batch, seq_len, feature_size]，实际为[batch, 1, win_len, feature_size]
+                        # LSTM expects [batch, seq_len, feature_size], actual is [batch, 1, win_len, feature_size]
                         if len(x.shape) == 4 and feature_size_actual != args.feature_size:
                             logger.warning(f"LSTM and Transformer might have compatibility issues! "
                                          f"Expected feature_size={args.feature_size}, but got {feature_size_actual}")
-                            if feature_size_actual > 2 * args.feature_size:  # 大幅不匹配
+                            if feature_size_actual > 2 * args.feature_size:  # Significant mismatch
                                 logger.warning("feature_size mismatch is significant, models may fail")
                         
-                        # 告知用户可能存在的问题
+                        # Inform user about possible issues
                         if incompatible_models:
                             logger.warning(f"Models {incompatible_models} might not be compatible with the input data shape.")
                             logger.warning("They will still be run, but might fail during training.")
                         
-                        # 记录其他有用的信息
+                        # Record other useful information
                         logger.info(f"X data type: {x.dtype}, device: {x.device}")
                         logger.info(f"X stats - min: {x.min().item()}, max: {x.max().item()}, mean: {x.mean().item()}")
                         logger.info(f"Y labels: {y.tolist()}")
@@ -903,7 +904,7 @@ def main():
             logger.error(traceback.format_exc())
             sys.exit(1)
         
-        # 记录模型运行结果以便生成摘要
+        # Record model run results for summary generation
         successful_models = []
         failed_models = []
         
@@ -913,7 +914,7 @@ def main():
             try:
                 logger.info(f"\n{'='*40}\nTraining model: {model_name}\n{'='*40}")
                 
-                # 尝试载入模型类来验证兼容性
+                # Try loading model class to verify compatibility
                 try:
                     ModelClass = MODEL_TYPES[model_name.lower()]
                     logger.info(f"Model class {model_name} loaded successfully")
@@ -922,10 +923,10 @@ def main():
                     failed_models.append((model_name, f"Model class error: {str(e)}"))
                     continue
                 
-                # 训练模型
+                # Train model
                 model, metrics = train_model(model_name, data, args, device)
                 
-                # 检查是否成功训练
+                # Check whether training was successful
                 if model is None or (isinstance(metrics, dict) and 'error' in metrics):
                     error_msg = metrics.get('error', 'Unknown error') if isinstance(metrics, dict) else 'Unknown error'
                     logger.error(f"Model {model_name} training failed: {error_msg}")
@@ -940,7 +941,7 @@ def main():
                 logger.error(traceback.format_exc())
                 failed_models.append((model_name, str(e)))
         
-        # 打印训练结果摘要
+        # Print training results summary
         logger.info("\n" + "="*60)
         logger.info("TRAINING SUMMARY")
         logger.info("="*60)
@@ -968,18 +969,18 @@ def main():
             best_model = max(all_results.items(), key=lambda x: x[1].get('test_accuracy', 0.0))
             logger.info(f"\nBest model: {best_model[0]} with test accuracy {best_model[1].get('test_accuracy', 0.0):.4f}")
         
-        # 将最终结果直接上传到S3（如果启用）
+        # Directly upload final results to S3 (if enabled)
         if args.direct_upload and args.save_to_s3 and is_sagemaker:
             logger.info(f"Directly uploading results to S3: {args.save_to_s3}")
             s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
             
-            # 上传整个任务目录
+            # Upload entire task directory
             task_dir = os.path.join(args.output_dir, args.task_name)
             if os.path.exists(task_dir):
                 upload_to_s3(task_dir, s3_task_path)
                 logger.info(f"Results uploaded to {s3_task_path}")
         
-        # 清理SageMaker存储以减少空间使用
+        # Clean up SageMaker storage to reduce space usage
         cleanup_sagemaker_storage()
         
         logger.info("Multi-model training completed successfully!")
