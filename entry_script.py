@@ -12,6 +12,15 @@ import sys
 import importlib.util
 import subprocess
 import gc
+import json
+import time
+import random
+import numpy as np
+import torch
+import torch.nn as nn
+import logging
+import argparse
+from tqdm import tqdm
 
 print("\n==========================================")
 print("Starting custom entry script entry_script.py")
@@ -55,10 +64,14 @@ try:
 except ImportError:
     print("Warning: typing_extensions not found, some features may not be available")
 
-# Manually install peft library, bypassing version dependency checks
+# Manually install peft library and its dependencies
 print("Installing peft library and its dependencies...")
 try:
-    # Install accelerate first
+    # Install transformers first
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers>=4.30.0", "--no-dependencies"])
+    print("transformers library installation successful")
+    
+    # Install accelerate
     subprocess.check_call([sys.executable, "-m", "pip", "install", "accelerate", "--no-dependencies"])
     print("accelerate library installation successful")
     
@@ -334,8 +347,14 @@ try:
 except ImportError:
     print("Installing PEFT and its dependencies...")
     try:
-        # Install accelerate first
+        # Install transformers first
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers>=4.30.0", "--no-dependencies"])
+        print("transformers library installation successful")
+        
+        # Install accelerate
         subprocess.check_call([sys.executable, "-m", "pip", "install", "accelerate", "--no-dependencies"])
+        print("accelerate library installation successful")
+        
         # Then install PEFT
         subprocess.check_call([sys.executable, "-m", "pip", "install", "peft==0.3.0", "--no-dependencies"])
         print("PEFT installation successful")
@@ -385,6 +404,22 @@ except Exception as e:
 
 # Actively perform garbage collection
 gc.collect()
+
+# 确保在导入train_multi_model之前导入所有必要的模块
+# 基本系统模块
+import os
+import sys
+import json
+import time
+import random
+import argparse
+import logging
+# 科学计算和数据处理模块
+import numpy as np
+# 深度学习模块
+import torch
+import torch.nn as nn
+from tqdm import tqdm
 
 # Then import and execute the original script
 import {script_to_run.replace('.py', '')}

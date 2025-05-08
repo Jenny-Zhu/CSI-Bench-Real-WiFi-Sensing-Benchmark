@@ -13,5 +13,5 @@ einops>=0.6.0
 typing_extensions>=4.0.0
 accelerate>=0.18.0
 # peft will be installed in entry_script.py with --no-dependencies parameter
-# Optional dependencies - uncomment if you need to use these features
-# transformers>=4.30.0
+# Optional dependencies - now required for PEFT
+transformers>=4.30.0

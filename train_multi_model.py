@@ -7,6 +7,10 @@ This script can be run in a SageMaker environment to train and evaluate multiple
 on the same task.
 """
 
+# 导入os模块，确保在后续代码中可以使用
+import os
+import sys
+
 # Disable SMDebug and Horovod to avoid PyTorch version conflicts
 try:
     sys.modules['smdebug'] = None
@@ -21,7 +25,6 @@ try:
 except Exception as e:
     print(f"Warning when disabling modules: {e}")
 
-import sys
 import argparse
 import json
 import time
