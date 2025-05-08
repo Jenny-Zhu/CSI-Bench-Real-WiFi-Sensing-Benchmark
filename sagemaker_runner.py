@@ -218,10 +218,10 @@ class SageMakerRunner:
         # Prepare hyperparameters
         hyperparameters = {
             'models': ','.join(models),
-            'task_name': config.get('task'),
+            'task_name': config.get('task_name', config.get('task')),  # Support both task and task_name for backward compatibility
             'win_len': config.get('win_len', 500),
             'feature_size': config.get('feature_size', 232),
-            'batch_size': config.get('batch_size', 16),
+            'batch_size': config.get('batch_size', 32),  # Match default in train_multi_model.py
             'epochs': config.get('epochs', 100),
             'test_splits': config.get('test_splits', 'all'),
             'seed': config.get('seed', 42)

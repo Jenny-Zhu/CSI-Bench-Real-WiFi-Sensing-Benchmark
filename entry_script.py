@@ -114,52 +114,70 @@ from subprocess import check_call
 script_to_run = os.environ.get('SAGEMAKER_PROGRAM', 'train_multi_model.py')
 print(f"Script to execute: {script_to_run}")
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def format_arg(arg):
+    """
+    Format command line argument to standard format.
+    Converts __param to --param and --param-name to --param_name
+    """
+    if arg.startswith('__'):
+        return '--' + arg[2:]
+    elif arg.startswith('--'):
+        return arg.replace('-', '_')
+    return arg
+
+def validate_args(args):
+    """
+    Validate required arguments are present
+    """
+    required_params = ['task_name', 'models', 'win_len', 'feature_size']
+    missing_params = [param for param in required_params if not any(arg.startswith(f'--{param}') for arg in args)]
+    if missing_params:
+        raise ValueError(f"Missing required parameters: {', '.join(missing_params)}")
+
 # Get and optimize command line arguments
 args = sys.argv[1:]
-print(f"Original command line arguments: {args}")
+logger.info(f"Original command line arguments: {args}")
 
-# Fix parameter name format - Convert hyphenated parameters to underscore format
-formatted_args = []
-i = 0
-while i < len(args):
-    arg = args[i]
-    # Fix parameter name format (e.g., --learning-rate becomes --learning_rate)
-    if arg.startswith('--'):
-        fixed_arg = arg.replace('-', '_')
-        if fixed_arg != arg:
-            print(f"Fixing parameter format: {arg} -> {fixed_arg}")
-            formatted_args.append(fixed_arg)
-        else:
-            formatted_args.append(arg)
-    else:
-        formatted_args.append(arg)
-    i += 1
+# Format arguments
+formatted_args = [format_arg(arg) for arg in args]
+logger.info(f"Parameters after format fixing: {formatted_args}")
 
-args = formatted_args
-print(f"Parameters after format fixing: {args}")
+# Validate arguments
+try:
+    validate_args(formatted_args)
+except ValueError as e:
+    logger.error(f"Argument validation failed: {e}")
+    sys.exit(1)
 
 # Continue with other parameter optimizations - Reduce batch_size to lower memory usage
 modified_args = []
 i = 0
-while i < len(args):
-    if args[i] == '--batch_size' and i+1 < len(args):
+while i < len(formatted_args):
+    if formatted_args[i] == '--batch_size' and i+1 < len(formatted_args):
         try:
-            batch_size = int(args[i+1])
+            batch_size = int(formatted_args[i+1])
             if batch_size > 4:
-                print(f"Warning: Detected large batch_size ({batch_size}), automatically reduced to 4 to lower memory usage")
+                logger.warning(f"Detected large batch_size ({batch_size}), automatically reduced to 4 to lower memory usage")
                 modified_args.extend(['--batch_size', '4'])
             else:
-                modified_args.extend([args[i], args[i+1]])
+                modified_args.extend([formatted_args[i], formatted_args[i+1]])
         except ValueError:
-            modified_args.extend([args[i], args[i+1]])
+            modified_args.extend([formatted_args[i], formatted_args[i+1]])
         i += 2
     else:
-        modified_args.append(args[i])
+        modified_args.append(formatted_args[i])
         i += 1
 
-if args != modified_args:
-    print("Note: Command line arguments adjusted to optimize memory usage")
-    args = modified_args
+if formatted_args != modified_args:
+    logger.info("Command line arguments adjusted to optimize memory usage")
+    formatted_args = modified_args
+
+# Update sys.argv with formatted arguments
+sys.argv[1:] = formatted_args
 
 # Print environment information
 print("\n===== Environment Information =====")
@@ -318,6 +336,11 @@ import sys
 import os
 import gc
 import subprocess
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Enable garbage collection
 gc.enable()
@@ -340,53 +363,47 @@ sys.modules['smdebug'] = None
 os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
-# Check if PEFT and accelerate are available, install if needed
-try:
-    import peft
-    print(f"PEFT library available: {{peft.__version__}}")
-except ImportError:
-    print("Installing PEFT and its dependencies...")
-    try:
-        # Install transformers first
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers>=4.30.0", "--no-dependencies"])
-        print("transformers library installation successful")
-        
-        # Install accelerate
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "accelerate", "--no-dependencies"])
-        print("accelerate library installation successful")
-        
-        # Then install PEFT
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "peft==0.3.0", "--no-dependencies"])
-        print("PEFT installation successful")
-    except Exception as e:
-        print(f"Error installing PEFT: {{e}}")
+def format_arg(arg):
+    """
+    Format command line argument to standard format.
+    Converts __param to --param and --param-name to --param_name
+    """
+    if arg.startswith('__'):
+        return '--' + arg[2:]
+    elif arg.startswith('--'):
+        return arg.replace('-', '_')
+    return arg
 
-# Preprocess command line arguments - Fix parameter format (hyphens to underscores)
+def validate_args(args):
+    """
+    Validate required arguments are present
+    """
+    required_params = ['task_name', 'models', 'win_len', 'feature_size']
+    missing_params = [param for param in required_params if not any(arg.startswith(f'--{param}') for arg in args)]
+    if missing_params:
+        raise ValueError(f"Missing required parameters: {', '.join(missing_params)}")
+
+# Preprocess command line arguments
 args = sys.argv[1:]
-print(f"Original command line arguments: {{args}}")
+logger.info(f"Original command line arguments: {args}")
 
-formatted_args = []
-i = 0
-while i < len(args):
-    arg = args[i]
-    # Fix parameter name format (e.g., --learning-rate becomes --learning_rate)
-    if arg.startswith('--'):
-        fixed_arg = arg.replace('-', '_')
-        if fixed_arg != arg:
-            print(f"Fixing parameter format: {{arg}} -> {{fixed_arg}}")
-            formatted_args.append(fixed_arg)
-        else:
-            formatted_args.append(arg)
-    else:
-        formatted_args.append(arg)
-    i += 1
+# Format arguments
+formatted_args = [format_arg(arg) for arg in args]
+logger.info(f"Parameters after format fixing: {formatted_args}")
 
+# Validate arguments
+try:
+    validate_args(formatted_args)
+except ValueError as e:
+    logger.error(f"Argument validation failed: {e}")
+    sys.exit(1)
+
+# Update sys.argv with formatted arguments
 sys.argv[1:] = formatted_args
-print(f"Parameters after format fixing: {{formatted_args}}")
 
 # Environment test mode check
 if os.environ.get('SM_HP_TEST_ENV') == 'True':
-    print("Wrapper script detected environment test mode...")
+    logger.info("Wrapper script detected environment test mode...")
 
 # Import torch and configure memory optimizations
 try:
@@ -396,17 +413,16 @@ try:
         torch.cuda.set_per_process_memory_fraction(0.7)
         torch.cuda.empty_cache()
         
-        # Use deterministic algorithms, may reduce performance but increase stability
+        # Use deterministic algorithms
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 except Exception as e:
-    print(f"Error configuring PyTorch: {{e}}")
+    logger.error(f"Error configuring PyTorch: {e}")
 
 # Actively perform garbage collection
 gc.collect()
 
-# 确保在导入train_multi_model之前导入所有必要的模块
-# 基本系统模块
+# Import necessary modules
 import os
 import sys
 import json
@@ -414,9 +430,7 @@ import time
 import random
 import argparse
 import logging
-# 科学计算和数据处理模块
 import numpy as np
-# 深度学习模块
 import torch
 import torch.nn as nn
 from tqdm import tqdm
