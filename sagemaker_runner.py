@@ -134,25 +134,6 @@ class SageMakerRunner:
         except Exception as e:
             print(f"Warning: Error checking S3 path {self.s3_data_base}: {e}")
     
-    def convert_to_json_serializable(self, obj):
-        """
-        Recursively convert all NumPy types to Python native types for JSON serialization
-        """
-        if isinstance(obj, (np.integer, np.int64)):
-            return int(obj)
-        elif isinstance(obj, (np.floating, np.float32, np.float64)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, pd.DataFrame):
-            return obj.to_dict()
-        elif isinstance(obj, list):
-            return [self.convert_to_json_serializable(item) for item in obj]
-        elif isinstance(obj, dict):
-            return {key: self.convert_to_json_serializable(value) for key, value in obj.items()}
-        else:
-            return obj
-    
     def run_batch_by_task(self, tasks=None, models=None, override_config=None):
         """
         Run batch processing by task, with each task executed on a single instance.
@@ -228,9 +209,6 @@ class SageMakerRunner:
                 print(f"Waiting {wait_time} seconds before submitting next job...")
                 time.sleep(wait_time)
         
-        # Update batch summary file
-        self._update_batch_summary(jobs, batch_timestamp)
-        
         return jobs
     
     def _create_estimator(self, config, base_job_name, models):
@@ -305,50 +283,6 @@ class SageMakerRunner:
         
         return input_data
     
-    def _update_batch_summary(self, jobs, batch_timestamp):
-        """
-        Update batch summary file in S3 with job information
-        """
-        # Convert jobs to JSON serializable format
-        jobs_info = []
-        for job in jobs:
-            job_info = {
-                'job_name': job['job_name'],
-                'task': job['task'],
-                'models': job['models'],
-                'status': job['status']
-            }
-            jobs_info.append(job_info)
-        
-        # Create JSON string
-        json_data = json.dumps({
-            'timestamp': batch_timestamp,
-            'jobs': jobs_info
-        }, indent=2)
-        
-        # Upload to S3
-        try:
-            s3_output_base = self.s3_output_base
-            s3_client = boto3.client('s3')
-            bucket = s3_output_base.split('/')[2]
-            prefix = '/'.join(s3_output_base.split('/')[3:])
-            
-            # Create a path for the summary
-            if not prefix.endswith('/'):
-                prefix += '/'
-            key = f"{prefix}batch_summary_{batch_timestamp}.json"
-            
-            # Upload the file
-            s3_client.put_object(
-                Body=json_data,
-                Bucket=bucket,
-                Key=key
-            )
-            
-            print(f"Batch summary uploaded to s3://{bucket}/{key}")
-        except Exception as e:
-            print(f"Warning: Could not upload batch summary: {e}")
-
     def run_multitask(self, tasks=None, model_type="transformer", override_config=None):
         """
         Run a multitask learning job
