@@ -57,7 +57,7 @@ def validate_config(config, required_fields=None):
     if required_fields is None:
         # Define basic required fields
         required_fields = [
-            "pipeline", "training_dir", "output_dir", "mode", "model", 
+            "pipeline", "training_dir", "output_dir", "model", 
             "task", "win_len", "feature_size", "batch_size", "epochs"
         ]
         
@@ -267,9 +267,7 @@ def get_supervised_config(custom_config=None):
         'patience': custom_config.get('patience', 15),
         
         # Model parameters
-        'mode': custom_config['mode'],
         'num_classes': task_class_mapping.get(custom_config['task'], 2),  # Default to 2 if task not found
-        'freeze_backbone': custom_config.get('freeze_backbone', False),
         
         # Integrated loader options
         'integrated_loader': custom_config.get('integrated_loader', True),
@@ -398,22 +396,13 @@ def run_supervised_direct(config):
     Returns:
         Return code from the process
     """
-    # Get task and model names from config
+    # 获取必要参数
     task_name = config.get('task')
     model_name = config.get('model')
-    experiment_id = config.get('experiment_id', f"params_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    
-    # Get base directories
-    base_output_dir = config.get('output_dir')
     training_dir = config.get('training_dir')
+    base_output_dir = config.get('output_dir')
     
-    # Update save_dir to include task/model/experiment structure
-    model_output_dir = os.path.join(base_output_dir, task_name, model_name, experiment_id)
-    
-    # Ensure model directory exists
-    os.makedirs(model_output_dir, exist_ok=True)
-    
-    # Build command as a string for better control of quoting
+    # 构建基本命令
     cmd = f"{sys.executable} {os.path.join(SCRIPT_DIR, 'train_supervised.py')}"
     cmd += f" --data_dir=\"{training_dir}\""
     cmd += f" --task_name={task_name}"
@@ -424,20 +413,19 @@ def run_supervised_direct(config):
     cmd += f" --feature_size={config.get('feature_size')}"
     cmd += f" --save_dir=\"{base_output_dir}\""
     cmd += f" --output_dir=\"{base_output_dir}\""
-    cmd += f" --experiment_id=\"{experiment_id}\""
     
-    # Add test_splits if present in config
+    # 添加测试集拆分参数（如果存在）
     if 'test_splits' in config:
         cmd += f" --test_splits=\"{config['test_splits']}\""
     
-    # Handle few-shot learning parameters
+    # 处理小样本学习参数
     if config.get('enable_few_shot', False) or config.get('evaluate_fewshot', False) or config.get('fewshot_eval_shots', False):
         cmd += " --enable_few_shot"
         cmd += f" --k_shot={config.get('k_shot', 5)}"
         cmd += f" --inner_lr={config.get('inner_lr', 0.01)}"
         cmd += f" --num_inner_steps={config.get('num_inner_steps', 10)}"
         
-        # Add support and query splits if present
+        # 添加支持集和查询集拆分（如果存在）
         if 'fewshot_support_split' in config:
             cmd += f" --fewshot_support_split={config['fewshot_support_split']}"
         if 'fewshot_query_split' in config:
@@ -445,19 +433,19 @@ def run_supervised_direct(config):
         if config.get('fewshot_finetune_all', False):
             cmd += " --fewshot_finetune_all"
     
-    # Add other model-specific parameters
-    for param in ['learning_rate', 'weight_decay', 'warmup_epochs', 'patience', 
-                  'emb_dim', 'dropout', 'd_model', 'freeze_backbone', 'mode']:
+    # 添加其他模型特定参数
+    important_params = ['learning_rate', 'weight_decay', 'warmup_epochs', 'patience', 
+                        'emb_dim', 'dropout', 'd_model']
+    for param in important_params:
         if param in config:
-            param_name = param.replace('_', '-')
-            cmd += f" --{param_name}={config[param]}"
+            cmd += f" --{param}={config[param]}"
     
-    # Add model_params parameters
+    # 添加model_params中的参数
     if 'model_params' in config:
         for key, value in config['model_params'].items():
             cmd += f" --{key}={value}"
     
-    # Run the command
+    # 运行命令
     print(f"运行监督学习: {cmd}")
     return_code = subprocess.call(cmd, shell=True)
     
@@ -470,32 +458,29 @@ def run_supervised_direct(config):
 
 def run_multitask_direct(config):
     """
-    Run multitask learning pipeline.
+    运行多任务学习流水线。
     
     Args:
-        config: Configuration dictionary
+        config: 配置字典
         
     Returns:
-        Return code (0 for success, non-zero for failure)
+        返回码（0表示成功，非零表示失败）
     """
     print("运行多任务学习，配置如下:")
     for key, value in config.items():
         print(f"  {key}: {value}")
     
-    # Get the tasks parameter correctly
+    # 获取任务参数
     tasks = config.get('tasks')
     if not tasks:
         print("错误: 'tasks'参数缺失或为空。请至少指定一个任务。")
         return 1
     
-    # Ensure tasks is properly formatted - should be a comma-separated string without spaces
+    # 确保tasks格式正确 - 应该是逗号分隔的字符串，没有空格
     if isinstance(tasks, list):
         tasks = ','.join(tasks)
     
-    # 获取experiment_id
-    experiment_id = config.get('experiment_id', f"params_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    
-    # Build command directly as a string for better control of quotes and escaping
+    # 构建命令
     cmd = f"{sys.executable} {os.path.join(SCRIPT_DIR, 'train_multitask_adapter.py')}"
     cmd += f" --tasks=\"{tasks}\""
     cmd += f" --model={config.get('model')}"
@@ -504,31 +489,30 @@ def run_multitask_direct(config):
     cmd += f" --batch_size={config.get('batch_size')}"
     cmd += f" --win_len={config.get('win_len')}"
     cmd += f" --feature_size={config.get('feature_size')}"
-    cmd += f" --experiment_id=\"{experiment_id}\""
     
-    # Add few-shot flag if specified
+    # 添加小样本学习标志（如果指定）
     if config.get('enable_few_shot', False) or config.get('evaluate_fewshot', False):
         cmd += " --enable_few_shot"
         cmd += f" --k_shot={config.get('k_shot', 5)}"
         cmd += f" --inner_lr={config.get('inner_lr', 0.01)}"
         cmd += f" --num_inner_steps={config.get('num_inner_steps', 10)}"
     
-    # Handle optional parameters from model_params if present
+    # 处理来自model_params的可选参数
     if 'model_params' in config:
         model_params = config['model_params']
         for key, value in model_params.items():
             cmd += f" --{key}={value}"
     else:
-        # Handle individual params if model_params not present
+        # 如果model_params不存在，处理个别参数
         for param in ['lr', 'emb_dim', 'dropout', 'patience']:
             if param in config:
                 cmd += f" --{param}={config[param]}"
     
-    # Add test_splits if present
+    # 添加test_splits（如果存在）
     if 'test_splits' in config:
         cmd += f" --test_splits=\"{config['test_splits']}\""
     
-    # Run the command
+    # 运行命令
     print(f"运行命令: {cmd}")
     return subprocess.call(cmd, shell=True)
 
@@ -543,36 +527,30 @@ def save_config(config, pipeline='supervised'):
     Returns:
         保存的配置文件路径
     """
-    # 注意：配置文件现在保存在results目录而不是configs目录
-    # 监督学习和多任务学习都使用相同的目录结构：results/TASK/MODEL/EXPERIMENT_ID/
     # 获取基本参数
     base_output_dir = config.get('output_dir', './results')
     model = config.get('model')
     
-    # 使用传入的experiment_id或生成一个新的
-    experiment_id = config.get('experiment_id')
-    if not experiment_id:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        experiment_id = f"params_{timestamp}"
-        # 将新生成的experiment_id添加到配置中
-        config['experiment_id'] = experiment_id
+    # 为配置文件生成一个时间戳，不用于模型训练
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    config_id = f"config_{timestamp}"
     
     # 获取task名称
     task_name = config.get('task', 'default_task').lower()
     
-    # 创建目录结构 - 无论是监督学习还是多任务学习都使用相同结构
+    # 创建目录结构：results/TASK/MODEL/CONFIG_ID/
     task_dir = os.path.join(base_output_dir, task_name)
     model_dir = os.path.join(task_dir, model)
-    experiment_dir = os.path.join(model_dir, experiment_id)
+    config_dir = os.path.join(model_dir, config_id)
     
     # 确保目录存在
-    os.makedirs(experiment_dir, exist_ok=True)
+    os.makedirs(config_dir, exist_ok=True)
     
     # 生成配置文件名
     if pipeline == 'multitask':
-        config_filename = os.path.join(experiment_dir, f"multitask_config.json")
+        config_filename = os.path.join(config_dir, f"multitask_config.json")
     else:
-        config_filename = os.path.join(experiment_dir, f"supervised_config.json")
+        config_filename = os.path.join(config_dir, f"supervised_config.json")
     
     # 保存配置
     with open(config_filename, 'w') as f:
@@ -582,47 +560,40 @@ def save_config(config, pipeline='supervised'):
     return config_filename
 
 def main():
-    """Main entry point for the WiFi sensing pipeline runner"""
-    # Parse command line arguments - only accept config_file
-    parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline')
+    """主入口点函数"""
+    # 解析命令行参数 - 仅接受config_file
+    parser = argparse.ArgumentParser(description='运行WiFi传感流水线')
     
-    # Configuration file is the only required parameter
+    # 配置文件是唯一必需的参数
     parser.add_argument('--config_file', type=str, default=DEFAULT_CONFIG_PATH,
-                        help='JSON configuration file to use for all settings')
+                        help='用于所有设置的JSON配置文件')
     
     args = parser.parse_args()
     
-    # Load configuration from file
+    # 从文件加载配置
     config = load_config(args.config_file)
     
-    # Extract pipeline from the configuration
+    # 从配置中提取流水线类型
     pipeline = config.get('pipeline')
     
-    # Ensure pipeline value is valid
+    # 确保流水线值有效
     available_pipelines = config.get('available_pipelines', ['supervised', 'multitask'])
     if pipeline not in available_pipelines:
-        print(f"Error: Invalid pipeline value: '{pipeline}'")
-        print(f"Available options: {available_pipelines}")
+        print(f"错误: 无效的流水线值: '{pipeline}'")
+        print(f"可用选项: {available_pipelines}")
         return 1
     
-    # Set data directory environment variable
+    # 设置数据目录环境变量
     if 'training_dir' in config:
         os.environ['WIFI_DATA_DIR'] = config['training_dir']
     
-    # Generate a unique experiment ID
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    experiment_id = f"params_{timestamp}"
-    
-    # Get pipeline-specific configuration
+    # 获取特定流水线配置
     if pipeline == 'multitask':
         config = get_multitask_config(config)
-    else:  # Default to supervised
+    else:  # 默认为监督学习
         config = get_supervised_config(config)
     
-    # 添加experiment_id到配置中
-    config['experiment_id'] = experiment_id
-    
-    # Save configuration for future reference
+    # 保存配置以供将来参考
     config_file = save_config(config, pipeline)
     
     # Run appropriate pipeline

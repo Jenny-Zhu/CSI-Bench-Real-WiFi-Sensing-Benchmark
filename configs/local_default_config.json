@@ -1,7 +1,6 @@
 {
   "pipeline": "supervised",
-  "training_dir": "wifi_benchmark_dataset",
-  "test_dirs": [],
+  "training_dir": "F:\\BenchmarkDataset",
   "output_dir": "./results",
   "mode": "csi",
   "model": "transformer",
