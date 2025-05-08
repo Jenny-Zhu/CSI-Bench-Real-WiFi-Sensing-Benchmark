@@ -56,9 +56,13 @@ except ImportError:
     print("Warning: typing_extensions not found, some features may not be available")
 
 # Manually install peft library, bypassing version dependency checks
-print("Installing peft library (bypassing dependency checks)...")
+print("Installing peft library and its dependencies...")
 try:
-    # Install specific version of peft with --no-dependencies parameter
+    # Install accelerate first
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "accelerate", "--no-dependencies"])
+    print("accelerate library installation successful")
+    
+    # Then install specific version of peft with --no-dependencies parameter
     subprocess.check_call([sys.executable, "-m", "pip", "install", "peft==0.3.0", "--no-dependencies"])
     print("peft library installation successful")
 except Exception as e:
@@ -300,6 +304,7 @@ wrapper_content = f"""#!/usr/bin/env python3
 import sys
 import os
 import gc
+import subprocess
 
 # Enable garbage collection
 gc.enable()
@@ -321,6 +326,21 @@ sys.modules['horovod.torch.elastic'] = None
 sys.modules['smdebug'] = None
 os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+
+# Check if PEFT and accelerate are available, install if needed
+try:
+    import peft
+    print(f"PEFT library available: {{peft.__version__}}")
+except ImportError:
+    print("Installing PEFT and its dependencies...")
+    try:
+        # Install accelerate first
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "accelerate", "--no-dependencies"])
+        # Then install PEFT
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "peft==0.3.0", "--no-dependencies"])
+        print("PEFT installation successful")
+    except Exception as e:
+        print(f"Error installing PEFT: {{e}}")
 
 # Preprocess command line arguments - Fix parameter format (hyphens to underscores)
 args = sys.argv[1:]
@@ -360,8 +380,8 @@ try:
         # Use deterministic algorithms, may reduce performance but increase stability
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-except Exception as error:
-    print(f"Error configuring PyTorch: {{error}}")
+except Exception as e:
+    print(f"Error configuring PyTorch: {{e}}")
 
 # Actively perform garbage collection
 gc.collect()
