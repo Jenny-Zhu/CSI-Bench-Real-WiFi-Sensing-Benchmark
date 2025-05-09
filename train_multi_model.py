@@ -296,17 +296,11 @@ def get_args():
     parser.add_argument('--skip_train_for_debug', action='store_true', default=False,
                      help='Only for debugging, skip actual training process')
     
-    # 添加对use_direct_task_path的支持
-    parser.add_argument('--use_direct_task_path', action='store_true', default=True,
-                        help='直接使用任务名作为路径，不使用tasks子目录')
-    parser.add_argument('--use-direct-task-path', action='store_true', dest='use_direct_task_path', default=True,
-                        help='直接使用任务名作为路径，不使用tasks子目录（短横线格式）')
-    
     # 添加use_root_data_path参数，直接使用整个/opt/ml/input/data/training目录作为有效数据
     parser.add_argument('--use_root_data_path', action='store_true', default=True,
-                        help='直接使用根目录作为任务数据目录，忽略任务名称')
+                        help='直接使用整个数据根目录作为任务目录')
     parser.add_argument('--use-root-data-path', action='store_true', dest='use_root_data_path', default=True,
-                        help='直接使用根目录作为任务数据目录，忽略任务名称（短横线格式）')
+                        help='直接使用整个数据根目录作为任务目录（短横线格式）')
     
     # Add S3 related parameters
     parser.add_argument('--save_to_s3', type=str, default=None,
@@ -711,449 +705,153 @@ def train_model(model_name, data, args, device):
 
 def main():
     """
-    Main function to run multi-model training
+    简化的主函数 - 假设在SageMaker环境中运行，数据在根目录
     
-    Data loading process:
-    1. Check if running in SageMaker environment by looking for SM_MODEL_DIR
-    2. If in SageMaker, set dataset_root to /opt/ml/input/data/training
-    3. Look for task directory in either:
-       - /opt/ml/input/data/training/TaskName     (direct path)
-       - /opt/ml/input/data/training/tasks/TaskName (standard path)
-    4. If task directory not found, display detailed diagnostics
-    5. Load data from the found task directory
-    6. Train models as specified in the configuration
+    数据加载流程:
+    1. 使用/opt/ml/input/data/training作为数据根目录
+    2. 直接使用根目录作为任务目录，不进行额外的路径检查
+    3. 加载数据并训练指定的模型
     
-    Returns:
-        None, but writes model files to specified output directory
+    返回:
+        None，但会将模型文件写入指定的输出目录
     """
     try:
-        # Record environment variables for debugging in SageMaker environment
-        if is_sagemaker:
-            logger.info("Running in SageMaker environment")
-            logger.info("Environment variables:")
-            # Record key environment variables
-            for key in sorted([k for k in os.environ.keys() if k.startswith(('SM_', 'SAGEMAKER_'))]):
-                logger.info(f"  {key}: {os.environ.get(key)}")
-            
-            # Try parsing hyperparameters from environment variables
-            if os.environ.get('SM_HPS') is not None:
-                try:
-                    import json
-                    hps = json.loads(os.environ.get('SM_HPS', '{}'))
-                    logger.info(f"Hyperparameters from environment: {hps}")
-                except Exception as e:
-                    logger.warning(f"Failed to parse SM_HPS: {e}")
-        
-        # 初始化task_dir为None
-        task_dir = None
-        
-        # Get parameters
+        # 记录环境变量，用于调试
+        logger.info("在SageMaker环境中运行")
+        logger.info("环境变量:")
+        for key in sorted([k for k in os.environ.keys() if k.startswith(('SM_', 'SAGEMAKER_'))]):
+            logger.info(f"  {key}: {os.environ.get(key)}")
+
+        # 获取参数
         args = get_args()
         
-        # Print parsed parameters
-        logger.info("Parsed arguments:")
+        # 打印解析参数
+        logger.info("解析的参数:")
         for arg_name, arg_value in sorted(vars(args).items()):
             logger.info(f"  {arg_name}: {arg_value}")
         
-        # Set device
+        # 设置设备
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"Using device: {device}")
+        logger.info(f"使用设备: {device}")
         
-        # Set random seed
+        # 设置随机种子
         set_seed(args.seed)
-        logger.info(f"Random seed set to {args.seed}")
+        logger.info(f"随机种子设置为 {args.seed}")
         
-        # Log starting info
-        logger.info(f"Starting multi-model training for task: {args.task_name}")
-        logger.info(f"Models to train: {args.all_models}")
+        # 日志记录起始信息
+        logger.info(f"开始多模型训练，任务: {args.task_name}")
+        logger.info(f"待训练模型: {args.all_models}")
         
-        # Load data once for all models
-        logger.info(f"Loading data from {args.dataset_root}")
+        # 直接使用 /opt/ml/input/data/training 作为数据根目录
+        dataset_root = '/opt/ml/input/data/training'
+        logger.info(f"使用数据根目录: {dataset_root}")
         
-        # Special handling for S3 paths in SageMaker environment
-        if is_sagemaker:
-            # In SageMaker, use /opt/ml/input/data/training as the dataset root
-            original_path = args.dataset_root
-            dataset_root = '/opt/ml/input/data/training'
-            logger.info(f"SageMaker environment detected. Using local path: {dataset_root}")
-            logger.info(f"Original S3 path: {original_path}")
-            
-            # 简化的路径查找逻辑
-            logger.info("检查任务目录路径")
-            
-            # 如果启用了use_root_data_path，直接使用整个training目录作为任务目录
-            if args.use_root_data_path:
-                logger.info("使用根目录作为任务数据目录模式")
-                # 检查直接使用根目录是否可行（是否存在metadata和splits目录）
-                if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
-                   os.path.exists(os.path.join(dataset_root, 'splits')):
-                    logger.info(f"根目录包含必要的任务数据结构，将直接使用根目录: {dataset_root}")
-                    
-                    # 创建任务根目录
-                    task_root_dir = os.path.join(dataset_root, 'tasks')
-                    os.makedirs(task_root_dir, exist_ok=True)
-                    
-                    # 创建从根目录到任务目录的符号链接
-                    task_dir = os.path.join(task_root_dir, args.task_name)
-                    
-                    # 检查任务目录是否已存在，如果不存在则创建符号链接
-                    if not os.path.exists(task_dir):
-                        try:
-                            # 在Windows上使用junction，在Unix上使用symlink
-                            if os.name == 'nt':
-                                import subprocess
-                                subprocess.run(['mklink', '/J', task_dir, dataset_root], shell=True)
-            else:
-                                # 在Linux/Unix上创建符号链接
-                                # 注意：实际创建符号链接的是到上一级目录的相对路径，这样更通用
-                                rel_path = os.path.relpath(dataset_root, os.path.dirname(task_dir))
-                                os.symlink(rel_path, task_dir)
-                            logger.info(f"创建了从 {task_dir} 到 {dataset_root} 的符号链接")
-                        except Exception as e:
-                            logger.warning(f"创建符号链接失败: {e}")
-                            logger.warning("将尝试直接使用根目录")
-                            
-                    # 检查符号链接是否创建成功
-                    if os.path.exists(task_dir):
-                        logger.info(f"将使用创建的任务目录: {task_dir}")
-        else:
-                        # 如果符号链接失败，使用原始目录作为有效根目录
-                        logger.warning("符号链接创建失败，改为使用直接路径方式")
-                        args.use_root_data_path = False
-                        args.use_direct_task_path = True
-            
-            # 如果启用了直接任务路径，或者根目录模式失败
-            if not args.use_root_data_path and args.use_direct_task_path:
-                logger.info("使用直接任务路径模式")
-                direct_task_path = os.path.join(dataset_root, args.task_name)
-                if os.path.exists(direct_task_path):
-                    logger.info(f"找到直接任务目录路径: {direct_task_path}")
-                    task_dir = direct_task_path
-                else:
-                    logger.error(f"在直接路径中未找到任务目录: {direct_task_path}")
-                    # 尝试回退到使用根目录
-                    if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
-                       os.path.exists(os.path.join(dataset_root, 'splits')):
-                        task_dir = dataset_root
-                        logger.info(f"回退到使用根数据目录作为任务目录: {task_dir}")
-                    else:
-                        logger.error("未找到有效的任务目录")
-            
-            # 如果既不使用根目录，也不使用直接路径，则使用标准任务路径
-            if not args.use_root_data_path and not args.use_direct_task_path:
-                logger.info("使用标准任务路径模式")
-                    tasks_dir = os.path.join(dataset_root, 'tasks')
-                    if os.path.exists(tasks_dir):
-                        tasks_task_path = os.path.join(tasks_dir, args.task_name)
-                        if os.path.exists(tasks_task_path):
-                        logger.info(f"找到标准任务目录路径: {tasks_task_path}")
-                            task_dir = tasks_task_path
-                        else:
-                        logger.warning(f"在标准路径中未找到任务目录: {tasks_task_path}")
-                        # 尝试回退到直接路径
-                        direct_task_path = os.path.join(dataset_root, args.task_name)
-                        if os.path.exists(direct_task_path):
-                            logger.info(f"找到直接任务目录路径: {direct_task_path}")
-                            task_dir = direct_task_path
-                    else:
-                            logger.error(f"在直接路径中也未找到任务目录: {direct_task_path}")
-                            # 尝试回退到使用根目录
-                            if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
-                               os.path.exists(os.path.join(dataset_root, 'splits')):
-                                task_dir = dataset_root
-                                logger.info(f"回退到使用根数据目录作为任务目录: {task_dir}")
-            else:
-                                logger.error("未找到有效的任务目录")
-                else:
-                    logger.warning(f"标准tasks目录不存在: {tasks_dir}")
-                    # 尝试回退到直接路径
-                    direct_task_path = os.path.join(dataset_root, args.task_name)
-                    if os.path.exists(direct_task_path):
-                        logger.info(f"找到直接任务目录路径: {direct_task_path}")
-                        task_dir = direct_task_path
-                    else:
-                        logger.error(f"在直接路径中也未找到任务目录: {direct_task_path}")
-                        # 尝试回退到使用根目录
-                        if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
-                           os.path.exists(os.path.join(dataset_root, 'splits')):
-                            task_dir = dataset_root
-                            logger.info(f"回退到使用根数据目录作为任务目录: {task_dir}")
-                        else:
-                            logger.error("未找到有效的任务目录")
-            
-            # 如果找不到任务目录，显示诊断信息
-            if task_dir is None:
-                logger.error(f"无法找到任务目录: {args.task_name}")
-                logger.error("==== 数据目录结构诊断 ====")
-                
-                # 显示数据根目录内容
-                if os.path.exists(dataset_root):
-                    try:
-                        root_items = os.listdir(dataset_root)
-                        logger.error(f"数据根目录({dataset_root})包含 {len(root_items)} 个项目:")
-                        for item in root_items:
-                            item_path = os.path.join(dataset_root, item)
-                            if os.path.isdir(item_path):
-                                subdir_items = os.listdir(item_path)
-                                logger.error(f"  目录: {item}/ ({len(subdir_items)} 个子项)")
-                                # 如果是tasks目录，进一步列出所有任务
-                                if item == 'tasks':
-                                    for task_item in subdir_items:
-                                        logger.error(f"    - {task_item}")
-                            else:
-                                logger.error(f"  文件: {item}")
-                    except Exception as e:
-                        logger.error(f"无法列出目录内容: {e}")
-                
-                # 输出标准路径应该是什么样子
-                logger.error("\n==== 解决方案 ====")
-                logger.error("1. 从日志中检查数据根目录结构")
-                logger.error("2. 确保上传的数据包含metadata和splits目录")
-                logger.error("3. 添加--use_root_data_path=True参数直接使用根目录数据")
-                
-                # 尝试创建一个空的任务目录结构
-                try:
-                    logger.info("\n==== 尝试创建任务目录结构 ====")
-                    task_dir = os.path.join(dataset_root, 'tasks', args.task_name)
-                    os.makedirs(os.path.join(task_dir, 'metadata'), exist_ok=True)
-                    os.makedirs(os.path.join(task_dir, 'splits'), exist_ok=True)
-                    
-                    # 创建从根目录到任务目录的链接
-                    for subdir in ['metadata', 'splits']:
-                        src = os.path.join(dataset_root, subdir)
-                        dst = os.path.join(task_dir, subdir)
-                        if os.path.exists(src) and not os.path.exists(dst):
-                            try:
-                                if os.name == 'nt':
-                                    import subprocess
-                                    subprocess.run(['mklink', '/J', dst, src], shell=True)
-                                else:
-                                    # 在Linux/Unix上创建符号链接
-                                    rel_path = os.path.relpath(src, os.path.dirname(dst))
-                                    os.symlink(rel_path, dst)
-                                logger.info(f"创建了从 {dst} 到 {src} 的符号链接")
-                            except Exception as e:
-                                logger.warning(f"创建符号链接失败: {e}")
-                    
-                    for subdir in os.listdir(dataset_root):
-                        if subdir.startswith('sub_'):
-                            src = os.path.join(dataset_root, subdir)
-                            dst = os.path.join(task_dir, subdir)
-                            if os.path.exists(src) and not os.path.exists(dst):
-                                try:
-                                    if os.name == 'nt':
-                                        import subprocess
-                                        subprocess.run(['mklink', '/J', dst, src], shell=True)
-                                    else:
-                                        # 在Linux/Unix上创建符号链接
-                                        rel_path = os.path.relpath(src, os.path.dirname(dst))
-                                        os.symlink(rel_path, dst)
-                                    logger.info(f"创建了从 {dst} 到 {src} 的符号链接")
-                                except Exception as e:
-                                    logger.warning(f"创建符号链接失败: {e}")
-                    
-                    logger.info(f"创建了任务目录结构: {task_dir}")
-                except Exception as e:
-                    logger.error(f"创建任务目录结构失败: {e}")
-                    
-        try:
-            # 使用找到的task_dir
-            effective_dataset_root = dataset_root
-            if task_dir is not None:
-                # 如果任务目录是标准路径，使用其父目录作为有效数据根目录
-                if 'tasks' in task_dir and task_dir.endswith(args.task_name):
-                    tasks_dir = os.path.dirname(task_dir)
-                    effective_dataset_root = os.path.dirname(tasks_dir)
-                    logger.info(f"使用标准任务结构，有效数据根目录: {effective_dataset_root}")
-                elif task_dir == dataset_root:
-                    # 如果任务目录就是根目录，使用特殊处理
-                    logger.info(f"使用根数据目录作为任务目录，需特殊处理")
-                    
-                    # 创建任务目录结构
-                    tasks_dir = os.path.join(dataset_root, 'tasks')
-                    task_link_dir = os.path.join(tasks_dir, args.task_name)
-                    
-                    # 如果任务链接目录不存在，创建它
-                    if not os.path.exists(task_link_dir):
-                        try:
-                            # 确保tasks目录存在
-                            os.makedirs(tasks_dir, exist_ok=True)
-                            
-                            if os.name == 'nt':  # Windows
-                                import subprocess
-                                subprocess.run(['mklink', '/J', task_link_dir, dataset_root], shell=True)
-                            else:  # Linux/Unix
-                                # 使用相对路径创建符号链接
-                                rel_path = os.path.relpath(dataset_root, os.path.dirname(task_link_dir))
-                                os.symlink(rel_path, task_link_dir)
-                            
-                            logger.info(f"创建了从 {task_link_dir} 到 {dataset_root} 的符号链接")
-                            
-                            # 设置任务目录为新创建的链接目录
-                            task_dir = task_link_dir
-                    except Exception as e:
-                            logger.warning(f"创建任务链接目录失败: {e}")
-                            # 如果链接创建失败，尝试使用直接数据加载方式
-                            logger.warning("将使用直接数据加载方式")
-                else:
-                        logger.info(f"使用已存在的任务链接目录: {task_link_dir}")
-                        task_dir = task_link_dir
-            
-            logger.info(f"加载数据集，数据集根目录: {effective_dataset_root}，任务名称: {args.task_name}，任务目录: {task_dir}")
-            
-            data = load_benchmark_supervised(
-                dataset_root=effective_dataset_root,
-                task_name=args.task_name,
-                batch_size=args.batch_size,
-                data_key=args.data_key,
-                file_format=args.file_format,
-                num_workers=args.num_workers,
-                use_root_as_task_dir=args.use_root_data_path  # 传递使用根目录作为任务目录的参数
-            )
-            
-            # Check if data loaded successfully
-            if not data or 'loaders' not in data:
-                logger.error(f"Failed to load data for task {args.task_name}")
-                sys.exit(1)
-            
-            logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
-            
-            # Add more detailed dataset information
-            logger.info(f"Available loaders: {list(data['loaders'].keys())}")
-            
-            # Check dataset size
-            if 'datasets' in data:
-                for split_name, dataset in data['datasets'].items():
-                    logger.info(f"Dataset '{split_name}' size: {len(dataset)}")
-            
-            # Check label mapping
-            if 'label_mapper' in data:
-                label_mapper = data['label_mapper']
-                logger.info(f"Label mapping: {label_mapper.label_to_idx}")
-            
-            # Add data shape validation
-            if 'train' in data['loaders']:
-                try:
-                    sample_batch = next(iter(data['loaders']['train']))
-                    if isinstance(sample_batch, (list, tuple)) and len(sample_batch) >= 2:
-                        x, y = sample_batch[0], sample_batch[1]
-                        logger.info(f"Sample batch shapes - X: {x.shape}, y: {y.shape}")
-                        
-                        # Automatically determine which models might not be compatible with input data shape
-                        incompatible_models = []
-                        feature_size_actual = x.shape[3] if len(x.shape) > 3 else None
-                        
-                        # LSTM expects [batch, seq_len, feature_size], actual is [batch, 1, win_len, feature_size]
-                        if len(x.shape) == 4 and feature_size_actual != args.feature_size:
-                            logger.warning(f"LSTM and Transformer might have compatibility issues! "
-                                         f"Expected feature_size={args.feature_size}, but got {feature_size_actual}")
-                            if feature_size_actual > 2 * args.feature_size:  # Significant mismatch
-                                logger.warning("feature_size mismatch is significant, models may fail")
-                        
-                        # Inform user about possible issues
-                        if incompatible_models:
-                            logger.warning(f"Models {incompatible_models} might not be compatible with the input data shape.")
-                            logger.warning("They will still be run, but might fail during training.")
-                        
-                        # Record other useful information
-                        logger.info(f"X data type: {x.dtype}, device: {x.device}")
-                        logger.info(f"X stats - min: {x.min().item()}, max: {x.max().item()}, mean: {x.mean().item()}")
-                        logger.info(f"Y labels: {y.tolist()}")
-                    else:
-                        logger.info(f"Sample batch type: {type(sample_batch)}")
-                        logger.info(f"Sample batch content: {sample_batch}")
-                except Exception as e:
-                    logger.warning(f"Could not get sample batch info: {e}")
-                    import traceback
-                    logger.warning(traceback.format_exc())
-        except Exception as e:
-            logger.error(f"Error loading data: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+        # 强制使用根目录作为任务目录
+        args.use_root_data_path = True
+        
+        # 加载数据
+        logger.info(f"从 {dataset_root} 加载数据，任务名称: {args.task_name}")
+        data = load_benchmark_supervised(
+            dataset_root=dataset_root,
+            task_name=args.task_name,
+            batch_size=args.batch_size,
+            data_key=args.data_key,
+            file_format=args.file_format,
+            num_workers=args.num_workers,
+            use_root_as_task_dir=True  # 始终使用根目录作为任务目录
+        )
+        
+        # 检查数据加载是否成功
+        if not data or 'loaders' not in data:
+            logger.error(f"加载任务 {args.task_name} 的数据失败")
             sys.exit(1)
         
-        # Record model run results for summary generation
+        logger.info(f"数据加载成功。类别数量: {data['num_classes']}")
+        logger.info(f"可用数据加载器: {list(data['loaders'].keys())}")
+        
+        # 记录模型运行结果
         successful_models = []
         failed_models = []
         
-        # Train each model
+        # 训练每个模型
         all_results = {}
         for model_name in args.all_models:
             try:
-                logger.info(f"\n{'='*40}\nTraining model: {model_name}\n{'='*40}")
+                logger.info(f"\n{'='*40}\n训练模型: {model_name}\n{'='*40}")
                 
-                # Try loading model class to verify compatibility
+                # 尝试加载模型类来验证兼容性
                 try:
                     ModelClass = MODEL_TYPES[model_name.lower()]
-                    logger.info(f"Model class {model_name} loaded successfully")
+                    logger.info(f"模型类 {model_name} 加载成功")
                 except Exception as e:
-                    logger.error(f"Error loading model class for {model_name}: {e}")
-                    failed_models.append((model_name, f"Model class error: {str(e)}"))
+                    logger.error(f"加载模型类 {model_name} 时出错: {e}")
+                    failed_models.append((model_name, f"模型类错误: {str(e)}"))
                     continue
                 
-                # Train model
+                # 训练模型
                 model, metrics = train_model(model_name, data, args, device)
                 
-                # Check whether training was successful
+                # 检查训练是否成功
                 if model is None or (isinstance(metrics, dict) and 'error' in metrics):
-                    error_msg = metrics.get('error', 'Unknown error') if isinstance(metrics, dict) else 'Unknown error'
-                    logger.error(f"Model {model_name} training failed: {error_msg}")
+                    error_msg = metrics.get('error', '未知错误') if isinstance(metrics, dict) else '未知错误'
+                    logger.error(f"模型 {model_name} 训练失败: {error_msg}")
                     failed_models.append((model_name, error_msg))
                 else:
                     all_results[model_name] = metrics
                     successful_models.append(model_name)
-                    logger.info(f"Completed training for {model_name}")
+                    logger.info(f"完成 {model_name} 的训练")
             except Exception as e:
-                logger.error(f"Error training {model_name}: {e}")
+                logger.error(f"训练 {model_name} 时出错: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
                 failed_models.append((model_name, str(e)))
         
-        # Print training results summary
+        # 打印训练结果摘要
         logger.info("\n" + "="*60)
-        logger.info("TRAINING SUMMARY")
+        logger.info("训练摘要")
         logger.info("="*60)
-        logger.info(f"Task: {args.task_name}")
-        logger.info(f"Successfully trained models ({len(successful_models)}): {', '.join(successful_models)}")
-        logger.info(f"Failed models ({len(failed_models)}): {', '.join([m[0] for m in failed_models])}")
+        logger.info(f"任务: {args.task_name}")
+        logger.info(f"成功训练的模型 ({len(successful_models)}): {', '.join(successful_models)}")
+        logger.info(f"失败的模型 ({len(failed_models)}): {', '.join([m[0] for m in failed_models])}")
         
         if failed_models:
-            logger.info("\nFailure details:")
+            logger.info("\n失败详情:")
             for model_name, error in failed_models:
                 logger.info(f"  - {model_name}: {error}")
         
-        # Save overall results summary
+        # 保存整体结果摘要
         results_path = os.path.join(args.output_dir, args.task_name, "multi_model_results.json")
+        os.makedirs(os.path.dirname(results_path), exist_ok=True)
         with open(results_path, 'w') as f:
             json.dump(all_results, f, indent=4)
         
-        logger.info(f"All training completed. Results saved to {results_path}")
-        logger.info("Summary of results:")
+        logger.info(f"所有训练完成。结果保存到 {results_path}")
+        logger.info("结果摘要:")
         for model_name, metrics in all_results.items():
-            logger.info(f"  - {model_name}: Test Accuracy = {metrics.get('test_accuracy', 0.0):.4f}")
+            logger.info(f"  - {model_name}: 测试准确率 = {metrics.get('test_accuracy', 0.0):.4f}")
         
-        # Identify the best model
+        # 识别最佳模型
         if all_results:
             best_model = max(all_results.items(), key=lambda x: x[1].get('test_accuracy', 0.0))
-            logger.info(f"\nBest model: {best_model[0]} with test accuracy {best_model[1].get('test_accuracy', 0.0):.4f}")
+            logger.info(f"\n最佳模型: {best_model[0]}, 测试准确率 {best_model[1].get('test_accuracy', 0.0):.4f}")
         
-        # Directly upload final results to S3 (if enabled)
-        if args.direct_upload and args.save_to_s3 and is_sagemaker:
-            logger.info(f"Directly uploading results to S3: {args.save_to_s3}")
+        # 直接上传最终结果到S3（如果启用）
+        if args.direct_upload and args.save_to_s3:
+            logger.info(f"直接上传结果到S3: {args.save_to_s3}")
             s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
             
-            # Upload entire task directory
+            # 上传整个任务目录
             task_dir = os.path.join(args.output_dir, args.task_name)
             if os.path.exists(task_dir):
                 upload_to_s3(task_dir, s3_task_path)
-                logger.info(f"Results uploaded to {s3_task_path}")
+                logger.info(f"结果上传到 {s3_task_path}")
         
-        # Clean up SageMaker storage to reduce space usage
+        # 清理SageMaker存储以减少空间使用
         cleanup_sagemaker_storage()
         
-        logger.info("Multi-model training completed successfully!")
+        logger.info("多模型训练成功完成!")
     except Exception as e:
-        logger.error(f"Error in main function: {e}")
+        logger.error(f"main函数中出错: {e}")
         import traceback
         logger.error(traceback.format_exc())
         sys.exit(1)

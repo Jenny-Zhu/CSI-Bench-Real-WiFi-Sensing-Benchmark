@@ -175,20 +175,20 @@ class SageMakerRunner:
             task_config = dict(base_config)
             task_config['task'] = task
             
-            # 为任务添加use_direct_task_path参数
+            # 为任务添加use_root_data_path参数
             # 支持以下几种路径查找策略:
-            # 1. 直接指定use_direct_task_path = True/False
-            # 2. 针对不同任务使用不同路径策略 (direct_path_tasks配置项)
+            # 1. 直接指定use_root_data_path = True/False
+            # 2. 针对不同任务使用不同路径策略 (root_data_tasks配置项)
             # 3. 首次任务尝试不同路径，后续任务使用成功的路径
             
-            # 首先检查这个任务是否在direct_path_tasks列表中
-            direct_path_tasks = task_config.get('direct_path_tasks', [])
-            if isinstance(direct_path_tasks, str):
-                direct_path_tasks = [t.strip() for t in direct_path_tasks.split(',')]
+            # 首先检查这个任务是否在root_data_tasks列表中
+            root_data_tasks = task_config.get('root_data_tasks', [])
+            if isinstance(root_data_tasks, str):
+                root_data_tasks = [t.strip() for t in root_data_tasks.split(',')]
                 
-            if task in direct_path_tasks:
-                print(f"Task '{task}' is configured to use direct path")
-                task_config['use_direct_task_path'] = True
+            if task in root_data_tasks:
+                print(f"Task '{task}' is configured to use root data path")
+                task_config['use_root_data_path'] = True
             
             # Create an estimator that will run all models for this task
             estimator = self._create_estimator(
@@ -244,7 +244,6 @@ class SageMakerRunner:
             'patience': config.get('patience', 15),  # Add default patience value
             'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # 添加自适应路径选项
             'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
-            'use-direct-task-path': "True",  # 默认总是使用直接任务路径
             'use-root-data-path': "True"  # 默认总是使用根目录数据
         }
         
@@ -301,16 +300,9 @@ class SageMakerRunner:
         if not s3_data_base.endswith('/'):
             s3_data_base += '/'
         
-        # Build specific task data path
-        # Allow direct path override through configuration if needed
-        if config.get('use_direct_task_path', False):
-            # Directly use the task name without 'tasks/' subdirectory
-            task_data_path = f"{s3_data_base}{task}/"
-            print(f"Using direct task data path: {task_data_path}")
-        else:
-            # Use standard path with 'tasks/' subdirectory
-            task_data_path = f"{s3_data_base}tasks/{task}/"
-            print(f"Using standard tasks subdirectory path: {task_data_path}")
+        # 始终使用根目录数据路径
+        task_data_path = f"{s3_data_base}"
+        print(f"使用根目录数据路径: {task_data_path}")
         
         print(f"Task name: {task} - Data will be downloaded to /opt/ml/input/data/training/")
         
