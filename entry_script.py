@@ -325,19 +325,56 @@ for param, default in critical_params.items():
             print(f"Added missing parameter with default: --{param}={default}")
             missing_params.append(param)
 
-# Fix any invalid prefixes
+# Fix any invalid prefixes and ensure all parameters use proper -- prefix
+print("\n----- Parameter Format Check -----")
 for i, arg in enumerate(cmd):
-    if arg.startswith('__'):  # Double underscore prefix is invalid
-        cmd[i] = '--' + arg[2:]  # Replace with double dash
-        print(f"Fixed invalid parameter prefix: {arg} -> {cmd[i]}")
+    # Check for invalid prefixes
+    if arg.startswith('__'):  
+        cmd[i] = '--' + arg[2:]  # Replace __ with --
+        print(f"⚠️ CRITICAL FIX: Fixed invalid double underscore prefix: {arg} -> {cmd[i]}")
+    # Check for single dash parameters that should be double dash
+    elif arg.startswith('-') and not arg.startswith('--') and not arg[1:].isdigit():
+        if len(arg) > 1:  # Ensure it's not just a negative number
+            cmd[i] = '--' + arg[1:]  # Replace - with --
+            print(f"⚠️ Fixed single dash prefix: {arg} -> {cmd[i]}")
+    # Check for parameters with dash instead of underscore
+    elif arg.startswith('--') and '-' in arg[2:]:
+        old_arg = arg
+        cmd[i] = '--' + arg[2:].replace('-', '_')
+        print(f"ℹ️ Standardized parameter format: {old_arg} -> {cmd[i]}")
 
 if missing_params:
-    print(f"WARNING: Had to use defaults for: {', '.join(missing_params)}")
+    print(f"\n⚠️ WARNING: Had to use defaults for: {', '.join(missing_params)}")
 print("=============================\n")
 
 print(f"Original hyperparameters: {orig_hyperparameters}")
 print(f"Parsed hyperparameters: {hyperparameters}")
 print(f"Final command: {' '.join(cmd)}")
+
+# Extra verification step to ensure no arguments have __ prefix
+verified_cmd = []
+for i, arg in enumerate(cmd):
+    if arg.startswith('__'):
+        fixed_arg = '--' + arg[2:]
+        print(f"🚨 CRITICAL FIX: Replaced double underscore prefix: {arg} -> {fixed_arg}")
+        verified_cmd.append(fixed_arg)
+    else:
+        verified_cmd.append(arg)
+
+# Use the verified command
+cmd = verified_cmd
+
+# Final check to verify the command has proper prefixes
+prefix_issues = False
+for arg in cmd:
+    if arg.startswith('__'):
+        print(f"🚨 ERROR: Command still contains invalid prefix: {arg}")
+        prefix_issues = True
+
+if prefix_issues:
+    print("🚨 WARNING: Command contains invalid prefixes after fixes. This might cause parameter parsing errors.")
+else:
+    print("✓ Command verification passed: All parameters have correct prefixes")
 
 # Execute the training script with the parameters
 try:

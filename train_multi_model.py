@@ -305,15 +305,26 @@ def get_args():
     while i < len(sys.argv):
         arg = sys.argv[i]
         
+        # Fix double underscore prefix first - this is the most critical issue
+        if arg.startswith('__'):
+            arg = '--' + arg[2:]
+            logger.warning(f"CRITICAL FIX: Replaced double underscore prefix with double dash: {sys.argv[i]} -> {arg}")
+        
         # Fix parameter name format - Convert dash-separated parameters to underscore-separated format
+        # But keep the -- prefix intact!
         if arg.startswith('--'):
-            # Replace dash with underscore (e.g. --learning-rate becomes --learning_rate)
-            fixed_arg = arg.replace('-', '_')
+            # Extract the parameter name without the prefix
+            param_name = arg[2:]
+            # Replace dash with underscore in the parameter name only
+            fixed_param_name = param_name.replace('-', '_')
+            # Re-add the proper prefix
+            fixed_arg = f"--{fixed_param_name}"
+            
             if fixed_arg != arg:
                 logger.info(f"Fixed parameter format: {arg} -> {fixed_arg}")
                 arg = fixed_arg
         
-        # Ensure arg still has the proper prefix
+        # Ensure arg starts with -- (not __ or other prefix)
         if not arg.startswith('--') and arg[0] == '-':
             arg = f"--{arg[1:]}"
             logger.info(f"Restored proper argument prefix: {arg}")
@@ -330,14 +341,20 @@ def get_args():
                 # For --flag False case, skip that parameter
                 i += 2
                 continue
-            
+        
         # Normal parameter addition
         args_to_parse.append(arg)
         i += 1
-    
+
     try:
-        # Log the final argument list for debugging
+        # Log the final arguments for debugging
         logger.info(f"Actual arguments to parse: {args_to_parse}")
+        
+        # Final sanity check to ensure no __ prefixes
+        for i, arg in enumerate(args_to_parse):
+            if arg.startswith('__'):
+                args_to_parse[i] = '--' + arg[2:]
+                logger.warning(f"CRITICAL FIX: Found double underscore prefix after first pass: {arg} -> {args_to_parse[i]}")
         
         # Use preprocessed parameters for parsing
         args = parser.parse_args(args_to_parse)

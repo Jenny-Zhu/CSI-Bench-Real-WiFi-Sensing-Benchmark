@@ -249,14 +249,32 @@ For large-scale training on AWS SageMaker, we provide a specialized runner that 
 
 ### Key Features
 
-- Run multiple models for each task on a single SageMaker instance
-- Automated task-based batch processing
-- Customizable instance types and training parameters
-- Comprehensive job tracking and result summarization
-- Optimized S3 path handling for data access
-- Automatic fix for SageMaker's 63-character job name limit
+- **Batch Processing**: Train all models for a task on a single instance, reducing resource costs
+- **S3 Integration**: Automatically handles S3 paths for data input and output
+- **Parameter Handling**: Converts hyperparameters to the format expected by the training script
 
-### Usage
+### Parameter Passing in SageMaker
+
+When using SageMaker, pay attention to the following parameter format requirements:
+
+- **Use double dash (--) prefixes**: Parameters should use double dash prefixes (e.g., `--win-len`) not double underscore prefixes (`__win-len`).
+- **Use dashes for parameter names**: In SageMaker environment, parameter names should use dashes instead of underscores (e.g., `win-len` instead of `win_len`).
+- **Special parameter handling**: Some parameters like `task_name` are handled specially and should keep their underscore format.
+
+Example of correct parameter format in SageMaker:
+```python
+hyperparameters = {
+    'models': 'transformer,vit',
+    'task_name': 'MotionSourceRecognition',  # This special parameter keeps underscores
+    'win-len': 500,                          # Use dash instead of underscore
+    'feature-size': 232,                     # Use dash instead of underscore
+    'batch-size': 32                         # Use dash instead of underscore
+}
+```
+
+Our `entry_script.py` contains validation logic to fix parameter format issues, but it's best to use the correct format from the start to avoid any potential problems.
+
+### Running on SageMaker
 
 You can use the SageMaker runner in a Python script or Jupyter notebook:
 
