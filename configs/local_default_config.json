@@ -1,5 +1,5 @@
 {
-  "pipeline": "supervised",
+  "pipeline": "fewshot",
   "training_dir": "C:\\Guozhen\\Code\\Github\\WiAL-Real-WiFi-Sensing-Benchmark\\wifi_benchmark_dataset",
   "test_dirs": [],
   "output_dir": "./results",

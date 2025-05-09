@@ -112,17 +112,84 @@ The first time you run a model+task combination, a configuration file will be au
 
 ## Pipeline Options
 
-The benchmark supports two training pipelines:
+The benchmark supports the following training pipelines:
 
 1. **Supervised Learning**: The default pipeline for training models
 2. **Meta-Learning**: A more advanced pipeline for few-shot learning (under development)
+3. **Multitask Learning**: Train models on multiple tasks simultaneously
+4. **Few-Shot Learning**: Adapt pre-trained models to new environments with minimal examples
 
 To specify a pipeline:
 
 ```bash
 python scripts/local_runner.py --pipeline supervised --model vit --task HumanMotion
 python scripts/local_runner.py --pipeline meta  # Meta-learning pipeline is under development
+python scripts/local_runner.py --pipeline multitask --tasks MotionSourceRecognition,HumanMotion
+python scripts/local_runner.py --pipeline fewshot --task MotionSourceRecognition --model vit
 ```
+
+### Few-Shot Learning Pipeline
+
+The few-shot learning pipeline allows you to adapt pre-trained models to new environments, users, or devices with only a few labeled examples. The pipeline:
+
+1. Loads the best pre-trained model for a given task
+2. Performs few-shot adaptation to new settings (cross-env, cross-user, cross-device)
+3. Tunes the model using k-shot support data from the corresponding support splits
+4. Evaluates the adapted model on test splits and records performance
+
+This is particularly useful for scenarios where collecting large amounts of labeled data is impractical.
+
+#### Local Execution
+
+```bash
+# Basic usage
+python scripts/local_runner.py --pipeline fewshot --task MotionSourceRecognition --model vit
+
+# Advanced options
+python scripts/local_runner.py --pipeline fewshot --task HumanMotion --model transformer \
+    --k_shots 5 --adaptation_lr 0.01 --adaptation_steps 10 --finetune_all
+```
+
+#### SageMaker Execution
+
+For large-scale experimentation on AWS SageMaker:
+
+```python
+import sagemaker_runner
+
+# Initialize the runner
+runner = sagemaker_runner.SageMakerRunner()
+
+# Run few-shot adaptation for a single task and model
+runner.run_fewshot(
+    task="MotionSourceRecognition",
+    model_type="vit",
+    k_shots=5,
+    adaptation_lr=0.01,
+    adaptation_steps=10
+)
+
+# Or run batch jobs for multiple tasks and models
+runner.run_batch_fewshot(
+    tasks=["MotionSourceRecognition", "HumanMotion"],
+    models=["vit", "transformer"],
+    k_shots=5,
+    adaptation_lr=0.01,
+    adaptation_steps=10
+)
+```
+
+#### Command Line Interface for SageMaker
+
+```bash
+# Run a single few-shot job
+python sagemaker_runner.py fewshot --task MotionSourceRecognition --model vit
+
+# Run batch few-shot jobs
+python sagemaker_runner.py batch-fewshot --tasks MotionSourceRecognition HumanMotion --models vit transformer
+```
+
+For more details on the few-shot learning pipeline, see [Few-Shot Pipeline Documentation](docs/fewshot_pipeline.md).
 
 ## Configuration
 
@@ -429,33 +496,4 @@ run_extended_test_supervised.bat --model transformer --task MotionSourceRecognit
 ```
 
 #### Multitask Learning
-```bash
-# Windows
-run_extended_test_multitask.bat --model transformer --tasks MotionSourceRecognition,HumanMotion
-
-# Linux/Mac
-./run_extended_test_multitask.sh --model transformer --tasks MotionSourceRecognition,HumanMotion
 ```
-
-### Manual Control
-
-You can also specify specific test splits to evaluate:
-
-```bash
-python scripts/train_supervised.py --model transformer --task_name MotionSourceRecognition --test_splits test_id,test_cross_env,test_cross_user
-
-python scripts/train_multitask_adapter.py --model transformer --tasks MotionSourceRecognition,HumanMotion --test_splits test_id,test_cross_env
-```
-
-Use `--test_splits all` to automatically use all available test splits for each task.
-
-## Results Analysis
-
-The extended testing generates comprehensive reports for all test splits, including:
-
-- Accuracy and F1-scores for each test split
-- Confusion matrices for visualization
-- JSON summary files with detailed metrics
-- Comparative tables of performance across different test conditions
-
-This provides deeper insights into model robustness and potential areas for improvement in real-world deployment scenarios.

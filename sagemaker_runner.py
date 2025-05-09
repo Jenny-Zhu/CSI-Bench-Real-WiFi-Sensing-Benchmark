@@ -709,362 +709,432 @@ if __name__ == '__main__':
 
     def run_multitask(self, tasks=None, model_type="transformer", instance_type=None, test_splits=None, enable_few_shot=False, k_shot=5, inner_lr=0.01, num_inner_steps=10):
         """
-        Run multitask learning pipeline.
+        Run multitask learning job on SageMaker.
         
         Args:
-            tasks (str): Comma-separated list of tasks to train on
-            model_type (str): Model architecture to use
-            instance_type (str): SageMaker instance type
-            test_splits (str): Test splits to use, comma-separated or 'all'
-            enable_few_shot (bool): Whether to enable few-shot learning
-            k_shot (int): Number of examples per class for few-shot learning
-            inner_lr (float): Learning rate for few-shot adaptation
-            num_inner_steps (int): Number of steps for few-shot adaptation
+            tasks: List of tasks to include in multitask learning
+            model_type: Type of model to use (transformer, vit, resnet18, etc.)
+            instance_type: SageMaker instance type to use
+            test_splits: Comma-separated list of test splits to evaluate (or "all")
+            enable_few_shot: Whether to enable few-shot learning after training
+            k_shot: Number of examples per class for few-shot adaptation
+            inner_lr: Learning rate for few-shot adaptation
+            num_inner_steps: Number of gradient steps for few-shot adaptation
             
         Returns:
-            dict: Job information
+            SageMaker training job name
         """
-        print(f"Running multitask learning for model: {model_type}, tasks: {tasks}")
+        # If no tasks specified, use all available tasks
+        if tasks is None:
+            tasks = AVAILABLE_TASKS
         
-        # Create batch timestamp for job naming
-        timestamp = self.timestamp
+        # Convert tasks to list if string
+        if isinstance(tasks, str):
+            tasks = [tasks]
         
-        # Ensure tasks is a string
-        if isinstance(tasks, list):
-            tasks = ','.join(tasks)
-        elif tasks is None:
-            # Default to MotionSourceRecognition
-            tasks = "MotionSourceRecognition"
+        # Validate tasks
+        for task in tasks:
+            if task not in AVAILABLE_TASKS:
+                raise ValueError(f"Task '{task}' is not in the list of available tasks: {AVAILABLE_TASKS}")
+                
+        # Join tasks into comma-separated string
+        tasks_str = ','.join(tasks)
         
-        # Build hyperparameters dictionary
+        # Set instance type
+        if instance_type is None:
+            instance_type = INSTANCE_TYPE
+        
+        # Get time-based job name prefix
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        job_name_prefix = f"multitask-{model_type}-{timestamp}"[:32]
+        
+        # Prepare hyperparameters
         hyperparameters = {
-            # Data parameters
-            "dataset_root": S3_DATA_BASE,  # Use S3 path
-            "tasks": tasks,
+            "pipeline": "multitask",
+            "tasks": tasks_str,
+            "model": model_type,
             "mode": MODE,
-            "file_format": "h5",  # Add file format parameter
-            "num_workers": 4,     # Add number of workers parameter
-            
-            # Training parameters
             "batch_size": BATCH_SIZE,
             "epochs": EPOCH_NUMBER,
-            "lr": 1e-4,          # Note: multitask uses lr, not learning_rate
             "patience": PATIENCE,
-            
-            # Model parameters
-            "model": model_type,
             "win_len": WIN_LEN,
             "feature_size": FEATURE_SIZE,
-            "seed": SEED,
-            "save_dir": "/opt/ml/model",  # Use SageMaker model directory
-            "output_dir": "/opt/ml/model",  # Set output_dir to model directory as well
-            
-            # LoRA parameters
-            "lora_r": 8,
-            "lora_alpha": 32,
-            "lora_dropout": 0.05,
-            
-            # Testing parameters
-            "test_splits": test_splits or DEFAULT_CONFIG.get("test_splits", "all"),  # Default to all test splits
-            
-            # S3保存参数
-            "save_to_s3": S3_OUTPUT_BASE,  # 在S3上保存结果
-            
-            # Few-shot learning parameters
-            "k_shot": k_shot,
-            "inner_lr": inner_lr,
-            "num_inner_steps": num_inner_steps
+            "seed": SEED
         }
         
-        # 标志类型参数 - 传递空字符串而不是布尔值，这样在命令行中只会出现--flag而不是--flag True
-        flag_parameters = [
-            "debug",              # 启用详细日志记录
-            "adaptive_path",      # 自动适应数据路径
-            "direct_upload",      # 直接上传到S3
-            "upload_final_model", # 上传最终模型
-        ]
+        # Add test_splits if specified
+        if test_splits:
+            hyperparameters["test_splits"] = test_splits
         
-        # Add enable_few_shot to flag parameters if it's enabled
+        # Add few-shot parameters if enabled
         if enable_few_shot:
-            flag_parameters.append("enable_few_shot")
+            hyperparameters["enable_few_shot"] = "True"
+            hyperparameters["k_shot"] = str(k_shot)
+            hyperparameters["inner_lr"] = str(inner_lr)
+            hyperparameters["num_inner_steps"] = str(num_inner_steps)
         
-        # 为所有标志类型参数设置空字符串
-        for flag in flag_parameters:
-            hyperparameters[flag] = ""
-        
-        # 打印完整的参数列表，用于调试命令行参数
-        print("\nCommand line arguments that will be passed to the script:")
-        cmd_args = []
-        for key, value in hyperparameters.items():
-            if isinstance(value, str) and value == "":
-                # 标志参数只添加--key，不添加值
-                cmd_args.append(f"--{key}")
-            elif not (isinstance(value, bool) and not value):  # Skip False values
-                # 对于有值的参数，添加--key value
-                cmd_args.append(f"--{key} {value}")
-        
-        # 将参数分组显示，便于阅读
-        print("\n标志参数:")
-        flag_args = [arg for arg in cmd_args if "=" not in arg and " " not in arg]
-        print("  " + "\n  ".join(flag_args))
-        
-        print("\n值参数:")
-        value_args = [arg for arg in cmd_args if "=" in arg or " " in arg]
-        print("  " + "\n  ".join(value_args))
-        
-        # 对将生成的命令行进行格式验证，确保没有明显问题
-        print("\n完整命令行:")
-        full_cmd = "train_multitask_adapter.py " + " ".join(cmd_args)
-        print(full_cmd)
-        
-        # 检查命令行长度，过长可能会导致问题
-        if len(full_cmd) > 1000:
-            print(f"\n警告: 命令行长度 ({len(full_cmd)}) 很长，可能导致问题")
-        
-        # 验证参数
-        for param in ["dataset_root", "tasks", "model"]:
-            if param not in hyperparameters or not hyperparameters[param]:
-                print(f"\n警告: 必需参数 {param} 缺失或为空!")
-        
-        print("\n")
-        
-        # Shorten task name for job naming (use first 8 chars or full name if shorter)
-        short_tasks = tasks.lower()[:8]
-        # Create job name with shortened format for timestamp and task name
-        job_name = f"{BASE_JOB_NAME}-{short_tasks}-{model_type}-{timestamp[-6:]}"
-        
-        # Ensure job name meets SageMaker requirements
-        job_name = re.sub(r'[^a-zA-Z0-9-]', '-', job_name)
-        if len(job_name) > 63:
-            job_name = job_name[:60] + timestamp[-3:]
-        
-        # Output path - use a structure that matches the local runner
-        s3_output_path = f"{S3_OUTPUT_BASE}multitask/"
-        
-        print(f"Creating multitask learning job: {job_name}")
-        print(f"Output path: {s3_output_path}")
-        
-        # Create PyTorch estimator
-        instance_type_to_use = instance_type or INSTANCE_TYPE
-        
+        # Create SageMaker PyTorch estimator
         estimator = PyTorch(
-            entry_point="train_multitask_adapter.py",
-            source_dir=".",
+            entry_point='train_multi_model.py',
+            source_dir=CODE_DIR,
             role=self.role,
             framework_version=FRAMEWORK_VERSION,
             py_version=PY_VERSION,
             instance_count=INSTANCE_COUNT,
-            instance_type=instance_type_to_use,
-            max_run=86400,  # 24 hours max runtime
-            output_path=s3_output_path,
-            base_job_name=job_name,
+            instance_type=instance_type,
             hyperparameters=hyperparameters,
+            debugger_hook_config=False,
             volume_size=EBS_VOLUME_SIZE,
-            environment={
-                'PYTHONPATH': '/opt/ml/code',  # Add code directory to Python path
-                'LOG_LEVEL': 'INFO'            # Set logging level
-            }
+            max_run=172800,  # 48 hours
+            tags=[
+                {"Key": "Project", "Value": "WiFi-Sensing"},
+                {"Key": "Pipeline", "Value": "Multitask"},
+                {"Key": "Tasks", "Value": tasks_str},
+                {"Key": "Model", "Value": model_type}
+            ]
         )
         
-        # Prepare data inputs
+        # Prepare data channels
         data_channels = {
-            'training': TrainingInput(
+            "training": TrainingInput(
                 s3_data=S3_DATA_BASE,
-                distribution='FullyReplicated',
-                content_type='application/x-directory',
-                s3_data_type='S3Prefix',
-                input_mode='File'
+                content_type="application/x-directory"
             )
         }
         
         # Start training job
-        print(f"Starting SageMaker training job...")
-        estimator.fit(inputs=data_channels, job_name=job_name, wait=False)
+        job_name = f"{job_name_prefix}-{timestamp}"[:31]
+        print(f"Starting multitask training job: {job_name}")
+        estimator.fit(data_channels, job_name=job_name, wait=False)
         
-        # Create job info
-        job_info = {
-            'job_name': job_name,
-            'estimator': estimator,
-            'inputs': data_channels,
-            'config': {
-                'tasks': tasks,
-                'model_type': model_type,
-                'output_dir': s3_output_path,
-                'save_dir': '/opt/ml/model/results/multitask'
-            }
-        }
+        print(f"Job ARN: {estimator.latest_training_job.job_arn}")
+        print(f"Job Status: {estimator.latest_training_job.describe()['TrainingJobStatus']}")
         
-        print(f"Multitask learning job submitted: {job_name}")
-        print(f"You can monitor the job in SageMaker console.")
-        
-        return job_info
-    
-    def run_batch_multitask(self, task_groups=None, model_type="transformer", instance_type=None, wait_time=BATCH_WAIT_TIME, test_splits=None, enable_few_shot=False, k_shot=5, inner_lr=0.01, num_inner_steps=10):
+        return job_name
+
+    def run_fewshot(self, task, model_type="vit", instance_type=None, 
+                    support_splits=None, test_splits=None, 
+                    k_shots=5, adaptation_lr=0.01, adaptation_steps=10, 
+                    finetune_all=False):
         """
-        Run batch of multitask learning jobs, each with a different group of tasks.
+        Run few-shot learning pipeline on SageMaker.
         
         Args:
-            task_groups (list): List of task groups, where each group is a list of tasks
-            model_type (str): Model architecture to use
-            instance_type (str): SageMaker instance type
-            wait_time (int): Wait time between job submission in seconds
-            test_splits (str): Test splits to use, comma-separated or 'all'
-            enable_few_shot (bool): Whether to enable few-shot learning
-            k_shot (int): Number of examples per class for few-shot learning
-            inner_lr (float): Learning rate for few-shot adaptation
-            num_inner_steps (int): Number of steps for few-shot adaptation
+            task: Task to adapt the model for
+            model_type: Type of model to use (transformer, vit, resnet18, etc.)
+            instance_type: SageMaker instance type to use
+            support_splits: List of support splits to use (support_cross_env, support_cross_user, support_cross_device)
+            test_splits: List of test splits to evaluate (test_cross_env, test_cross_user, test_cross_device)
+            k_shots: Number of examples per class for few-shot adaptation
+            adaptation_lr: Learning rate for few-shot adaptation
+            adaptation_steps: Number of gradient steps for few-shot adaptation
+            finetune_all: Whether to fine-tune all parameters or just the classifier
             
         Returns:
-            list: List of job information dictionaries
+            SageMaker training job name
         """
-        print(f"Starting batch execution of multitask learning jobs...")
+        # Validate task
+        if task not in AVAILABLE_TASKS:
+            raise ValueError(f"Task '{task}' is not in the list of available tasks: {AVAILABLE_TASKS}")
         
-        # Create batch timestamp
-        batch_timestamp = self.timestamp
-        
-        # Default task groups if none provided
-        if task_groups is None:
-            # Create two default groups
-            task_groups = [
-                ['MotionSourceRecognition', 'HumanMotion'],
-                ['MotionSourceRecognition', 'HumanID'],
-                ['MotionSourceRecognition', 'HumanMotion', 'HumanID']
-            ]
-        
-        # Convert strings to lists if needed
-        processed_groups = []
-        for group in task_groups:
-            if isinstance(group, str):
-                # If it's a comma-separated string
-                processed_groups.append(group.split(','))
-            else:
-                # Keep as is if already a list
-                processed_groups.append(group)
-        
-        print(f"Running {len(processed_groups)} task groups with model type: {model_type}")
-        for i, group in enumerate(processed_groups):
-            print(f"Group {i+1}: {', '.join(group)}")
-        
-        # Store all jobs
-        all_jobs = []
-        
-        # Run each task group
-        for i, task_group in enumerate(processed_groups):
-            print(f"\n----------------------------")
-            print(f"Processing task group {i+1}/{len(processed_groups)}: {', '.join(task_group)}")
-            print(f"----------------------------")
+        # Set instance type
+        if instance_type is None:
+            instance_type = INSTANCE_TYPE
             
-            # Run multitask job
-            job_info = self.run_multitask(
-                tasks=task_group,
-                model_type=model_type,
-                instance_type=instance_type,
-                test_splits=test_splits,
-                enable_few_shot=enable_few_shot,
-                k_shot=k_shot,
-                inner_lr=inner_lr,
-                num_inner_steps=num_inner_steps
-            )
+        # Default support and test splits
+        if support_splits is None:
+            support_splits = ["support_cross_env", "support_cross_user", "support_cross_device"]
+        if test_splits is None:
+            test_splits = ["test_cross_env", "test_cross_user", "test_cross_device"]
             
-            # Add batch information
-            job_info['batch_id'] = batch_timestamp
-            all_jobs.append(job_info)
+        # Convert to comma-separated strings
+        if isinstance(support_splits, list):
+            support_splits_str = ",".join(support_splits)
+        else:
+            support_splits_str = support_splits
             
-            # Wait between submissions
-            if wait_time > 0 and i < len(processed_groups) - 1:
-                print(f"Waiting {wait_time} seconds before starting next task group...")
-                try:
-                    time.sleep(wait_time)
-                except KeyboardInterrupt:
-                    print("\nBatch submission interrupted by user.")
-                    break
+        if isinstance(test_splits, list):
+            test_splits_str = ",".join(test_splits)
+        else:
+            test_splits_str = test_splits
         
-        # Return batch information
-        batch_info = {
-            'batch_timestamp': batch_timestamp,
-            'batch_mode': 'multitask-groups',
-            'task_groups': processed_groups,
-            'model_type': model_type,
-            'instance_type': instance_type or INSTANCE_TYPE,
-            'enable_few_shot': enable_few_shot,
-            'k_shot': k_shot,
-            'inner_lr': inner_lr,
-            'num_inner_steps': num_inner_steps,
-            'jobs': all_jobs
+        # Get time-based job name prefix
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        job_name_prefix = f"fewshot-{model_type}-{task}-{timestamp}"[:32]
+        
+        # Prepare hyperparameters
+        hyperparameters = {
+            "pipeline": "fewshot",
+            "task": task,
+            "model": model_type,
+            "mode": MODE,
+            "support_splits": support_splits_str,
+            "test_splits": test_splits_str,
+            "k_shots": str(k_shots),
+            "adaptation_lr": str(adaptation_lr),
+            "adaptation_steps": str(adaptation_steps),
+            "batch_size": BATCH_SIZE,
+            "win_len": WIN_LEN,
+            "feature_size": FEATURE_SIZE,
+            "seed": SEED
         }
         
-        # Update batch summary
-        self._update_batch_summary(all_jobs, batch_timestamp)
+        # Add finetune_all if enabled
+        if finetune_all:
+            hyperparameters["finetune_all"] = "True"
         
-        print(f"\nBatch execution initiated!")
-        print(f"Task Groups: {len(processed_groups)}")
-        print(f"Model: {model_type}")
-        print(f"Total jobs: {len(all_jobs)}")
-        print(f"Batch ID: {batch_timestamp}")
-        print(f"Few-shot learning: {'Enabled' if enable_few_shot else 'Disabled'}")
-        if enable_few_shot:
-            print(f"K-shot: {k_shot}, Inner LR: {inner_lr}, Inner Steps: {num_inner_steps}")
-        print(f"You can monitor the jobs in SageMaker console.")
+        # Create SageMaker PyTorch estimator
+        estimator = PyTorch(
+            entry_point='scripts/train_fewshot_pipeline.py',
+            source_dir=CODE_DIR,
+            role=self.role,
+            framework_version=FRAMEWORK_VERSION,
+            py_version=PY_VERSION,
+            instance_count=INSTANCE_COUNT,
+            instance_type=instance_type,
+            hyperparameters=hyperparameters,
+            debugger_hook_config=False,
+            volume_size=EBS_VOLUME_SIZE,
+            max_run=86400,  # 24 hours
+            tags=[
+                {"Key": "Project", "Value": "WiFi-Sensing"},
+                {"Key": "Pipeline", "Value": "FewShot"},
+                {"Key": "Task", "Value": task},
+                {"Key": "Model", "Value": model_type}
+            ]
+        )
         
-        return batch_info
+        # Prepare data channels
+        data_channels = {
+            "training": TrainingInput(
+                s3_data=S3_DATA_BASE,
+                content_type="application/x-directory"
+            )
+        }
+        
+        # Start training job
+        job_name = f"{job_name_prefix}-{timestamp}"[:31]
+        print(f"Starting few-shot adaptation job: {job_name}")
+        estimator.fit(data_channels, job_name=job_name, wait=False)
+        
+        print(f"Job ARN: {estimator.latest_training_job.job_arn}")
+        print(f"Job Status: {estimator.latest_training_job.describe()['TrainingJobStatus']}")
+        
+        return job_name
+        
+    def run_batch_fewshot(self, tasks=None, models=None, instance_type=None, 
+                          support_splits=None, test_splits=None, 
+                          k_shots=5, adaptation_lr=0.01, adaptation_steps=10, 
+                          finetune_all=False, wait_time=BATCH_WAIT_TIME):
+        """
+        Run batch of few-shot learning jobs on SageMaker.
+        
+        Args:
+            tasks: List of tasks to run few-shot adaptation for
+            models: List of model types to use
+            instance_type: SageMaker instance type to use
+            support_splits: List of support splits to use (support_cross_env, support_cross_user, support_cross_device)
+            test_splits: List of test splits to evaluate (test_cross_env, test_cross_user, test_cross_device)
+            k_shots: Number of examples per class for few-shot adaptation
+            adaptation_lr: Learning rate for few-shot adaptation
+            adaptation_steps: Number of gradient steps for few-shot adaptation
+            finetune_all: Whether to fine-tune all parameters or just the classifier
+            wait_time: Time to wait between job submissions (in seconds)
+            
+        Returns:
+            List of SageMaker training job names
+        """
+        # Default tasks and models
+        if tasks is None:
+            tasks = AVAILABLE_TASKS
+        if models is None:
+            models = AVAILABLE_MODELS
+            
+        # Convert to lists if needed
+        if isinstance(tasks, str):
+            tasks = [tasks]
+        if isinstance(models, str):
+            models = [models]
+            
+        # Create batch timestamp for grouping
+        batch_timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+        
+        # Initialize jobs list
+        jobs = []
+        
+        # Submit jobs for each task-model combination
+        for task in tasks:
+            for model in models:
+                # Check if the task-model combination is valid
+                if task not in AVAILABLE_TASKS:
+                    print(f"Warning: Task '{task}' is not in the list of available tasks, skipping.")
+                    continue
+                if model not in AVAILABLE_MODELS:
+                    print(f"Warning: Model '{model}' is not in the list of available models, skipping.")
+                    continue
+                
+                # Submit job
+                try:
+                    job_name = self.run_fewshot(
+                        task=task,
+                        model_type=model,
+                        instance_type=instance_type,
+                        support_splits=support_splits,
+                        test_splits=test_splits,
+                        k_shots=k_shots,
+                        adaptation_lr=adaptation_lr,
+                        adaptation_steps=adaptation_steps,
+                        finetune_all=finetune_all
+                    )
+                    
+                    jobs.append({
+                        'job_name': job_name,
+                        'task': task,
+                        'model': model,
+                        'status': 'InProgress'
+                    })
+                    
+                    print(f"Submitted few-shot job for task '{task}' using model '{model}'")
+                    time.sleep(wait_time)  # Wait between submissions
+                except Exception as e:
+                    print(f"Error submitting job for task '{task}' with model '{model}': {e}")
+        
+        # Update the batch summary
+        self._update_batch_summary(jobs, batch_timestamp)
+        
+        # Return job information
+        return jobs
 
 def main():
-    """Main entry point for SageMaker runner"""
-    parser = argparse.ArgumentParser(description="Run SageMaker training jobs for WiFi sensing")
+    """Main function"""
+    parser = argparse.ArgumentParser(description='WiFi Sensing Pipeline Runner - SageMaker Environment')
     
-    # Subparsers for different modes
+    # Create subparsers for different commands
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
     
-    # Supervised batch parser
-    batch_parser = subparsers.add_parser('batch', help='Run batch of supervised learning jobs')
-    batch_parser.add_argument('--tasks', type=str, nargs='+', help='List of tasks to run')
-    batch_parser.add_argument('--models', type=str, nargs='+', help='List of models to run')
-    batch_parser.add_argument('--mode', type=str, default='csi', help='Data modality (csi or acf)')
-    batch_parser.add_argument('--instance_type', type=str, help='SageMaker instance type')
-    batch_parser.add_argument('--wait_time', type=int, default=BATCH_WAIT_TIME, help='Wait time between jobs')
-    batch_parser.add_argument('--test_splits', type=str, help='Test splits to use (comma-separated or "all")')
+    # Batch by task command
+    batch_parser = subparsers.add_parser('batch', help='Run batch of jobs by task')
+    batch_parser.add_argument('--tasks', type=str, nargs='+', 
+                              help='List of tasks to run')
+    batch_parser.add_argument('--models', type=str, nargs='+', choices=AVAILABLE_MODELS, 
+                              help='Model architectures to train')
+    batch_parser.add_argument('--mode', type=str, default=MODE, 
+                              help='Data modality (csi or acf)')
+    batch_parser.add_argument('--instance-type', type=str, default=INSTANCE_TYPE, 
+                              help='SageMaker instance type')
+    batch_parser.add_argument('--wait-time', type=int, default=BATCH_WAIT_TIME, 
+                              help='Wait time between job submissions in seconds')
+    batch_parser.add_argument('--test-splits', type=str, 
+                              help='Comma-separated list of test splits or "all"')
+    batch_parser.add_argument('--enable-few-shot', action='store_true', 
+                              help='Enable few-shot learning')
+    batch_parser.add_argument('--k-shot', type=int, default=5, 
+                              help='Number of shots for few-shot learning')
+    batch_parser.add_argument('--inner-lr', type=float, default=0.01, 
+                              help='Inner learning rate for few-shot adaptation')
+    batch_parser.add_argument('--num-inner-steps', type=int, default=10, 
+                              help='Number of inner steps for few-shot adaptation')
     
-    # Few-shot learning parameters
-    batch_parser.add_argument('--enable_few_shot', action='store_true', help='Enable few-shot learning adaptation')
-    batch_parser.add_argument('--k_shot', type=int, default=5, help='Number of examples per class for few-shot adaptation')
-    batch_parser.add_argument('--inner_lr', type=float, default=0.01, help='Learning rate for few-shot adaptation')
-    batch_parser.add_argument('--num_inner_steps', type=int, default=10, help='Number of adaptation steps for few-shot learning')
+    # Multitask command
+    multitask_parser = subparsers.add_parser('multitask', help='Run multitask learning')
+    multitask_parser.add_argument('--tasks', type=str, nargs='+', 
+                                 help='List of tasks for multitask learning')
+    multitask_parser.add_argument('--model', type=str, default='transformer', choices=AVAILABLE_MODELS, 
+                                 help='Model architecture to train')
+    multitask_parser.add_argument('--instance-type', type=str, default=INSTANCE_TYPE, 
+                                 help='SageMaker instance type')
+    multitask_parser.add_argument('--test-splits', type=str, 
+                                 help='Comma-separated list of test splits or "all"')
+    multitask_parser.add_argument('--enable-few-shot', action='store_true', 
+                                 help='Enable few-shot learning')
+    multitask_parser.add_argument('--k-shot', type=int, default=5, 
+                                 help='Number of shots for few-shot learning')
+    multitask_parser.add_argument('--inner-lr', type=float, default=0.01, 
+                                 help='Inner learning rate for few-shot adaptation')
+    multitask_parser.add_argument('--num-inner-steps', type=int, default=10, 
+                                 help='Number of inner steps for few-shot adaptation')
     
-    # Multitask parser
-    multitask_parser = subparsers.add_parser('multitask', help='Run multitask learning job')
-    multitask_parser.add_argument('--tasks', type=str, required=True, help='Comma-separated list of tasks')
-    multitask_parser.add_argument('--model', type=str, default='transformer', help='Model architecture')
-    multitask_parser.add_argument('--instance_type', type=str, help='SageMaker instance type')
-    multitask_parser.add_argument('--test_splits', type=str, help='Test splits to use (comma-separated or "all")')
+    # Batch multitask command
+    batch_multitask_parser = subparsers.add_parser('batch-multitask', help='Run batch of multitask learning jobs')
+    batch_multitask_parser.add_argument('--task-groups', type=str, nargs='+', 
+                                      help='List of task groups for multitask learning')
+    batch_multitask_parser.add_argument('--model', type=str, default='transformer', choices=AVAILABLE_MODELS, 
+                                      help='Model architecture to train')
+    batch_multitask_parser.add_argument('--instance-type', type=str, default=INSTANCE_TYPE, 
+                                      help='SageMaker instance type')
+    batch_multitask_parser.add_argument('--wait-time', type=int, default=BATCH_WAIT_TIME, 
+                                      help='Wait time between job submissions in seconds')
+    batch_multitask_parser.add_argument('--test-splits', type=str, 
+                                      help='Comma-separated list of test splits or "all"')
+    batch_multitask_parser.add_argument('--enable-few-shot', action='store_true', 
+                                      help='Enable few-shot learning')
+    batch_multitask_parser.add_argument('--k-shot', type=int, default=5, 
+                                      help='Number of shots for few-shot learning')
+    batch_multitask_parser.add_argument('--inner-lr', type=float, default=0.01, 
+                                      help='Inner learning rate for few-shot adaptation')
+    batch_multitask_parser.add_argument('--num-inner-steps', type=int, default=10, 
+                                      help='Number of inner steps for few-shot adaptation')
     
-    # Few-shot learning parameters for multitask
-    multitask_parser.add_argument('--enable_few_shot', action='store_true', help='Enable few-shot learning adaptation')
-    multitask_parser.add_argument('--k_shot', type=int, default=5, help='Number of examples per class for few-shot adaptation')
-    multitask_parser.add_argument('--inner_lr', type=float, default=0.01, help='Learning rate for few-shot adaptation')
-    multitask_parser.add_argument('--num_inner_steps', type=int, default=10, help='Number of adaptation steps for few-shot learning')
+    # Few-shot command
+    fewshot_parser = subparsers.add_parser('fewshot', help='Run few-shot learning pipeline')
+    fewshot_parser.add_argument('--task', type=str, required=True, choices=AVAILABLE_TASKS,
+                              help='Task to adapt the model for')
+    fewshot_parser.add_argument('--model', type=str, required=True, choices=AVAILABLE_MODELS,
+                              help='Model type to use')
+    fewshot_parser.add_argument('--instance-type', type=str, default=INSTANCE_TYPE,
+                              help='SageMaker instance type')
+    fewshot_parser.add_argument('--support-splits', type=str, nargs='+',
+                              help='Support splits to use (support_cross_env, support_cross_user, support_cross_device)')
+    fewshot_parser.add_argument('--test-splits', type=str, nargs='+',
+                              help='Test splits to evaluate (test_cross_env, test_cross_user, test_cross_device)')
+    fewshot_parser.add_argument('--k-shots', type=int, default=5,
+                              help='Number of examples per class for few-shot adaptation')
+    fewshot_parser.add_argument('--adaptation-lr', type=float, default=0.01,
+                              help='Learning rate for few-shot adaptation')
+    fewshot_parser.add_argument('--adaptation-steps', type=int, default=10,
+                              help='Number of gradient steps for few-shot adaptation')
+    fewshot_parser.add_argument('--finetune-all', action='store_true',
+                              help='Fine-tune all parameters instead of just the classifier')
     
-    # Batch multitask parser
-    batch_mt_parser = subparsers.add_parser('batch-multitask', help='Run batch of multitask learning jobs')
-    batch_mt_parser.add_argument('--task_groups', type=str, nargs='+', help='List of task groups (format: "task1,task2 task3,task4")')
-    batch_mt_parser.add_argument('--model', type=str, default='transformer', help='Model architecture')
-    batch_mt_parser.add_argument('--instance_type', type=str, help='SageMaker instance type')
-    batch_mt_parser.add_argument('--wait_time', type=int, default=BATCH_WAIT_TIME, help='Wait time between jobs')
-    batch_mt_parser.add_argument('--test_splits', type=str, help='Test splits to use (comma-separated or "all")')
+    # Batch few-shot command
+    batch_fewshot_parser = subparsers.add_parser('batch-fewshot', help='Run batch of few-shot learning jobs')
+    batch_fewshot_parser.add_argument('--tasks', type=str, nargs='+', choices=AVAILABLE_TASKS,
+                                   help='Tasks to adapt the models for')
+    batch_fewshot_parser.add_argument('--models', type=str, nargs='+', choices=AVAILABLE_MODELS,
+                                   help='Model types to use')
+    batch_fewshot_parser.add_argument('--instance-type', type=str, default=INSTANCE_TYPE,
+                                   help='SageMaker instance type')
+    batch_fewshot_parser.add_argument('--support-splits', type=str, nargs='+',
+                                   help='Support splits to use (support_cross_env, support_cross_user, support_cross_device)')
+    batch_fewshot_parser.add_argument('--test-splits', type=str, nargs='+',
+                                   help='Test splits to evaluate (test_cross_env, test_cross_user, test_cross_device)')
+    batch_fewshot_parser.add_argument('--k-shots', type=int, default=5,
+                                   help='Number of examples per class for few-shot adaptation')
+    batch_fewshot_parser.add_argument('--adaptation-lr', type=float, default=0.01,
+                                   help='Learning rate for few-shot adaptation')
+    batch_fewshot_parser.add_argument('--adaptation-steps', type=int, default=10,
+                                   help='Number of gradient steps for few-shot adaptation')
+    batch_fewshot_parser.add_argument('--finetune-all', action='store_true',
+                                   help='Fine-tune all parameters instead of just the classifier')
+    batch_fewshot_parser.add_argument('--wait-time', type=int, default=BATCH_WAIT_TIME,
+                                   help='Wait time between job submissions in seconds')
     
-    # Few-shot learning parameters for batch multitask
-    batch_mt_parser.add_argument('--enable_few_shot', action='store_true', help='Enable few-shot learning adaptation')
-    batch_mt_parser.add_argument('--k_shot', type=int, default=5, help='Number of examples per class for few-shot adaptation')
-    batch_mt_parser.add_argument('--inner_lr', type=float, default=0.01, help='Learning rate for few-shot adaptation')
-    batch_mt_parser.add_argument('--num_inner_steps', type=int, default=10, help='Number of adaptation steps for few-shot learning')
+    # Hyperparameter test command
+    hp_test_parser = subparsers.add_parser('hp-test', help='Test hyperparameters')
+    hp_test_parser.add_argument('--task', type=str, required=True, choices=AVAILABLE_TASKS, 
+                               help='Task name')
+    hp_test_parser.add_argument('--models', type=str, nargs='+', choices=AVAILABLE_MODELS, 
+                               help='Model architectures to test')
     
     # Parse arguments
     args = parser.parse_args()
     
-    # Create SageMaker runner
+    # Create runner
     runner = SageMakerRunner()
     
+    # Run appropriate command
     if args.command == 'batch':
-        # Run batch jobs
+        # Run batch jobs by task
         runner.run_batch_by_task(
             tasks=args.tasks,
             models=args.models,
@@ -1078,7 +1148,7 @@ def main():
             num_inner_steps=args.num_inner_steps
         )
     elif args.command == 'multitask':
-        # Run multitask job
+        # Run multitask learning
         runner.run_multitask(
             tasks=args.tasks,
             model_type=args.model,
@@ -1101,6 +1171,39 @@ def main():
             k_shot=args.k_shot,
             inner_lr=args.inner_lr,
             num_inner_steps=args.num_inner_steps
+        )
+    elif args.command == 'fewshot':
+        # Run few-shot learning pipeline
+        runner.run_fewshot(
+            task=args.task,
+            model_type=args.model,
+            instance_type=args.instance_type,
+            support_splits=args.support_splits,
+            test_splits=args.test_splits,
+            k_shots=args.k_shots,
+            adaptation_lr=args.adaptation_lr,
+            adaptation_steps=args.adaptation_steps,
+            finetune_all=args.finetune_all
+        )
+    elif args.command == 'batch-fewshot':
+        # Run batch few-shot jobs
+        runner.run_batch_fewshot(
+            tasks=args.tasks,
+            models=args.models,
+            instance_type=args.instance_type,
+            support_splits=args.support_splits,
+            test_splits=args.test_splits,
+            k_shots=args.k_shots,
+            adaptation_lr=args.adaptation_lr,
+            adaptation_steps=args.adaptation_steps,
+            finetune_all=args.finetune_all,
+            wait_time=args.wait_time
+        )
+    elif args.command == 'hp-test':
+        # Test hyperparameters
+        runner.test_hyperparameters(
+            task_name=args.task,
+            models=args.models
         )
     else:
         # If no command provided, show help

@@ -778,82 +778,155 @@ def run_supervised_direct(config):
     return return_code
 
 def run_meta_learning(config):
-    """
-    Run meta-learning pipeline - placeholder for future implementation
+    """Run meta-learning pipeline with the given configuration"""
     
-    Args:
-        config: Configuration dictionary
+    # Build command
+    cmd_path = os.path.join(ROOT_DIR, "train_multi_model.py")
+    
+    # Extract config values
+    tasks = config.get("tasks", [config.get("task", TASK)])
+    model = config.get("model", MODEL_NAME)
+    
+    # Set up command
+    cmd = [
+        "python", cmd_path,
+        f"--tasks={','.join(tasks)}",
+        f"--model={model}",
+        f"--mode={config.get('mode', MODE)}",
+        f"--seed={config.get('seed', SEED)}",
+        f"--batch_size={config.get('batch_size', BATCH_SIZE)}",
+        f"--epochs={config.get('epochs', EPOCH_NUMBER)}",
+        f"--patience={config.get('patience', 15)}",
+        f"--pipeline=meta"
+    ]
+    
+    # Add optional parameters
+    if "output_dir" in config:
+        cmd.append(f"--output_dir={config.get('output_dir')}")
+    if "enable_few_shot" in config and config["enable_few_shot"]:
+        cmd.append(f"--enable_few_shot")
+        cmd.append(f"--k_shot={config.get('k_shot', 5)}")
+        cmd.append(f"--inner_lr={config.get('inner_lr', 0.01)}")
+        cmd.append(f"--num_inner_steps={config.get('num_inner_steps', 10)}")
         
-    Returns:
-        Return code from the process
-    """
-    print("Meta-learning pipeline will be implemented by another team member.")
-    print("Current configuration:", json.dumps(config, indent=2))
-    return 0
+    # Execute the command
+    print(f"Running meta-learning command: {' '.join(cmd)}")
+    returncode, output = run_command(' '.join(cmd))
+    
+    return returncode
+
+def run_fewshot_pipeline(config):
+    """Run few-shot learning pipeline with the given configuration"""
+    
+    # Build command
+    cmd_path = os.path.join(ROOT_DIR, "scripts", "train_fewshot_pipeline.py")
+    
+    # Extract config values
+    task = config.get("task", TASK)
+    model = config.get("model", MODEL_NAME)
+    
+    # Create a temporary config file with the required settings
+    import tempfile
+    import json
+    
+    # Extract few-shot specific settings from config
+    fewshot_config = {
+        'task': task,
+        'model': model,
+        'training_dir': config.get('training_dir', TRAINING_DIR),
+        'output_dir': config.get('output_dir', OUTPUT_DIR),
+        'k_shots': config.get('k_shots', 5),
+        'adaptation_lr': config.get('adaptation_lr', 0.01),
+        'adaptation_steps': config.get('adaptation_steps', 10),
+        'finetune_all': config.get('finetune_all', False),
+        'batch_size': config.get('batch_size', BATCH_SIZE),
+        'win_len': config.get('win_len', WIN_LEN),
+        'feature_size': config.get('feature_size', FEATURE_SIZE)
+    }
+    
+    # Create a temporary file for the config
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(fewshot_config, f, indent=4)
+        temp_config_path = f.name
+    
+    # Set up command
+    cmd = [
+        "python", cmd_path,
+        f"--task={task}",
+        f"--model={model}",
+        f"--config={temp_config_path}"
+    ]
+    
+    # Execute the command
+    print(f"Running few-shot pipeline command: {' '.join(cmd)}")
+    returncode, output = run_command(' '.join(cmd))
+    
+    # Clean up temporary config file
+    try:
+        os.unlink(temp_config_path)
+    except:
+        pass
+    
+    return returncode
 
 def run_multitask_direct(config):
-    """
-    Run multitask learning with the given configuration
+    """Run multitask learning pipeline directly"""
     
-    Args:
-        config: Configuration dictionary
+    # Import needed modules
+    import torch
+    
+    # Build command
+    cmd_path = os.path.join(ROOT_DIR, "train_multi_model.py")
+    
+    # Extract config values
+    tasks = config.get("tasks", [config.get("task", TASK)])
+    if isinstance(tasks, str):
+        # Convert comma-separated string to list if needed
+        tasks = tasks.split(',')
+    model = config.get("model", MODEL_NAME)
+    
+    # Parse test_splits
+    test_splits = config.get("test_splits", "all")
+    
+    # Handle empty test_dirs array gracefully
+    test_dirs = config.get("test_dirs", [])
+    test_dirs_arg = f"--test_dirs={','.join(test_dirs)}" if test_dirs else ""
+    
+    # Set up command
+    cmd = [
+        "python", cmd_path,
+        f"--tasks={','.join(tasks)}",
+        f"--model={model}",
+        f"--mode={config.get('mode', MODE)}",
+        f"--training_dir={config.get('training_dir', TRAINING_DIR)}",
+        test_dirs_arg,
+        f"--output_dir={config.get('output_dir', OUTPUT_DIR)}",
+        f"--seed={config.get('seed', SEED)}",
+        f"--batch_size={config.get('batch_size', BATCH_SIZE)}",
+        f"--epochs={config.get('epochs', EPOCH_NUMBER)}",
+        f"--patience={config.get('patience', 15)}",
+        f"--win_len={config.get('win_len', WIN_LEN)}",
+        f"--feature_size={config.get('feature_size', FEATURE_SIZE)}",
+        f"--device={DEVICE}",
+        f"--test_splits={test_splits}",
+        f"--pipeline=multitask"
+    ]
+    
+    # Add optional parameters
+    if "enable_few_shot" in config and config["enable_few_shot"]:
+        cmd.append(f"--enable_few_shot")
+        cmd.append(f"--k_shot={config.get('k_shot', 5)}")
+        cmd.append(f"--inner_lr={config.get('inner_lr', 0.01)}")
+        cmd.append(f"--num_inner_steps={config.get('num_inner_steps', 10)}")
         
-    Returns:
-        Return code (0 for success, non-zero for failure)
-    """
-    print("Running multitask learning with the following configuration:")
-    for key, value in config.items():
-        print(f"  {key}: {value}")
+    # Remove empty arguments
+    cmd = [arg for arg in cmd if not arg.endswith("=")]
     
-    # Create command
-    script_dir = os.path.join(SCRIPT_DIR)
+    # Execute the command
+    print(f"Running multitask command: {' '.join(cmd)}")
+    returncode, output = run_command(' '.join(cmd))
     
-    # Get the tasks parameter correctly
-    tasks = config.get('tasks')
-    if not tasks:
-        print("Error: 'tasks' parameter is missing or empty. Please specify at least one task.")
-        return 1
-    
-    # Ensure tasks is properly formatted - should be a comma-separated string without spaces
-    if isinstance(tasks, list):
-        tasks = ','.join(tasks)
-    
-    # Get other parameters
-    model_name = config.get('model', MODEL_NAME)
-    training_dir = config.get('training_dir', TRAINING_DIR)
-    epochs = config.get('epochs', EPOCH_NUMBER)
-    batch_size = config.get('batch_size', BATCH_SIZE)
-    enable_few_shot = config.get('enable_few_shot', False)
-    k_shot = config.get('k_shot', 5)
-    win_len = config.get('win_len', WIN_LEN)
-    feature_size = config.get('feature_size', FEATURE_SIZE)
-    
-    # Build command directly as a string for better control of quotes and escaping
-    cmd = f"{sys.executable} {os.path.join(script_dir, 'train_multitask_adapter.py')}"
-    cmd += f" --tasks=\"{tasks}\""
-    cmd += f" --model={model_name}"
-    cmd += f" --data_dir=\"{training_dir}\""
-    cmd += f" --epochs={epochs}"
-    cmd += f" --batch_size={batch_size}"
-    cmd += f" --win_len={win_len}"
-    cmd += f" --feature_size={feature_size}"
-    
-    # Add few-shot flag if specified
-    if enable_few_shot:
-        cmd += " --enable_few_shot"
-        cmd += f" --k_shot={k_shot}"
-    
-    # Handle optional parameters
-    if 'emb_dim' in config:
-        cmd += f" --emb_dim={config['emb_dim']}"
-    if 'dropout' in config:
-        cmd += f" --dropout={config['dropout']}"
-    if 'test_splits' in config:
-        cmd += f" --test_splits=\"{config['test_splits']}\""
-    
-    # Run the command
-    print(f"Running command: {cmd}")
-    return subprocess.call(cmd, shell=True)
+    return returncode
 
 def save_config(config, pipeline='supervised'):
     """
@@ -890,58 +963,66 @@ def save_config(config, pipeline='supervised'):
     return config_filename
 
 def main():
-    """Main entry point for the WiFi sensing pipeline runner"""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Run WiFi sensing pipeline')
+    """Run the main function"""
+    parser = argparse.ArgumentParser(description='WiFi Sensing Pipeline Runner - Local Environment')
     
     # Pipeline selection
-    parser.add_argument('--pipeline', type=str, default=PIPELINE, choices=AVAILABLE_PIPELINES,
-                        help='Pipeline to run (supervised, meta, multitask, or fewshot)')
+    parser.add_argument('--pipeline', type=str, choices=AVAILABLE_PIPELINES, default=PIPELINE,
+                        help=f'Learning pipeline to run (choices: {", ".join(AVAILABLE_PIPELINES)})')
     
-    # Model and task selection
-    parser.add_argument('--model', type=str, choices=AVAILABLE_MODELS,
-                        help='Model architecture to train')
-    parser.add_argument('--task', type=str,
-                        help='[DEPRECATED] Task to train on (use --tasks instead)')
-    parser.add_argument('--tasks', type=str,
-                        help='Comma-separated list of tasks (for multitask) or single task (for supervised)')
+    # Basic parameters
+    parser.add_argument('--model', type=str, choices=AVAILABLE_MODELS, default=MODEL_NAME,
+                        help=f'Model architecture (choices: {", ".join(AVAILABLE_MODELS)})')
+    parser.add_argument('--task', type=str, choices=AVAILABLE_TASKS, default=TASK,
+                        help=f'Task to train on (choices: {", ".join(AVAILABLE_TASKS)})')
+    parser.add_argument('--tasks', type=str, default=None,
+                        help='Comma-separated list of tasks for multitask learning')
     
-    # Data directories
-    parser.add_argument('--training_dir', type=str,
-                        help='Directory containing training data')
-    parser.add_argument('--test_dirs', type=str, nargs='+',
-                        help='Directories containing test data')
-    parser.add_argument('--output_dir', type=str,
-                        help='Directory to save results')
+    # File paths
+    parser.add_argument('--training_dir', type=str, default=TRAINING_DIR,
+                        help='Directory containing the training data')
+    parser.add_argument('--test_dirs', type=str, default=None,
+                        help='Comma-separated list of directories containing test data')
+    parser.add_argument('--output_dir', type=str, default=OUTPUT_DIR,
+                        help='Directory to save output results')
+    parser.add_argument('--config_file', type=str, default=None,
+                        help='JSON configuration file to override defaults')
+    
+    # Model parameters
+    parser.add_argument('--mode', type=str, default=MODE,
+                        help='Data modality to use (csi or acf)')
+    parser.add_argument('--win_len', type=int, default=WIN_LEN,
+                        help='Window length for input data')
+    parser.add_argument('--feature_size', type=int, default=FEATURE_SIZE,
+                        help='Feature size for input data')
     
     # Training parameters
-    parser.add_argument('--epochs', type=int,
-                        help='Number of epochs to train')
-    parser.add_argument('--batch_size', type=int,
+    parser.add_argument('--batch_size', type=int, default=BATCH_SIZE,
                         help='Batch size for training')
-    parser.add_argument('--mode', type=str, choices=['csi', 'acf'],
-                        help='Data modality (csi or acf)')
-    parser.add_argument('--test_splits', type=str,
-                        help='Comma-separated list of test splits to use, or "all" to use all available test splits. '
-                             'Examples: test_id,test_cross_env,test_cross_user,test_cross_device,hard_cases')
+    parser.add_argument('--epochs', type=int, default=EPOCH_NUMBER,
+                        help='Number of epochs to train')
+    parser.add_argument('--seed', type=int, default=SEED,
+                        help='Random seed for reproducibility')
+    parser.add_argument('--test_splits', type=str, default='all',
+                        help='Comma-separated list of test splits to use (or "all")')
     
-    # Model-specific parameters
-    parser.add_argument('--feature_size', type=int,
-                        help='Feature size dimension for the model')
-    parser.add_argument('--win_len', type=int,
-                        help='Window length dimension for the model')
-    parser.add_argument('--emb_dim', type=int,
-                        help='Embedding dimension for transformer models')
-    parser.add_argument('--dropout', type=float,
-                        help='Dropout rate for model')
-    
-    # Few-shot learning parameters (updated and unified)
-    parser.add_argument('--evaluate_fewshot', action='store_true',
+    # Few-shot learning parameters
+    parser.add_argument('--enable_few_shot', action='store_true',
                         help='Enable few-shot learning adaptation for cross-domain scenarios')
+    parser.add_argument('--k_shot', type=int, default=5,
+                        help='Number of examples per class for few-shot adaptation')
+    parser.add_argument('--inner_lr', type=float, default=0.01,
+                        help='Learning rate for few-shot adaptation')
+    parser.add_argument('--num_inner_steps', type=int, default=10,
+                        help='Number of gradient steps for few-shot adaptation')
+    
+    # Supervised few-shot parameters
+    parser.add_argument('--evaluate_fewshot', action='store_true',
+                        help='Evaluate few-shot learning after supervised training')
     parser.add_argument('--fewshot_support_split', type=str, default='val_id',
-                        help='Split to use for few-shot support set (few examples from new environment)')
+                        help='Split to use for few-shot support set')
     parser.add_argument('--fewshot_query_split', type=str, default='test_cross_env',
-                        help='Split to use for query set (testing in new environment)')
+                        help='Split to use for query set')
     parser.add_argument('--fewshot_adaptation_lr', type=float, default=0.01,
                         help='Learning rate for few-shot adaptation')
     parser.add_argument('--fewshot_adaptation_steps', type=int, default=10,
@@ -950,99 +1031,36 @@ def main():
                         help='Fine-tune all model parameters instead of just the classifier')
     parser.add_argument('--fewshot_eval_shots', action='store_true',
                         help='Evaluate different shot values (1, 3, 5, 10) and compare')
-    parser.add_argument('--fewshot_task', type=str,
-                        help='Task to use for few-shot adaptation (for multitask learning only)')
     
-    # Legacy few-shot parameters (for backwards compatibility)
-    parser.add_argument('--enable_few_shot', action='store_true',
-                        help='[Legacy] Enable few-shot learning (use --evaluate_fewshot instead)')
-    parser.add_argument('--k_shot', type=int, default=5,
-                        help='[Legacy] Number of examples per class for few-shot adaptation')
-    parser.add_argument('--inner_lr', type=float, default=0.01,
-                        help='[Legacy] Learning rate for few-shot adaptation (use --fewshot_adaptation_lr instead)')
-    parser.add_argument('--num_inner_steps', type=int, default=10,
-                        help='[Legacy] Number of gradient steps for few-shot adaptation (use --fewshot_adaptation_steps instead)')
-    
-    # Configuration
-    parser.add_argument('--config_file', type=str,
-                        help='JSON configuration file to override defaults')
-    
+    # Parse arguments
     args = parser.parse_args()
     
-    # Unify task and tasks parameters
-    if args.tasks and args.task:
-        # Both provided, prioritize tasks but make sure they're consistent
-        tasks_list = [t.strip() for t in args.tasks.split(',')]
-        if args.task not in tasks_list and args.pipeline == 'supervised':
-            # For supervised, add the task to the list if it's not there
-            tasks_list.append(args.task)
-            args.tasks = ','.join(tasks_list)
-    elif args.tasks and not args.task:
-        # Only tasks provided, set task to the first one for supervised
-        tasks_list = [t.strip() for t in args.tasks.split(',')]
-        if tasks_list and args.pipeline == 'supervised':
-            args.task = tasks_list[0]
-    elif args.task and not args.tasks:
-        # Only task provided, create tasks parameter
-        args.tasks = args.task
-    elif not args.task and not args.tasks and args.pipeline in ['supervised', 'multitask']:
-        # Neither provided, use defaults from config
-        if args.pipeline == 'supervised':
-            args.task = TASK
-            args.tasks = TASK
-        elif args.pipeline == 'multitask':
-            args.tasks = "MotionSourceRecognition,HumanMotion"
-            print(f"No tasks specified, using default tasks: {args.tasks}")
-    
-    # Map legacy parameters to new ones if the new ones aren't set
-    if args.enable_few_shot and not args.evaluate_fewshot:
-        args.evaluate_fewshot = args.enable_few_shot
-    
-    # Validate arguments based on pipeline
-    if args.pipeline == 'multitask' and not args.tasks:
-        print("Error: --tasks argument is required for multitask pipeline")
-        print("Example: --tasks \"MotionSourceRecognition,HumanMotion\"")
-        return 1
-    
-    if args.pipeline == 'supervised' and not args.task and not args.model:
-        print("Warning: Running supervised pipeline without specifying --task or --model")
-        print("Default task: {}, Default model: {}".format(TASK, MODEL_NAME))
-    
-    # Set data directory environment variable if training_dir is provided
-    if args.training_dir:
-        os.environ['WIFI_DATA_DIR'] = args.training_dir
-    
-    # Load or create configuration
+    # If tasks specified as comma-separated list, parse it
+    if args.tasks is not None:
+        args.tasks = args.tasks.split(',')
+        
+    # If test_dirs specified as comma-separated list, parse it
+    if args.test_dirs is not None:
+        args.test_dirs = args.test_dirs.split(',')
+        
+    # Create or load configuration
     config = create_or_load_config(args)
     
-    # Set explicit task names in the config
-    if args.tasks:
-        config['tasks'] = args.tasks
-    elif args.task:
-        config['tasks'] = args.task
-        config['task'] = args.task
+    # Save configuration for reference
+    save_config(config, pipeline=args.pipeline)
     
-    # Set training_dir in the config
-    if args.training_dir:
-        config['training_dir'] = args.training_dir
-        config['data_dir'] = args.training_dir  # Also set data_dir for compatibility
-    
-    # Save configuration for future reference
-    config_file = save_config(config, args.pipeline)
     # Run appropriate pipeline
-    if args.pipeline == 'meta':
+    if args.pipeline == 'supervised':
+        return run_supervised_direct(config)
+    elif args.pipeline == 'meta':
         return run_meta_learning(config)
     elif args.pipeline == 'multitask':
         return run_multitask_direct(config)
     elif args.pipeline == 'fewshot':
-        # For pure few-shot learning without training
-        # This requires a pre-trained model
-        if not hasattr(args, 'model_path') or not args.model_path:
-            print("Error: --model_path is required for fewshot pipeline")
-            return 1
-        return run_fewshot_direct(config)
-    else:  # Default to supervised
-        return run_supervised_direct(config)
+        return run_fewshot_pipeline(config)
+    else:
+        print(f"Unsupported pipeline: {args.pipeline}")
+        return 1
 
 if __name__ == "__main__":
     sys.exit(main())
