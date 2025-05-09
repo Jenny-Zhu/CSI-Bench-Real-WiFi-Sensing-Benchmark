@@ -1,15 +1,6 @@
-{
-  "model": "resnet18",
-  "task": "MotionSourceRecognition",
-  "batch_size": 32,
-  "num_epochs": 10,
-  "learning_rate": 0.001,
+{"learning_rate": 0.001,
   "weight_decay": 1e-5,
-  "win_len": 232,
-  "feature_size": 500,
   "in_channels": 1,
-  "results_subdir": "resnet18_msr",
-  "training_dir": "wifi_benchmark_dataset",
-  "output_dir": "./results"
+  "results_subdir": "resnet18_msr"
 } 
 

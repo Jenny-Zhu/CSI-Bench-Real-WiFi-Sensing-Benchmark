@@ -15,6 +15,7 @@ from scripts.train_supervised import MODEL_TYPES
 from engine.supervised.task_trainer import TaskTrainer
 from engine.few_shot import FewShotAdapter
 import matplotlib.pyplot as plt
+from sklearn.metrics import f1_score
 
 
 def generate_experiment_id():
@@ -160,7 +161,8 @@ def main():
             dataset_root=args.data_dir,
             task_name=task,
             batch_size=args.batch_size,
-            test_splits=test_splits_to_use[task]
+            test_splits=test_splits_to_use[task],
+            use_root_as_task_dir=False
         )
         ld = data['loaders']
         train_loaders[task] = ld['train']
@@ -451,19 +453,57 @@ def main():
     best_metrics = {task: {'val_loss': float('inf'), 'val_acc': 0, 'best_epoch': 0} for task in task_classes}
     best_task_states = {}
 
-    def evaluate(loader):
+    def evaluate(model, loader, criterion, device):
+        """Evaluate model performance on the given data loader.
+        
+        Args:
+            model: Model to evaluate
+            loader: Data loader
+            criterion: Loss function
+            device: Device to run evaluation on
+            
+        Returns:
+            tuple: (loss, accuracy, F1 score)
+        """
         model.eval()
-        tot_loss = tot_correct = tot_n = 0
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        
+        all_preds = []
+        all_labels = []
+        
         with torch.no_grad():
-            for x, y in loader:
-                x, y = x.to(device), y.to(device)
-                logits = model(x)
-                loss = criterion(logits, y)
-                b = y.size(0)
-                tot_loss += loss.item() * b
-                tot_correct += (logits.argmax(1) == y).sum().item()
-                tot_n += b
-        return tot_loss / tot_n, tot_correct / tot_n
+            for batch in loader:
+                # Record predictions and true labels for calculating F1 score
+                inputs, labels = batch
+                inputs, labels = inputs.to(device), labels.to(device)
+                
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                
+                total_loss += loss.item()
+                
+                # Calculate accuracy
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                
+                # Calculate F1 score
+                if len(set(labels.cpu().numpy())) > 1:  # Ensure there are multiple classes
+                    all_preds.extend(predicted.cpu().numpy())
+                    all_labels.extend(labels.cpu().numpy())
+        
+        if len(all_preds) > 0 and len(all_labels) > 0:
+            try:
+                f1 = f1_score(all_labels, all_preds, average='weighted')
+            except Exception as e:
+                print(f"Error calculating F1 score: {e}")
+                f1 = 0.0
+        else:
+            f1 = 0.0
+        
+        return total_loss / len(loader), correct / total, f1
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -483,11 +523,12 @@ def main():
         print(f"\nValidation after epoch {epoch}:")
         for task, vloader in val_loaders.items():
             model.set_active_task(task)
-            v_l, v_a = evaluate(vloader)
+            v_l, v_a, v_f1 = evaluate(model, vloader, criterion, device)
             val_losses.append(v_l)
             row[f"{task}_val_loss"] = v_l
             row[f"{task}_val_acc"] = v_a
-            print(f"  {task}: loss={v_l:.4f}, acc={v_a:.4f}")
+            row[f"{task}_val_f1"] = v_f1
+            print(f"  {task}: loss={v_l:.4f}, acc={v_a:.4f}, f1={v_f1:.4f}")
             
             # Create task-specific directory structure for results
             task_dir = os.path.join(args.save_dir, task, args.model, experiment_id)
@@ -498,6 +539,7 @@ def main():
                 print(f"  New best accuracy for {task}: {v_a:.4f} (previous: {best_metrics[task]['val_acc']:.4f})")
                 best_metrics[task]['val_loss'] = v_l
                 best_metrics[task]['val_acc'] = v_a
+                best_metrics[task]['val_f1'] = v_f1
                 best_metrics[task]['best_epoch'] = epoch
                 
                 # Save task-specific best state
@@ -547,7 +589,8 @@ def main():
             task_row = {
                 'epoch': row['epoch'],
                 'val_loss': row.get(f"{task}_val_loss", None),
-                'val_acc': row.get(f"{task}_val_acc", None)
+                'val_acc': row.get(f"{task}_val_acc", None),
+                'val_f1': row.get(f"{task}_val_f1", None)
             }
             task_history.append(task_row)
         
@@ -634,6 +677,7 @@ def main():
             'experiment_id': experiment_id,
             'best_val_loss': best_metrics[task]['val_loss'],
             'best_val_acc': best_metrics[task]['val_acc'],
+            'best_val_f1': best_metrics[task]['val_f1'],
             'best_epoch': best_metrics[task]['best_epoch'],
             'total_epochs': len(history),
             'early_stopped': no_improve >= args.patience,
@@ -650,20 +694,22 @@ def main():
                 with open(best_perf_path, 'r') as f:
                     best_perf = json.load(f)
                 
-                # Only update if our current performance is better
-                if best_metrics[task]['val_acc'] > best_perf.get('best_val_acc', 0):
+                # Update only when validation accuracy improves
+                if best_metrics[task]['val_acc'] > best_perf.get('best_val_accuracy', 0):
                     best_perf = {
                         'best_experiment_id': experiment_id,
+                        'best_val_accuracy': best_metrics[task]['val_acc'],
                         'best_val_loss': best_metrics[task]['val_loss'],
-                        'best_val_acc': best_metrics[task]['val_acc'],
+                        'best_val_f1': best_metrics[task]['val_f1'],
                         'best_epoch': best_metrics[task]['best_epoch'],
                         'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
                     }
             else:
                 best_perf = {
                     'best_experiment_id': experiment_id,
+                    'best_val_accuracy': best_metrics[task]['val_acc'],
                     'best_val_loss': best_metrics[task]['val_loss'],
-                    'best_val_acc': best_metrics[task]['val_acc'],
+                    'best_val_f1': best_metrics[task]['val_f1'],
                     'best_epoch': best_metrics[task]['best_epoch'],
                     'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
                 }
@@ -690,17 +736,18 @@ def main():
         
         # Create a summary table for this task's test results
         print(f"\nTest Results for {task}:")
-        print(f"{'Split':<20} {'Accuracy':<15} {'Loss':<15}")
+        print(f"{'Split':<20} {'Accuracy':<15} {'Loss':<15} {'F1 Score':<15}")
         print('-' * 50)
         
         for split, tloader in tdict.items():
-            t_l, t_a = evaluate(tloader)
-            print(f"{split:<20} {t_a:.4f}{'':<10} {t_l:.4f}")
+            t_l, t_a, t_f1 = evaluate(model, tloader, criterion, device)
+            print(f"{split:<20} {t_a:.4f}{'':<10} {t_l:.4f} F1: {t_f1:.4f}")
             
             # Save test results
             test_results[split] = {
                 'loss': t_l,
-                'accuracy': t_a
+                'accuracy': t_a,
+                'f1_score': t_f1
             }
             
             # Generate confusion matrix for test set
@@ -720,17 +767,25 @@ def main():
             )
             tm.plot_confusion_matrix(data_loader=tloader, epoch=None, mode=split)
             
-            # Update best_performance.json with test results
+            # Update best_performance.json, add test results
             try:
                 best_perf_path = os.path.join(args.save_dir, task, args.model, "best_performance.json")
                 if os.path.exists(best_perf_path):
                     with open(best_perf_path, 'r') as f:
                         best_perf = json.load(f)
                     
-                    # Only update test results for current best experiment
+                    # Update only when validation accuracy improves
                     if best_perf.get('best_experiment_id') == experiment_id:
-                        best_perf[f'best_{split}_accuracy'] = t_a
-                        best_perf[f'best_{split}_loss'] = t_l
+                        # Update test results
+                        if 'best_test_accuracies' not in best_perf:
+                            best_perf['best_test_accuracies'] = {}
+                        
+                        if 'best_test_f1_scores' not in best_perf:
+                            best_perf['best_test_f1_scores'] = {}
+                        
+                        # Update test results
+                        best_perf['best_test_accuracies'][split] = t_a
+                        best_perf['best_test_f1_scores'][split] = t_f1
                         
                         with open(best_perf_path, 'w') as f:
                             json.dump(best_perf, f, indent=2)
@@ -853,6 +908,7 @@ def main():
                 'best_validation': {
                     'accuracy': best_metrics[task]['val_acc'],
                     'loss': best_metrics[task]['val_loss'],
+                    'f1_score': best_metrics[task]['val_f1'],
                     'epoch': best_metrics[task]['best_epoch']
                 },
                 'test_results': test_results,
@@ -868,6 +924,7 @@ def main():
                 'best_validation': {
                     'accuracy': best_metrics[task]['val_acc'],
                     'loss': best_metrics[task]['val_loss'],
+                    'f1_score': best_metrics[task]['val_f1'],
                     'epoch': best_metrics[task]['best_epoch']
                 },
                 'test_results': test_results

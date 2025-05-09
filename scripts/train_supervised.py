@@ -10,7 +10,7 @@ import argparse
 import torch
 import torch.nn as nn
 import numpy as np
-import pandas as pd  # 确保导入pandas
+import pandas as pd  # Ensure pandas is imported
 from load.supervised.benchmark_loader import load_benchmark_supervised
 from tqdm import tqdm
 import json
@@ -227,7 +227,8 @@ def main(args=None):
         file_format="h5",
         data_key=args.data_key,
         num_workers=4,
-        test_splits=test_splits
+        test_splits=test_splits,
+        use_root_as_task_dir=False
     )
     
     # Extract data from the returned dictionary
@@ -623,40 +624,68 @@ def main(args=None):
         best_performance_path = os.path.join(model_level_dir, "best_performance.json")
         
         try:
-            with open(best_performance_path, 'r') as f:
-                best_performance = json.load(f)
+            # Get current validation accuracy
+            val_accuracy = float(history.iloc[best_epoch-1]['Val Accuracy'])
             
-            # Get current best test accuracy (use test split for standard evaluation)
-            current_best = best_performance.get('best_test_accuracy', 0.0)
+            # Create dictionaries for test accuracies and F1 scores
+            test_accuracies = {}
+            test_f1_scores = {}
+            for split_name, metrics in all_results.items():
+                test_accuracies[split_name] = metrics['accuracy']
+                test_f1_scores[split_name] = metrics['f1_score']
             
-            # Compare current model performance with the best so far (using standard test split)
-            test_accuracy = all_results.get('test', {}).get('accuracy', 0.0)
-            
-            if test_accuracy > current_best:
-                print(f"New best model! Test accuracy: {test_accuracy:.4f} (previous best: {current_best:.4f})")
+            # Load current best performance 
+            if os.path.exists(best_performance_path):
+                with open(best_performance_path, 'r') as f:
+                    best_performance = json.load(f)
                 
-                # Create updated best performance with all test splits
-                updated_performance = {
-                    'best_test_accuracy': test_accuracy,
-                    'best_test_f1_score': all_results.get('test', {}).get('f1_score', 0.0),
+                # Get current best validation accuracy
+                current_best_val = best_performance.get('best_val_accuracy', 0.0)
+                
+                # Compare using validation accuracy
+                if val_accuracy > current_best_val:
+                    print(f"New best model! Validation accuracy: {val_accuracy:.4f} (previous best: {current_best_val:.4f})")
+                    
+                    # Create updated best performance
+                    updated_performance = {
+                        'best_val_accuracy': val_accuracy,
+                        'best_val_loss': float(history.iloc[best_epoch-1]['Val Loss']),
+                        'best_experiment_id': experiment_id,
+                        'best_experiment_params': config,
+                        'best_test_accuracies': test_accuracies,
+                        'best_test_f1_scores': test_f1_scores,
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    
+                    # Save updated best performance
+                    with open(best_performance_path, 'w') as f:
+                        json.dump(updated_performance, f, indent=4)
+                else:
+                    print(f"Not the best model. Current validation accuracy: {val_accuracy:.4f} (best: {current_best_val:.4f})")
+            else:
+                # First time creating the file
+                print(f"Creating initial best performance record with validation accuracy: {val_accuracy:.4f}")
+                
+                initial_performance = {
+                    'best_val_accuracy': val_accuracy,
+                    'best_val_loss': float(history.iloc[best_epoch-1]['Val Loss']),
                     'best_experiment_id': experiment_id,
                     'best_experiment_params': config,
+                    'best_test_accuracies': test_accuracies,
+                    'best_test_f1_scores': test_f1_scores,
                     'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
                 }
                 
-                # Add results for other test splits
-                for split_name, metrics in all_results.items():
-                    if split_name != 'test':
-                        updated_performance[f'best_{split_name}_accuracy'] = metrics['accuracy']
-                        updated_performance[f'best_{split_name}_f1_score'] = metrics['f1_score']
+                # Create directory if needed
+                os.makedirs(os.path.dirname(best_performance_path), exist_ok=True)
                 
-                # Save updated best performance
+                # Save initial best performance
                 with open(best_performance_path, 'w') as f:
-                    json.dump(updated_performance, f, indent=4)
-            else:
-                print(f"Not the best model. Current test accuracy: {test_accuracy:.4f} (best: {current_best:.4f})")
+                    json.dump(initial_performance, f, indent=4)
         except Exception as e:
             print(f"Warning: Failed to update best_performance.json: {e}")
+            import traceback
+            traceback.print_exc()
     
     return summary, all_results, model
 

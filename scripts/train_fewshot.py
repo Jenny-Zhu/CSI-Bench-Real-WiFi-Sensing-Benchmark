@@ -103,7 +103,8 @@ def main(args=None):
         shuffle_train=True,
         train_split="train_id",
         val_split=args.support_split,  # Use specified split for support set
-        test_splits=[args.query_split]  # Use specified split for query set
+        test_splits=[args.query_split],  # Use specified split for query set
+        use_root_as_task_dir=False  # 本地训练模式下不直接使用根目录作为任务目录
     )
     
     # Extract data from the returned dictionary

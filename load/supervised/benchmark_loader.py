@@ -17,7 +17,8 @@ def load_benchmark_supervised(
     shuffle_train=True,
     train_split="train_id",
     val_split="val_id",
-    test_splits=None
+    test_splits=None,
+    use_root_as_task_dir=False
 ):
     """
     Load benchmark dataset for supervised learning.
@@ -37,6 +38,7 @@ def load_benchmark_supervised(
         train_split: Name of training split.
         val_split: Name of validation split.
         test_splits: List of test split names.
+        use_root_as_task_dir: Whether to directly use dataset_root as the task directory.
         
     Returns:
         Dictionary with data loaders and number of classes.
@@ -50,54 +52,98 @@ def load_benchmark_supervised(
     # Create all split names
     all_splits = [train_split, val_split] + test_splits
     
-    # Try multiple directory structures to find the task directory
-    possible_paths = [
-        os.path.join(dataset_root, "tasks", task_name),              # dataset_root/tasks/task_name
-        os.path.join(dataset_root, task_name),                        # dataset_root/task_name
-        os.path.join(dataset_root, task_name.lower()),                # dataset_root/task_name_lowercase
-        os.path.join(dataset_root, "tasks", task_name.lower())        # dataset_root/tasks/task_name_lowercase
-    ]
+    # Debug output
     data_dir_debug = os.path.join(dataset_root, "tasks", task_name)
     print(f"________________________DATA DEBUG________{data_dir_debug}")
-    task_dir = None
-    for path in possible_paths:
-        print(f"Checking path: {path}")
-        if os.path.isdir(path):
-            # Check if this directory has metadata and splits
-            has_metadata = os.path.exists(os.path.join(path, 'metadata'))
-            has_splits = os.path.exists(os.path.join(path, 'splits'))
-            print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
-            
-            if has_metadata or has_splits:
-                task_dir = path
-                break
     
-    # If not found, try walking the directory to find it
-    if task_dir is None:
-        print(f"Task directory not found in predefined paths, searching recursively...")
-        for root, dirs, files in os.walk(dataset_root):
-            if task_name in dirs or task_name.lower() in dirs:
-                # Try with exact case first
-                if task_name in dirs:
-                    potential_task_dir = os.path.join(root, task_name)
-                else:
-                    potential_task_dir = os.path.join(root, task_name.lower())
-                
-                # Check if this directory has metadata or splits
-                has_metadata = os.path.exists(os.path.join(potential_task_dir, 'metadata'))
-                has_splits = os.path.exists(os.path.join(potential_task_dir, 'splits'))
-                print(f"Found potential directory: {potential_task_dir}")
+    # If use_root_as_task_dir is specified
+    if use_root_as_task_dir:
+        # Check if root directory contains necessary subdirectories
+        has_metadata = os.path.exists(os.path.join(dataset_root, 'metadata'))
+        has_splits = os.path.exists(os.path.join(dataset_root, 'splits'))
+        
+        if has_metadata and has_splits:
+            print(f"Using dataset root directly as task directory: {dataset_root}")
+            task_dir = dataset_root
+        else:
+            print(f"Root directory does not contain required subfolders, will try standard paths.")
+            use_root_as_task_dir = False  # Fall back to standard path search
+    
+    # If not using root directory directly or root directory doesn't meet requirements
+    if not use_root_as_task_dir:
+        # Try multiple directory structures to find the task directory
+        possible_paths = [
+            os.path.join(dataset_root, "tasks", task_name),              # dataset_root/tasks/task_name
+            os.path.join(dataset_root, task_name),                        # dataset_root/task_name
+            os.path.join(dataset_root, task_name.lower()),                # dataset_root/task_name_lowercase
+            os.path.join(dataset_root, "tasks", task_name.lower())        # dataset_root/tasks/task_name_lowercase
+        ]
+        
+        task_dir = None
+        for path in possible_paths:
+            print(f"Checking path: {path}")
+            if os.path.isdir(path):
+                # Check if this directory has metadata and splits
+                has_metadata = os.path.exists(os.path.join(path, 'metadata'))
+                has_splits = os.path.exists(os.path.join(path, 'splits'))
                 print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
                 
                 if has_metadata or has_splits:
-                    task_dir = potential_task_dir
+                    task_dir = path
                     break
+        
+        # If not found, try walking the directory to find it
+        if task_dir is None:
+            print(f"Task directory not found in predefined paths, searching recursively...")
+            for root, dirs, files in os.walk(dataset_root):
+                if task_name in dirs or task_name.lower() in dirs:
+                    # Try with exact case first
+                    if task_name in dirs:
+                        potential_task_dir = os.path.join(root, task_name)
+                    else:
+                        potential_task_dir = os.path.join(root, task_name.lower())
+                    
+                    # Check if this directory has metadata or splits
+                    has_metadata = os.path.exists(os.path.join(potential_task_dir, 'metadata'))
+                    has_splits = os.path.exists(os.path.join(potential_task_dir, 'splits'))
+                    print(f"Found potential directory: {potential_task_dir}")
+                    print(f"  Has metadata: {has_metadata}, Has splits: {has_splits}")
+                    
+                    if has_metadata or has_splits:
+                        task_dir = potential_task_dir
+                        break
     
+    # Final check if task directory was found
     if task_dir is None:
-        raise ValueError(f"Could not find task directory for {task_name} in {dataset_root}")
+        # If still no directory found and parameter allows, try using root directory again (even if missing standard subdirectories)
+        if not use_root_as_task_dir and os.path.exists(dataset_root):
+            print(f"No task directory found. As a last resort, trying to use root directory: {dataset_root}")
+            task_dir = dataset_root
+        else:
+            raise ValueError(f"Could not find task directory for {task_name} in {dataset_root}")
     
     print(f"Using task directory: {task_dir}")
-    metadata_path = os.path.join(task_dir, 'metadata', 'subset_metadata.csv')
+    
+    # Display task directory contents for debugging
+    print(f"\n==== Task Directory Contents ({task_dir}) ====")
+    try:
+        dir_items = os.listdir(task_dir)
+        for item in dir_items:
+            item_path = os.path.join(task_dir, item)
+            if os.path.isdir(item_path):
+                subdir_items = os.listdir(item_path)
+                print(f"  Directory: {item}/ ({len(subdir_items)} items)")
+                # If it's a metadata or splits directory, display its contents
+                if item in ['metadata', 'splits']:
+                    for subitem in subdir_items:
+                        print(f"    - {subitem}")
+            else:
+                print(f"  File: {item}")
+    except Exception as e:
+        print(f"Cannot list task directory contents: {e}")
+    print("================================================\n")
+    
+    metadata_path = os.path.join(task_dir, 'metadata', 'sample_metadata.csv')
     mapping_path = os.path.join(task_dir, 'metadata', 'label_mapping.json')
     
     # Check if metadata file exists
@@ -105,6 +151,8 @@ def load_benchmark_supervised(
         # Try alternative metadata file names
         alternate_paths = [
             os.path.join(task_dir, 'metadata', 'metadata.csv'),
+            os.path.join(task_dir, 'metadata', 'subset_metadata.csv'),
+            os.path.join(task_dir, 'sample_metadata.csv'),  # Direct in task directory
             os.path.join(task_dir, 'subset_metadata.csv'),
             os.path.join(task_dir, 'metadata.csv')
         ]
@@ -116,8 +164,29 @@ def load_benchmark_supervised(
                 break
         
         if not os.path.exists(metadata_path):
-            raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
-        
+            # Diagnostic information
+            print(f"\n===== Metadata File Search Failed =====")
+            print(f"Tried the following paths:")
+            print(f"- {os.path.join(task_dir, 'metadata', 'sample_metadata.csv')}")
+            for path in alternate_paths:
+                print(f"- {path}")
+            
+            # Check if there are any .csv files in the task directory that might be metadata files with different names
+            found_csvs = []
+            for root, _, files in os.walk(task_dir):
+                for file in files:
+                    if file.endswith('.csv'):
+                        csv_path = os.path.join(root, file)
+                        found_csvs.append(csv_path)
+                        print(f"Found possible CSV file: {csv_path}")
+            
+            # If any CSV files found, try using the first one
+            if found_csvs:
+                print(f"Trying to use first found CSV file: {found_csvs[0]}")
+                metadata_path = found_csvs[0]
+            else:
+                raise FileNotFoundError(f"Metadata file not found: {metadata_path}. Please make sure the data structure is correct and includes necessary metadata files.")
+    
     print(f"Using metadata path: {metadata_path}")
     
     # Create or load label mapper

@@ -179,7 +179,7 @@ class TaskTrainer(BaseTrainer):
         # Plot results
         self.plot_training_results()
         
-        # 获取最佳验证准确率及其对应的epoch
+        # Get the best validation accuracy and its corresponding epoch
         if len(self.val_accuracies) > 0:
             best_idx = np.argmax(self.val_accuracies)
             best_epoch = best_idx + 1
@@ -188,7 +188,7 @@ class TaskTrainer(BaseTrainer):
             best_epoch = epochs
             best_val_accuracy = 0.0
         
-        # 创建包含统一信息的字典作为返回值
+        # Create a dictionary with unified information as the return value
         training_results = {
             'train_loss_history': self.train_losses,
             'val_loss_history': self.val_losses,
@@ -196,7 +196,7 @@ class TaskTrainer(BaseTrainer):
             'val_accuracy_history': self.val_accuracies,
             'best_epoch': self.best_epoch,
             'best_val_accuracy': best_val_accuracy,
-            'training_dataframe': results_df  # 包含DataFrame以兼容现有代码
+            'training_dataframe': results_df  # Include DataFrame to be compatible with existing code
         }
         
         return self.model, training_results
