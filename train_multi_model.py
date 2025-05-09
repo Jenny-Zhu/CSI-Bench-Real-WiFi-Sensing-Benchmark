@@ -748,160 +748,110 @@ def main():
             logger.info(f"SageMaker environment detected. Using local path: {dataset_root}")
             logger.info(f"Original S3 path: {original_path}")
             
-            # In SageMaker environment, check possible directory structure
-            # 1. First check /opt/ml/input/data/training/tasks/TaskName structure
-            tasks_task_path = os.path.join(dataset_root, 'tasks', args.task_name)
-            # 2. Check /opt/ml/input/data/training/TaskName structure
-            direct_task_path = os.path.join(dataset_root, args.task_name)
-            # 3. Check /opt/ml/input/data/training itself whether it's the task directory
-            root_as_task_path = dataset_root
-            
-            if os.path.exists(tasks_task_path):
-                logger.info(f"Found task at path: {tasks_task_path}")
-                # This is expected structure: /opt/ml/input/data/training/tasks/TaskName
-                task_dir = tasks_task_path
-            elif os.path.exists(direct_task_path):
-                logger.info(f"Found task directly at: {direct_task_path}")
-                # Alternative structure: /opt/ml/input/data/training/TaskName
-                task_dir = direct_task_path
-            elif os.path.exists(os.path.join(root_as_task_path, 'train')):
-                # Check whether train directory directly in root directory
-                logger.info(f"Root directory contains train subfolder, might be the task directory itself")
-                task_dir = root_as_task_path
-            else:
-                # Record directory content for debugging
-                logger.info(f"Contents of {dataset_root}: {os.listdir(dataset_root)}")
-                if os.path.exists(os.path.join(dataset_root, 'tasks')):
-                    logger.info(f"Contents of {os.path.join(dataset_root, 'tasks')}: {os.listdir(os.path.join(dataset_root, 'tasks'))}")
-                task_dir = None  # Task directory not found
-        else:
-            dataset_root = args.dataset_root
-            task_dir = None  # Initialize as None, decide later
-        
-        logger.info(f"Actual dataset root path: {dataset_root}")
-        
-        # If task directory found in SageMaker environment, no need to search again
-        if not is_sagemaker or task_dir is None:
-            # In non-SageMaker environment, or in SageMaker environment where task directory not found yet
-            if os.path.exists(dataset_root):
-                logger.info(f"Dataset root exists: {dataset_root}")
-                # Check task directory
-                direct_task_path = os.path.join(dataset_root, args.task_name)
-                if os.path.exists(direct_task_path):
-                    logger.info(f"Task directory found at {direct_task_path}")
-                    task_dir = direct_task_path
-                else:
-                    # Try tasks/task_name
-                    tasks_dir = os.path.join(dataset_root, 'tasks')
-                    if os.path.exists(tasks_dir):
-                        tasks_task_path = os.path.join(tasks_dir, args.task_name)
-                        if os.path.exists(tasks_task_path):
-                            logger.info(f"Task directory found at {tasks_task_path}")
-                            task_dir = tasks_task_path
-                        else:
-                            logger.warning(f"Task directory not found at {tasks_task_path}")
-                            task_dir = None
+            # If task directory found in SageMaker environment, no need to search again
+            if not is_sagemaker or task_dir is None:
+                # In non-SageMaker environment, or in SageMaker environment where task directory not found yet
+                if os.path.exists(dataset_root):
+                    logger.info(f"Dataset root exists: {dataset_root}")
+                    # Check task directory
+                    direct_task_path = os.path.join(dataset_root, args.task_name)
+                    if os.path.exists(direct_task_path):
+                        logger.info(f"Task directory found at {direct_task_path}")
+                        task_dir = direct_task_path
                     else:
-                        logger.warning(f"Neither {direct_task_path} nor {os.path.join(tasks_dir, args.task_name)} exists")
-                        task_dir = None
-            else:
-                logger.warning(f"Dataset root path {dataset_root} does not exist")
-                task_dir = None
-        
-        # If task directory found, check its content
-        if task_dir and os.path.exists(task_dir):
-            logger.info(f"Final task directory selected: {task_dir}")
-            logger.info(f"Content of task directory {task_dir}: {os.listdir(task_dir)}")
-            
-            # Further check folder structure
-            if os.path.exists(os.path.join(task_dir, 'metadata')):
-                logger.info(f"Metadata directory found: {os.path.join(task_dir, 'metadata')}")
-            if os.path.exists(os.path.join(task_dir, 'splits')):
-                logger.info(f"Splits directory found: {os.path.join(task_dir, 'splits')}")
-                logger.info(f"Contents of splits: {os.listdir(os.path.join(task_dir, 'splits'))}")
-            if os.path.exists(os.path.join(task_dir, 'train')):
-                logger.info(f"Train directory found: {os.path.join(task_dir, 'train')}")
-        
-        # Adaptive path processing logic
-        if args.adaptive_path:
-            logger.info("Adaptive path mode enabled - will search for alternative data paths")
-            # In SageMaker environment try different common path structures
-            possible_paths = []
-            
-            # Consider common path variations
-            possible_paths.append(dataset_root)  # Directly use download path
-            possible_paths.append(os.path.join(dataset_root, 'tasks'))  # tasks subdirectory
-            possible_paths.append(os.path.join(dataset_root, 'Benchmark'))  # Benchmark subdirectory
-            possible_paths.append(os.path.join(dataset_root, 'Data', 'Benchmark'))  # Data/Benchmark path
-            
-            # Check each possible path
-            for path in possible_paths:
-                if os.path.exists(path):
-                    logger.info(f"Found valid path: {path}")
-                    # Check whether task directory exists
-                    task_path = os.path.join(path, args.task_name)
-                    tasks_path = os.path.join(path, 'tasks', args.task_name)
-                    
-                    if os.path.exists(task_path):
-                        logger.info(f"Found task directory at {task_path}")
-                        dataset_root = path
-                        break
-                    elif os.path.exists(tasks_path):
-                        logger.info(f"Found task directory at {tasks_path}")
-                        dataset_root = path
-                        break
-        
-        # Try all path combinations (more thorough search)
-        if args.try_all_paths and is_sagemaker:
-            logger.info("Try all paths mode enabled - will try multiple dataset_root options")
-            # Create backup of original path
-            original_dataset_root = dataset_root
-            
-            # Define possible dataset root directories
-            dataset_roots_to_try = [
-                dataset_root,  # Original path
-                os.path.dirname(dataset_root),  # Parent directory
-                '/opt/ml/input/data',  # SageMaker data root directory
-                '/opt/ml/input',  # One level up
-            ]
-            
-            # Add various variations of original S3 path to try list
-            if original_path.startswith('s3://'):
-                s3_parts = original_path.replace('s3://', '').split('/')
-                if len(s3_parts) > 1:
-                    # Try several possible mapping ways
-                    dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[1]))  # First level directory under bucket
-                    if len(s3_parts) > 2:
-                        dataset_roots_to_try.append(os.path.join(dataset_root, s3_parts[2]))  # Second level directory under bucket
-                        dataset_roots_to_try.append(os.path.join(dataset_root, '/'.join(s3_parts[1:3])))  # First two levels directory combination
-            
-            # Record all tried paths
-            for root in dataset_roots_to_try:
-                if os.path.exists(root):
-                    logger.info(f"Testing dataset_root: {root}")
-                    try:
-                        task_found = False
-                        # Check whether task directory directly exists
-                        if os.path.exists(os.path.join(root, args.task_name)):
-                            logger.info(f"  - Found task directory directly: {os.path.join(root, args.task_name)}")
-                            task_found = True
-                        
-                        # Check whether task directory exists in tasks/ subdirectory
-                        if os.path.exists(os.path.join(root, 'tasks', args.task_name)):
-                            logger.info(f"  - Found task in tasks/ subdirectory: {os.path.join(root, 'tasks', args.task_name)}")
-                            task_found = True
-                        
-                        # Try listing contents of that directory
-                        if not task_found:
-                            logger.info(f"  - Directory contents: {os.listdir(root)}")
-                            # Check whether tasks directory exists
-                            if 'tasks' in os.listdir(root):
-                                logger.info(f"    - tasks/ subdirectory contents: {os.listdir(os.path.join(root, 'tasks'))}")
-                    except Exception as e:
-                        logger.info(f"  - Error exploring path: {e}")
+                        # Try tasks/task_name
+                        tasks_dir = os.path.join(dataset_root, 'tasks')
+                        if os.path.exists(tasks_dir):
+                            tasks_task_path = os.path.join(tasks_dir, args.task_name)
+                            if os.path.exists(tasks_task_path):
+                                logger.info(f"Task directory found at {tasks_task_path}")
+                                task_dir = tasks_task_path
+                            else:
+                                logger.warning(f"Task directory not found at {tasks_task_path}")
+                                task_dir = None
+                        else:
+                            logger.warning(f"Neither {direct_task_path} nor {os.path.join(tasks_dir, args.task_name)} exists")
+                            task_dir = None
                 else:
-                    logger.info(f"Path does not exist: {root}")
+                    logger.warning(f"Dataset root path {dataset_root} does not exist")
+                    task_dir = None
             
+            # If task directory found, check its content
+            if task_dir and os.path.exists(task_dir):
+                logger.info(f"Final task directory selected: {task_dir}")
+                logger.info(f"Content of task directory {task_dir}: {os.listdir(task_dir)}")
+                
+                # Further check folder structure
+                if os.path.exists(os.path.join(task_dir, 'metadata')):
+                    logger.info(f"Metadata directory found: {os.path.join(task_dir, 'metadata')}")
+                if os.path.exists(os.path.join(task_dir, 'splits')):
+                    logger.info(f"Splits directory found: {os.path.join(task_dir, 'splits')}")
+                    logger.info(f"Contents of splits: {os.listdir(os.path.join(task_dir, 'splits'))}")
+                if os.path.exists(os.path.join(task_dir, 'train')):
+                    logger.info(f"Train directory found: {os.path.join(task_dir, 'train')}")
+            
+            # 简化的路径搜索逻辑 - 专注于tasks子目录
+            if is_sagemaker and task_dir is None:
+                logger.info("检查标准SageMaker任务路径")
+                # 标准路径: /opt/ml/input/data/training/tasks/TaskName
+                tasks_dir = os.path.join(dataset_root, 'tasks')
+                if os.path.exists(tasks_dir):
+                    tasks_task_path = os.path.join(tasks_dir, args.task_name)
+                    if os.path.exists(tasks_task_path):
+                        logger.info(f"在tasks子目录中找到任务目录: {tasks_task_path}")
+                        task_dir = tasks_task_path
+            
+            # 如果在尝试了标准方法后仍未找到任务目录，显示诊断信息
+            if is_sagemaker and task_dir is None:
+                logger.error(f"无法找到任务目录: {args.task_name}")
+                logger.error("显示路径诊断信息:")
+                
+                # 记录数据根目录内容
+                logger.error(f"数据根目录({dataset_root})内容:")
+                if os.path.exists(dataset_root):
+                    try:
+                        root_contents = os.listdir(dataset_root)
+                        for item in root_contents:
+                            item_path = os.path.join(dataset_root, item)
+                            if os.path.isdir(item_path):
+                                logger.error(f"  [目录] {item}")
+                            else:
+                                logger.error(f"  [文件] {item}")
+                    except Exception as e:
+                        logger.error(f"无法列出目录内容: {e}")
+                else:
+                    logger.error(f"数据根目录不存在: {dataset_root}")
+                
+                # 检查tasks子目录
+                tasks_dir = os.path.join(dataset_root, 'tasks')
+                if os.path.exists(tasks_dir):
+                    logger.error(f"tasks子目录({tasks_dir})内容:")
+                    try:
+                        tasks_contents = os.listdir(tasks_dir)
+                        for item in tasks_contents:
+                            item_path = os.path.join(tasks_dir, item)
+                            if os.path.isdir(item_path):
+                                logger.error(f"  [目录] {item}")
+                            else:
+                                logger.error(f"  [文件] {item}")
+                    except Exception as e:
+                        logger.error(f"无法列出tasks目录内容: {e}")
+                else:
+                    logger.error(f"tasks子目录不存在: {tasks_dir}")
+                    
+                # 显示S3路径信息
+                if original_path.startswith('s3://'):
+                    logger.error(f"原始S3路径: {original_path}")
+                    logger.error("请确保您的S3数据结构符合以下格式:")
+                    logger.error("s3://your-bucket/path/tasks/TaskName/")
+                    logger.error("其中TaskName与配置中的task_name参数匹配")
+                    
+                # 指导用户检查SageMaker Job配置
+                logger.error("建议检查:")
+                logger.error("1. SageMaker任务配置中的'task_name'参数与S3中的目录名称是否匹配")
+                logger.error("2. 数据是否已正确上传到S3路径")
+                logger.error("3. SageMaker执行角色是否有权限访问S3数据")
+        
         try:
             data = load_benchmark_supervised(
                 dataset_root=dataset_root,

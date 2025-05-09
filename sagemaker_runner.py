@@ -261,6 +261,19 @@ class SageMakerRunner:
         """
         Prepare training data input channels
         Use only specific task data paths
+
+        Note: The expected S3 data structure is:
+        s3://bucket/path/tasks/TaskName/
+        
+        When downloaded to the SageMaker instance, the data will be at:
+        /opt/ml/input/data/training/
+        
+        The code expects to find the task data at:
+        /opt/ml/input/data/training/tasks/TaskName/
+        or directly at:
+        /opt/ml/input/data/training/TaskName/
+        
+        Ensure your S3 data is structured accordingly.
         """
         task = config.get('task', config.get('task_name'))
         
@@ -270,9 +283,17 @@ class SageMakerRunner:
             s3_data_base += '/'
         
         # Build specific task data path
-        task_data_path = f"{s3_data_base}tasks/{task}/"
+        # Allow direct path override through configuration if needed
+        if config.get('use_direct_task_path', False):
+            # Directly use the task name without 'tasks/' subdirectory
+            task_data_path = f"{s3_data_base}{task}/"
+            print(f"Using direct task data path: {task_data_path}")
+        else:
+            # Use standard path with 'tasks/' subdirectory
+            task_data_path = f"{s3_data_base}tasks/{task}/"
+            print(f"Using standard tasks subdirectory path: {task_data_path}")
         
-        print(f"Using specific task data path: {task_data_path}")
+        print(f"Task name: {task} - Data will be downloaded to /opt/ml/input/data/training/")
         
         # Define input channels
         input_data = {
