@@ -232,6 +232,10 @@ def get_args():
     parser.add_argument('--task_name', type=str, default='MotionSourceRecognition',
                         help='Name of the task to train on')
     
+    # Also accept task-name with dash (SageMaker hyperparameters usually use dashes)
+    parser.add_argument('--task-name', type=str, dest='task_name', default=None,
+                        help='Name of the task to train on (dash version for SageMaker compatibility)')
+    
     # Data parameters
     parser.add_argument('--data_key', type=str, default='CSI_amps',
                         help='Key for CSI data in h5 files')
@@ -332,6 +336,16 @@ def get_args():
         
         # Print actual parsed parameters (for debugging)
         logger.info(f"Parsed arguments: {args_to_parse}")
+        
+        # Check if we need to get task_name from environment variables
+        # This is a critical parameter that might be missing from command line
+        if args.task_name in (None, 'MotionSourceRecognition'):
+            # Try to get from SM_HP_TASK_NAME or SM_HP_TASK-NAME environment variable
+            env_task_name = os.environ.get('SM_HP_TASK_NAME') or os.environ.get('SM_HP_TASK-NAME')
+            if env_task_name:
+                args.task_name = env_task_name
+                logger.info(f"Got task_name from environment variable: {args.task_name}")
+        
     except Exception as e:
         logger.error(f"Error parsing arguments: {e}")
         logger.error(f"Original arguments: {sys.argv}")

@@ -126,6 +126,26 @@ for var in sm_vars:
     print(f"{var}: {os.environ.get(var)}")
 print("==================================\n")
 
+# Add critical parameter check logic
+critical_params = ['task_name', 'models', 'win_len', 'feature_size', 'batch_size']
+print("\n===== Critical Parameter Check =====")
+for param in critical_params:
+    # Check both dash and underscore format
+    dash_param = param.replace('_', '-')
+    underscore_param = param.replace('-', '_')
+    
+    dash_env_var = f"SM_HP_{dash_param.upper()}"
+    underscore_env_var = f"SM_HP_{underscore_param.upper()}"
+    
+    # Check if parameter exists in environment variables
+    if dash_env_var in os.environ:
+        print(f"✓ {param} found as {dash_env_var}: {os.environ[dash_env_var]}")
+    elif underscore_env_var in os.environ:
+        print(f"✓ {param} found as {underscore_env_var}: {os.environ[underscore_env_var]}")
+    else:
+        print(f"✗ {param} NOT FOUND in environment variables")
+print("==================================\n")
+
 # Try importing torch to verify it loads correctly without Horovod conflicts
 try:
     print("Attempting to import PyTorch (with memory limits)...")
@@ -223,23 +243,44 @@ cmd = [sys.executable, script_to_run]
 
 # Collect hyperparameters from environment variables
 hyperparameters = {}
+orig_hyperparameters = {}
 for key, value in os.environ.items():
     if key.startswith('SM_HP_'):
         # Convert SM_HP_X to x
         param_name = key[6:].lower()
+        orig_hyperparameters[param_name] = value
         hyperparameters[param_name] = value
         
         # Add hyperparameters to command line
         if param_name != 'test_env':  # Skip the test_env parameter
-            if value.lower() == 'true':
-                cmd.append(f"--{param_name}")
-            elif value.lower() == 'false':
+            # Convert dash-style parameters to underscore-style for compatibility with train_multi_model.py
+            fixed_param_name = param_name.replace("-", "_")
+            
+            # Special handling for task_name parameter - ensure it's passed correctly
+            if param_name == 'task_name' or fixed_param_name == 'task_name':
+                fixed_param_name = 'task_name'  # Force the correct parameter name
+            
+            # Log parameter conversion for debugging
+            if fixed_param_name != param_name:
+                print(f"Converting parameter format: {param_name} -> {fixed_param_name}")
+            
+            # Handle special boolean values and normalize them
+            if value.lower() in ('true', 'yes', '1', 't', 'y'):
+                cmd.append(f"--{fixed_param_name}")
+            elif value.lower() in ('false', 'no', '0', 'f', 'n'):
                 # For False boolean values, don't add the parameter
                 pass
             else:
-                cmd.append(f"--{param_name}")
+                # For numeric parameters, try to handle scientific notation correctly
+                cmd.append(f"--{fixed_param_name}")
+                
+                # Remove unnecessary quotes that might cause parsing issues
+                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+                    
                 cmd.append(value)
 
+print(f"Original hyperparameters: {orig_hyperparameters}")
 print(f"Parsed hyperparameters: {hyperparameters}")
 print(f"Executing command: {' '.join(cmd)}")
 

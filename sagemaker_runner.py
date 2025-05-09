@@ -213,32 +213,32 @@ class SageMakerRunner:
         """
         Create SageMaker PyTorch Estimator from given configuration
         """
-        # Prepare hyperparameters
+        # Prepare hyperparameters - Use dashes instead of underscores for parameter names
         hyperparameters = {
             'models': ','.join(models),
-            'task_name': config.get('task_name', config.get('task')),  # Support backward compatibility for task and task_name
-            'win_len': config.get('win_len', 500),  # Match default value from train_supervised.py
-            'feature_size': config.get('feature_size', 232),
-            'batch_size': config.get('batch_size', 32),  # Match default value from train_multi_model.py
+            'task_name': config.get('task_name', config.get('task')),  # Keep 'task_name' as is - this is critical
+            'win-len': config.get('win_len', 500),  # Match default value from train_supervised.py
+            'feature-size': config.get('feature_size', 232),
+            'batch-size': config.get('batch_size', 32),  # Match default value from train_multi_model.py
             'epochs': config.get('epochs', 100),
-            'test_splits': config.get('test_splits', 'all'),
+            'test-splits': config.get('test_splits', 'all'),
             'seed': config.get('seed', 42),
-            'learning_rate': config.get('learning_rate', 0.001),  # Add default learning rate
-            'weight_decay': config.get('weight_decay', 1e-5),  # Add default weight decay
-            'warmup_epochs': config.get('warmup_epochs', 5),  # Add default warmup period
+            'learning-rate': config.get('learning_rate', 0.001),  # Add default learning rate
+            'weight-decay': config.get('weight_decay', 1e-5),  # Add default weight decay
+            'warmup-epochs': config.get('warmup_epochs', 5),  # Add default warmup period
             'patience': config.get('patience', 15)  # Add default patience value
         }
         
         # Add few-shot parameters (if enabled)
         if config.get('enable_few_shot', False) or config.get('fewshot_eval_shots', False):
-            hyperparameters['enable_few_shot'] = "True"
-            hyperparameters['k_shot'] = config.get('k_shot', 5)
-            hyperparameters['inner_lr'] = config.get('inner_lr', 0.01)
-            hyperparameters['num_inner_steps'] = config.get('num_inner_steps', 10)
-            hyperparameters['fewshot_support_split'] = config.get('fewshot_support_split', 'val_id')
-            hyperparameters['fewshot_query_split'] = config.get('fewshot_query_split', 'test_cross_env')
-            hyperparameters['fewshot_finetune_all'] = "True" if config.get('fewshot_finetune_all', False) else "False"
-            hyperparameters['fewshot_eval_shots'] = "True" if config.get('fewshot_eval_shots', False) else "False"
+            hyperparameters['enable-few-shot'] = "True"
+            hyperparameters['k-shot'] = config.get('k_shot', 5)
+            hyperparameters['inner-lr'] = config.get('inner_lr', 0.01)
+            hyperparameters['num-inner-steps'] = config.get('num_inner_steps', 10)
+            hyperparameters['fewshot-support-split'] = config.get('fewshot_support_split', 'val_id')
+            hyperparameters['fewshot-query-split'] = config.get('fewshot_query_split', 'test_cross_env')
+            hyperparameters['fewshot-finetune-all'] = "True" if config.get('fewshot_finetune_all', False) else "False"
+            hyperparameters['fewshot-eval-shots'] = "True" if config.get('fewshot_eval_shots', False) else "False"
         
         # Create estimator
         estimator = PyTorch(
@@ -349,37 +349,39 @@ class SageMakerRunner:
         """
         Create SageMaker PyTorch Estimator for multi-task learning
         """
-        # Prepare hyperparameters
+        # Prepare hyperparameters - Use dashes instead of underscores for parameter names
         hyperparameters = {
             'pipeline': 'multitask',
             'tasks': config.get('tasks'),
             'model': config.get('model', 'transformer'),
-            'win_len': config.get('win_len', 500),
-            'feature_size': config.get('feature_size', 232),
-            'batch_size': config.get('batch_size', 16),
+            'win-len': config.get('win_len', 500),
+            'feature-size': config.get('feature_size', 232),
+            'batch-size': config.get('batch_size', 16),
             'epochs': config.get('epochs', 100),
-            'test_splits': config.get('test_splits', 'all'),
+            'test-splits': config.get('test_splits', 'all'),
             'seed': config.get('seed', 42)
         }
         
         # Add few-shot parameters (if enabled)
         if config.get('enable_few_shot', False) or config.get('fewshot_eval_shots', False):
-            hyperparameters['enable_few_shot'] = "True"
-            hyperparameters['k_shot'] = config.get('k_shot', 5)
-            hyperparameters['inner_lr'] = config.get('inner_lr', 0.01)
-            hyperparameters['num_inner_steps'] = config.get('num_inner_steps', 10)
+            hyperparameters['enable-few-shot'] = "True"
+            hyperparameters['k-shot'] = config.get('k_shot', 5)
+            hyperparameters['inner-lr'] = config.get('inner_lr', 0.01)
+            hyperparameters['num-inner-steps'] = config.get('num_inner_steps', 10)
         
         # Add model-specific parameters (if exists)
         if 'model_params' in config:
             for key, value in config['model_params'].items():
-                # Replace hyphen with underscore in parameter name
-                fixed_key = key.replace('-', '_')
+                # Ensure parameter names use dashes, not underscores
+                fixed_key = key.replace('_', '-')
                 hyperparameters[fixed_key] = value
         else:
             # Add common parameters
             for param in ['lr', 'emb_dim', 'dropout', 'patience']:
                 if param in config:
-                    hyperparameters[param] = config[param]
+                    # Convert parameter name to use dashes
+                    fixed_param = param.replace('_', '-')
+                    hyperparameters[fixed_param] = config[param]
         
         # Create estimator
         estimator = PyTorch(
