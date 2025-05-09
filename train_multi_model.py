@@ -313,6 +313,11 @@ def get_args():
                 logger.info(f"Fixed parameter format: {arg} -> {fixed_arg}")
                 arg = fixed_arg
         
+        # Ensure arg still has the proper prefix
+        if not arg.startswith('--') and arg[0] == '-':
+            arg = f"--{arg[1:]}"
+            logger.info(f"Restored proper argument prefix: {arg}")
+        
         # Handle flag parameters followed by True or False
         if arg.startswith('--') and i + 1 < len(sys.argv):
             next_arg = sys.argv[i+1]
@@ -331,6 +336,9 @@ def get_args():
         i += 1
     
     try:
+        # Log the final argument list for debugging
+        logger.info(f"Actual arguments to parse: {args_to_parse}")
+        
         # Use preprocessed parameters for parsing
         args = parser.parse_args(args_to_parse)
         

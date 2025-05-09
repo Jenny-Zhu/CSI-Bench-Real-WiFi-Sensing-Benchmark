@@ -264,15 +264,17 @@ for key, value in os.environ.items():
             if fixed_param_name != param_name:
                 print(f"Converting parameter format: {param_name} -> {fixed_param_name}")
             
+            # Important: Ensure we use proper double dash prefix
+            param_prefix = "--"  # Always use double dash
+            
             # Handle special boolean values and normalize them
             if value.lower() in ('true', 'yes', '1', 't', 'y'):
-                cmd.append(f"--{fixed_param_name}")
+                cmd.append(f"{param_prefix}{fixed_param_name}")
             elif value.lower() in ('false', 'no', '0', 'f', 'n'):
                 # For False boolean values, don't add the parameter
                 pass
             else:
-                # For numeric parameters, try to handle scientific notation correctly
-                cmd.append(f"--{fixed_param_name}")
+                cmd.append(f"{param_prefix}{fixed_param_name}")
                 
                 # Remove unnecessary quotes that might cause parsing issues
                 if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
@@ -280,9 +282,62 @@ for key, value in os.environ.items():
                     
                 cmd.append(value)
 
+# Check for critical missing parameters
+critical_params = {
+    'win_len': '500',            # Default from logs
+    'feature_size': '232',       # Default from logs
+    'batch_size': '32',          # Default from logs
+    'learning_rate': '0.001',    # Common default
+    'weight_decay': '1e-5',      # Common default
+    'warmup_epochs': '5',        # Common default
+    'test_splits': 'all'         # Common default
+}
+
+# Special handling for dashes vs underscores
+print("\n===== Command Validation =====")
+missing_params = []
+for param, default in critical_params.items():
+    # Check if parameter is already in command line
+    dash_param = param.replace('_', '-')
+    param_in_cmd = False
+    for arg in cmd:
+        if arg == f"--{param}" or arg == f"--{dash_param}":
+            param_in_cmd = True
+            break
+    
+    # If not in command, try to add from environment
+    if not param_in_cmd:
+        env_key_underscore = f"SM_HP_{param.upper()}"
+        env_key_dash = f"SM_HP_{dash_param.upper()}"
+        
+        if env_key_underscore in os.environ:
+            cmd.append(f"--{param}")
+            cmd.append(os.environ[env_key_underscore])
+            print(f"Added missing parameter from env: --{param}={os.environ[env_key_underscore]}")
+        elif env_key_dash in os.environ:
+            cmd.append(f"--{param}")
+            cmd.append(os.environ[env_key_dash])
+            print(f"Added missing parameter from env: --{param}={os.environ[env_key_dash]}")
+        else:
+            # Parameter not in command line or environment, use default
+            cmd.append(f"--{param}")
+            cmd.append(default)
+            print(f"Added missing parameter with default: --{param}={default}")
+            missing_params.append(param)
+
+# Fix any invalid prefixes
+for i, arg in enumerate(cmd):
+    if arg.startswith('__'):  # Double underscore prefix is invalid
+        cmd[i] = '--' + arg[2:]  # Replace with double dash
+        print(f"Fixed invalid parameter prefix: {arg} -> {cmd[i]}")
+
+if missing_params:
+    print(f"WARNING: Had to use defaults for: {', '.join(missing_params)}")
+print("=============================\n")
+
 print(f"Original hyperparameters: {orig_hyperparameters}")
 print(f"Parsed hyperparameters: {hyperparameters}")
-print(f"Executing command: {' '.join(cmd)}")
+print(f"Final command: {' '.join(cmd)}")
 
 # Execute the training script with the parameters
 try:
