@@ -269,6 +269,8 @@ def get_args():
     parser.add_argument('--patience', type=int, default=15,
                         help='Patience for early stopping')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--test_splits', type=str, default='all', 
+                        help='Test splits to evaluate on, comma-separated (e.g., "test_id,test_cross_env") or "all"')
     
     # Output parameters
     parser.add_argument('--save_dir', type=str, default='/opt/ml/model',
@@ -545,7 +547,32 @@ def train_model(model_name, data, args, device):
     
     # Evaluate on test sets
     logger.info("Evaluating on test sets:")
-    test_loaders = {k: v for k, v in loaders.items() if k.startswith('test')}
+    all_test_loaders = {k: v for k, v in loaders.items() if k.startswith('test')}
+    
+    # Filter test loaders based on test_splits parameter
+    if args.test_splits.lower() != 'all':
+        # Split the comma-separated string and create a list of test split names
+        requested_splits = [split.strip() for split in args.test_splits.split(',')]
+        test_loaders = {}
+        for split_name in requested_splits:
+            # Ensure the split name starts with 'test'
+            if not split_name.startswith('test'):
+                split_name = f"test_{split_name}"
+            
+            # Add the loader if it exists
+            if split_name in all_test_loaders:
+                test_loaders[split_name] = all_test_loaders[split_name]
+            else:
+                logger.warning(f"Requested test split '{split_name}' not found in available splits: {list(all_test_loaders.keys())}")
+        
+        if not test_loaders:
+            logger.warning(f"None of the requested test splits were found. Using all available test splits instead.")
+            test_loaders = all_test_loaders
+    else:
+        # Use all available test loaders
+        test_loaders = all_test_loaders
+    
+    logger.info(f"Using test splits: {list(test_loaders.keys())}")
     
     overall_metrics = {
         'model_name': model_name,
