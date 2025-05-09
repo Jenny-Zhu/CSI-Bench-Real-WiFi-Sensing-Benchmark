@@ -110,33 +110,85 @@ def upload_to_s3(local_path, s3_path):
         
         bucket_name = s3_parts[0]
         s3_key_prefix = s3_parts[1]
+        if not s3_key_prefix.endswith('/'):
+            s3_key_prefix += '/'
+            
+        # 检查S3存储桶是否存在并且可访问
+        try:
+            s3_client.head_bucket(Bucket=bucket_name)
+            logger.info(f"成功连接到S3存储桶: {bucket_name}")
+        except Exception as e:
+            logger.error(f"无法访问S3存储桶 {bucket_name}: {e}")
+            return False
         
-        logger.info(f"Uploading {local_path} to S3 bucket {bucket_name}/{s3_key_prefix}")
+        logger.info(f"正在上传 {local_path} 到 S3 存储桶 {bucket_name}/{s3_key_prefix}")
         
-        # Check if it's a file or directory
+        # 检查是文件还是目录
         if os.path.isfile(local_path):
-            # Upload a single file
+            # 上传单个文件
             file_key = os.path.join(s3_key_prefix, os.path.basename(local_path))
-            s3_client.upload_file(local_path, bucket_name, file_key)
-            logger.info(f"Uploaded file to s3://{bucket_name}/{file_key}")
+            logger.info(f"上传单个文件: {local_path} -> s3://{bucket_name}/{file_key}")
+            
+            # 尝试上传，并在失败时重试
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    s3_client.upload_file(local_path, bucket_name, file_key)
+                    logger.info(f"成功上传文件到 s3://{bucket_name}/{file_key}")
+                    break
+                except Exception as e:
+                    if retry < max_retries - 1:
+                        logger.warning(f"文件上传失败，重试中 ({retry+1}/{max_retries}): {e}")
+                        time.sleep(1)  # 短暂延迟后重试
+                    else:
+                        logger.error(f"文件上传失败，已达到最大重试次数: {e}")
+                        return False
         else:
-            # Upload entire directory
+            # 上传整个目录
+            total_files = sum([len(files) for _, _, files in os.walk(local_path)])
+            logger.info(f"准备上传目录，共 {total_files} 个文件")
+            
+            # 遍历目录上传所有文件
+            uploaded_files = 0
+            failed_files = 0
+            
             for root, _, files in os.walk(local_path):
                 for file in files:
                     local_file_path = os.path.join(root, file)
                     
-                    # Calculate relative path
+                    # 计算相对路径
                     relative_path = os.path.relpath(local_file_path, local_path)
                     s3_key = os.path.join(s3_key_prefix, relative_path)
                     
-                    # Upload file
-                    s3_client.upload_file(local_file_path, bucket_name, s3_key)
+                    # 上传文件，带有重试逻辑
+                    max_retries = 3
+                    for retry in range(max_retries):
+                        try:
+                            s3_client.upload_file(local_file_path, bucket_name, s3_key)
+                            uploaded_files += 1
+                            # 每上传10个文件或最后一个文件时，输出进度信息
+                            if uploaded_files % 10 == 0 or uploaded_files == total_files:
+                                logger.info(f"上传进度: {uploaded_files}/{total_files} 文件 ({uploaded_files/total_files*100:.1f}%)")
+                            break
+                        except Exception as e:
+                            if retry < max_retries - 1:
+                                logger.warning(f"文件上传失败 {local_file_path}，重试中 ({retry+1}/{max_retries}): {e}")
+                                time.sleep(1)  # 短暂延迟后重试
+                            else:
+                                logger.error(f"文件上传失败 {local_file_path}，已达到最大重试次数: {e}")
+                                failed_files += 1
             
-            logger.info(f"Uploaded directory contents to s3://{bucket_name}/{s3_key_prefix}")
+            # 报告最终状态
+            if failed_files > 0:
+                logger.warning(f"目录上传完成，但有 {failed_files}/{total_files} 个文件上传失败")
+                if failed_files > total_files / 2:  # 如果超过一半文件失败，返回失败
+                    return False
+            else:
+                logger.info(f"成功上传目录内容到 s3://{bucket_name}/{s3_key_prefix}，共 {uploaded_files} 个文件")
         
         return True
     except Exception as e:
-        logger.error(f"Error uploading to S3: {e}")
+        logger.error(f"S3上传过程中发生错误: {e}")
         return False
 
 def cleanup_sagemaker_storage():
@@ -856,11 +908,35 @@ def main():
         if args.direct_upload:
             if args.save_to_s3:
                 logger.info(f"直接上传结果到S3: {args.save_to_s3}")
-                s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
                 
-                # 上传整个任务目录
+                # 输出结果目录结构以便调试
                 task_dir = os.path.join(args.output_dir, args.task_name)
+                logger.info(f"实例上的结果目录结构:")
                 if os.path.exists(task_dir):
+                    # 输出目录结构
+                    def print_dir_structure(path, prefix=""):
+                        logger.info(f"{prefix}├── {os.path.basename(path)}/")
+                        for item in sorted(os.listdir(path)):
+                            item_path = os.path.join(path, item)
+                            if os.path.isdir(item_path):
+                                print_dir_structure(item_path, prefix + "│   ")
+                            else:
+                                logger.info(f"{prefix}│   ├── {item}")
+                    
+                    # 输出顶层目录结构
+                    logger.info(f"任务目录 ({task_dir}) 的内容:")
+                    for item in sorted(os.listdir(task_dir)):
+                        item_path = os.path.join(task_dir, item)
+                        if os.path.isdir(item_path):
+                            logger.info(f"├── {item}/ (目录)")
+                            # 显示模型子目录中的实验ID
+                            for exp_id in sorted(os.listdir(item_path)):
+                                logger.info(f"│   ├── {exp_id}/ (实验ID)")
+                        else:
+                            logger.info(f"├── {item} (文件)")
+                
+                    # 上传整个任务目录结构，保持原有目录结构
+                    s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
                     logger.info(f"准备上传目录: {task_dir} -> {s3_task_path}")
                     
                     # 列出要上传的文件
@@ -876,8 +952,33 @@ def main():
                         logger.info(f"结果成功上传到 {s3_task_path}")
                     else:
                         logger.error(f"上传到 {s3_task_path} 失败!")
+                
+                # 如果实例上的目录结构与预期不同，输出更多调试信息
                 else:
                     logger.error(f"任务输出目录不存在: {task_dir}")
+                    
+                    # 尝试查找在其他可能位置的结果目录
+                    possible_dirs = [
+                        os.path.join('/opt/ml/model', args.task_name),
+                        os.path.join('/opt/ml/output/data', args.task_name),
+                        '/opt/ml/model',
+                        '/opt/ml/output/data'
+                    ]
+                    
+                    for possible_dir in possible_dirs:
+                        if os.path.exists(possible_dir):
+                            logger.info(f"找到可能的结果目录: {possible_dir}")
+                            logger.info(f"目录内容:")
+                            for item in sorted(os.listdir(possible_dir)):
+                                logger.info(f"  - {item}")
+                            
+                            # 如果找到合适的目录，尝试上传
+                            if args.task_name in possible_dir:
+                                alt_s3_path = f"{args.save_to_s3.rstrip('/')}/{os.path.basename(possible_dir)}"
+                                logger.info(f"尝试上传替代目录: {possible_dir} -> {alt_s3_path}")
+                                alt_success = upload_to_s3(possible_dir, alt_s3_path)
+                                if alt_success:
+                                    logger.info(f"成功上传替代目录到 {alt_s3_path}")
             else:
                 logger.warning("未设置save_to_s3参数，跳过上传到S3")
         else:
