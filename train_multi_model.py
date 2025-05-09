@@ -7,7 +7,7 @@ This script can be run in a SageMaker environment to train and evaluate multiple
 on the same task.
 """
 
-# 导入os模块，确保在后续代码中可以使用
+# Import os module to ensure it's available for use in subsequent code
 import os
 import sys
 

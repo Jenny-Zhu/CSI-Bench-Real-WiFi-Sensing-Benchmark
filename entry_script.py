@@ -3,11 +3,11 @@
 """
 SageMaker Entry Script - Disable Horovod and SMDebug
 
-这个脚本在导入PyTorch前禁用Horovod和SMDebug集成，以避免版本冲突，然后运行实际的训练脚本。
-主要功能：
-1. 禁用Horovod和SMDebug
-2. 安装peft及其依赖项
-3. 直接传递所有参数给训练脚本
+This script disables Horovod and SMDebug integration before importing PyTorch to avoid version conflicts, then runs the actual training script.
+Main functions:
+1. Disable Horovod and SMDebug
+2. Install peft and its dependencies
+3. Directly pass all parameters to the training script
 """
 
 import os
@@ -17,151 +17,151 @@ import gc
 import logging
 
 print("\n==========================================")
-print("启动自定义入口脚本entry_script.py")
+print("Starting custom entry script entry_script.py")
 print("==========================================\n")
 
-# 设置内存优化选项
-print("配置内存优化设置...")
+# Set memory optimization options
+print("Configuring memory optimization settings...")
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 减少TensorFlow日志（如果使用）
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Reduce TensorFlow logs (if used)
 
-# 启用垃圾回收
+# Enable garbage collection
 gc.enable()
-print("已启用主动垃圾回收")
+print("Active garbage collection enabled")
 
-# 立即禁用horovod和smdebug以防止冲突
-print("禁用Horovod集成...")
+# Immediately disable horovod and smdebug to prevent conflicts
+print("Disabling Horovod integration...")
 sys.modules['horovod'] = None
 sys.modules['horovod.torch'] = None
 sys.modules['horovod.tensorflow'] = None
 sys.modules['horovod.common'] = None
 sys.modules['horovod.torch.elastic'] = None
 
-print("禁用SMDebug...")
+print("Disabling SMDebug...")
 sys.modules['smdebug'] = None
 os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
-# 设置typing_extensions支持以解决typing.Literal导入问题
-print("设置typing_extensions支持...")
+# Set up typing_extensions support to resolve issues with typing.Literal imports
+print("Setting up typing_extensions support...")
 try:
     import typing_extensions
     from typing_extensions import Literal
-    # 将Literal注入到sys.modules中的typing模块
+    # Inject Literal into the typing module in sys.modules
     if 'typing' in sys.modules:
         sys.modules['typing'].Literal = Literal
-    print("成功导入typing_extensions并配置Literal支持")
+    print("Successfully imported typing_extensions and configured Literal support")
 except ImportError:
-    print("警告：找不到typing_extensions，某些功能可能不可用")
+    print("Warning: typing_extensions not found, some features may not be available")
 
-# 手动安装peft库及其依赖项
-print("安装peft库及其依赖项...")
+# Manually install peft library and its dependencies
+print("Installing peft library and its dependencies...")
 try:
-    # 先安装transformers
+    # Install transformers first
     subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers>=4.30.0", "--no-dependencies"])
-    print("transformers库安装成功")
+    print("transformers library installed successfully")
     
-    # 安装accelerate
+    # Install accelerate
     subprocess.check_call([sys.executable, "-m", "pip", "install", "accelerate", "--no-dependencies"])
-    print("accelerate库安装成功")
+    print("accelerate library installed successfully")
     
-    # 然后使用--no-dependencies参数安装特定版本的peft
+    # Then install peft with --no-dependencies parameter
     subprocess.check_call([sys.executable, "-m", "pip", "install", "peft==0.3.0", "--no-dependencies"])
-    print("peft库安装成功")
+    print("peft library installed successfully")
 except Exception as e:
-    print(f"安装peft库时出错：{e}")
-    # 这不是致命错误，尝试继续执行
+    print(f"Error installing peft library: {e}")
+    # This is not a fatal error, try to continue execution
 
-# 释放一些内存
+# Free up some memory
 gc.collect()
 
-# 设置路径
-print("设置路径...")
+# Set up paths
+print("Setting up paths...")
 sys.path.insert(0, os.getcwd())
 
-# 显示可用内存信息
+# Display available memory information
 try:
     import psutil
     process = psutil.Process(os.getpid())
-    print(f"当前进程内存使用量：{process.memory_info().rss / (1024 * 1024):.2f} MB")
+    print(f"Current process memory usage: {process.memory_info().rss / (1024 * 1024):.2f} MB")
     
     virtual_memory = psutil.virtual_memory()
-    print(f"系统内存状态：")
-    print(f"  总内存：{virtual_memory.total / (1024**3):.2f} GB")
-    print(f"  可用内存：{virtual_memory.available / (1024**3):.2f} GB")
-    print(f"  内存使用率：{virtual_memory.percent}%")
+    print(f"System memory status:")
+    print(f"  Total memory: {virtual_memory.total / (1024**3):.2f} GB")
+    print(f"  Available memory: {virtual_memory.available / (1024**3):.2f} GB")
+    print(f"  Memory usage percentage: {virtual_memory.percent}%")
 except ImportError:
-    print("无法导入psutil，跳过内存信息显示")
+    print("Could not import psutil, skipping memory information display")
 except Exception as e:
-    print(f"获取内存信息时出错：{e}")
+    print(f"Error getting memory information: {e}")
 
-# 现在运行实际的训练脚本
-print("准备运行训练脚本...")
+# Now run the actual training script
+print("Preparing to run training script...")
 
-# 检查要执行的脚本
-# 检查SAGEMAKER_PROGRAM环境变量
+# Check script to execute
+# Check SAGEMAKER_PROGRAM environment variable
 script_to_run = os.environ.get('SAGEMAKER_PROGRAM', 'train_multi_model.py')
-print(f"要执行的脚本：{script_to_run}")
+print(f"Script to execute: {script_to_run}")
 
-# 检查脚本是否存在
+# Check if script exists
 if not os.path.exists(script_to_run):
-    print(f"错误：找不到脚本 {script_to_run}")
-    print(f"当前目录中的Python文件：{[f for f in os.listdir('.') if f.endswith('.py')]}")
+    print(f"Error: Script {script_to_run} not found")
+    print(f"Python files in current directory: {[f for f in os.listdir('.') if f.endswith('.py')]}")
     sys.exit(1)
 
-# 打印环境信息
-print("\n===== 环境信息 =====")
+# Print environment information
+print("\n===== Environment Information =====")
 import platform
-print(f"Python版本：{platform.python_version()}")
-print(f"当前目录：{os.getcwd()}")
-print(f"目录中的文件：{', '.join(os.listdir('.'))[:200]}...")
+print(f"Python version: {platform.python_version()}")
+print(f"Current directory: {os.getcwd()}")
+print(f"Files in directory: {', '.join(os.listdir('.'))[:200]}...")
 
-# 打印环境变量
-print("\n===== 环境变量 =====")
+# Print environment variables
+print("\n===== Environment Variables =====")
 sm_vars = [k for k in os.environ.keys() if k.startswith('SM_') or k.startswith('SAGEMAKER_')]
 for var in sm_vars:
     print(f"{var}: {os.environ.get(var)}")
 print("==================================\n")
 
-# 尝试导入torch以验证其是否在没有Horovod冲突的情况下正确加载
+# Try importing torch to verify it loads correctly without Horovod conflicts
 try:
-    print("尝试导入PyTorch（设置内存限制）...")
+    print("Attempting to import PyTorch (with memory limits)...")
     import torch
-    # 配置PyTorch内存分配器优化
+    # Configure PyTorch memory allocator optimizations
     if torch.cuda.is_available():
-        # 限制GPU内存增长
-        torch.cuda.set_per_process_memory_fraction(0.7)  # 使用70%的可用GPU内存
-        # 主动清理CUDA缓存
+        # Limit GPU memory growth
+        torch.cuda.set_per_process_memory_fraction(0.7)  # Use 70% of available GPU memory
+        # Actively clear CUDA cache
         torch.cuda.empty_cache()
         
-    print(f"PyTorch版本：{torch.__version__}")
-    print(f"CUDA可用：{torch.cuda.is_available()}")
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
-        print(f"CUDA版本：{torch.version.cuda}")
-        print(f"GPU设备：{torch.cuda.get_device_name(0)}")
-        print(f"GPU总内存：{torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
-        print(f"当前分配的GPU内存：{torch.cuda.memory_allocated(0) / (1024**3):.2f} GB")
-        print(f"当前GPU内存缓存：{torch.cuda.memory_reserved(0) / (1024**3):.2f} GB")
-    print("成功导入PyTorch，没有Horovod冲突")
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"GPU device: {torch.cuda.get_device_name(0)}")
+        print(f"GPU total memory: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
+        print(f"Current allocated GPU memory: {torch.cuda.memory_allocated(0) / (1024**3):.2f} GB")
+        print(f"Current GPU memory cache: {torch.cuda.memory_reserved(0) / (1024**3):.2f} GB")
+    print("Successfully imported PyTorch without Horovod conflicts")
     
-    # 检查是否为环境测试模式
+    # Check if in test environment mode
     test_env = os.environ.get('SM_HP_TEST_ENV') == 'True'
     if test_env:
         print("\n==========================================")
-        print("运行环境测试模式，跳过数据下载和完整训练...")
+        print("Running in test environment mode, skipping data download and full training...")
         print("==========================================\n")
         
-        # 创建简单的仿真测试
+        # Create simple simulation tests
         import time
         import importlib
         
-        print("验证PyTorch GPU可用性...")
+        print("Verifying PyTorch GPU availability...")
         if torch.cuda.is_available():
-            print(f"GPU可用：{torch.cuda.get_device_name(0)}")
-            # 执行简单的GPU计算以验证功能
+            print(f"GPU available: {torch.cuda.get_device_name(0)}")
+            # Perform simple GPU computation to verify functionality
             x = torch.rand(1000, 1000).cuda()
             y = torch.rand(1000, 1000).cuda()
             start = time.time()
@@ -169,11 +169,11 @@ try:
                 z = x @ y
             torch.cuda.synchronize()
             end = time.time()
-            print(f"GPU矩阵乘法测试时间：{end-start:.4f}秒")
+            print(f"GPU matrix multiplication test time: {end-start:.4f} seconds")
         else:
-            print("警告：GPU不可用")
+            print("Warning: GPU not available")
         
-        print("\n验证常见库导入...\n")
+        print("\nVerifying common library imports...\n")
         import_tests = [
             "numpy", "pandas", "matplotlib", "scipy", "sklearn", 
             "torch", "einops", "h5py", "torchvision", "typing_extensions"
@@ -197,70 +197,57 @@ try:
                 except:
                     pass
                 
-                print(f"✓ 成功导入 {module} (版本: {version})")
+                print(f"✓ Successfully imported {module} (version: {version})")
                 success += 1
             except ImportError as e:
-                print(f"✗ 无法导入 {module}: {e}")
+                print(f"✗ Failed to import {module}: {e}")
                 failed += 1
+
+        print(f"\nImport test results: {success} successful, {failed} failed")
         
-        print(f"\n导入测试结果：{success}个成功，{failed}个失败")
-        
-        # 检查CUDA版本和PyTorch兼容性
-        print("\n环境兼容性检查：")
-        if torch.cuda.is_available():
-            print(f"✓ CUDA可用：{torch.version.cuda}")
-            print(f"✓ PyTorch使用CUDA：{torch.version.cuda}")
-            print(f"✓ GPU设备：{torch.cuda.get_device_name(0)}")
-            print(f"✓ GPU内存：{torch.cuda.get_device_properties(0).total_memory / (1024**3):.1f} GB")
-        else:
-            print("✗ CUDA不可用，将使用CPU")
-        
-        # 检查依赖项
-        try:
-            import peft
-            print(f"✓ PEFT库可用，版本：{peft.__version__}")
-        except ImportError:
-            print("✗ PEFT库不可用")
-        
-        # 检查数据目录
-        data_dir = os.environ.get('SM_CHANNEL_TRAINING', None)
-        if data_dir and os.path.exists(data_dir):
-            print(f"✓ 数据目录存在：{data_dir}")
-            print(f"  文件数量：{len(os.listdir(data_dir))}")
-        else:
-            print("✗ 数据目录不存在或为空")
-        
-        print("\n环境测试完成，所有依赖项验证已完成")
-        print("==========================================\n")
-        sys.exit(0)  # 成功退出
-        
+        # Exit successfully after environment test
+        print("\nEnvironment test completed successfully, exiting")
+        sys.exit(0)
+
 except Exception as e:
-    print(f"导入PyTorch时出错：{e}")
-    sys.exit(1)  # 如果无法导入PyTorch，则退出
+    print(f"Warning when importing PyTorch: {e}")
 
-# 释放一些内存
-gc.collect()
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
+# Get command-line arguments and prepare to run the training script
+print("\nPassing arguments to training script...")
 
-# 尝试导入peft库以确认它能够正确加载
+# Get the original command-line arguments
+print(f"Original command-line arguments: {sys.argv}")
+
+# Build command to run the actual training script
+cmd = [sys.executable, script_to_run]
+
+# Collect hyperparameters from environment variables
+hyperparameters = {}
+for key, value in os.environ.items():
+    if key.startswith('SM_HP_'):
+        # Convert SM_HP_X to x
+        param_name = key[6:].lower()
+        hyperparameters[param_name] = value
+        
+        # Add hyperparameters to command line
+        if param_name != 'test_env':  # Skip the test_env parameter
+            if value.lower() == 'true':
+                cmd.append(f"--{param_name}")
+            elif value.lower() == 'false':
+                # For False boolean values, don't add the parameter
+                pass
+            else:
+                cmd.append(f"--{param_name}")
+                cmd.append(value)
+
+print(f"Parsed hyperparameters: {hyperparameters}")
+print(f"Executing command: {' '.join(cmd)}")
+
+# Execute the training script with the parameters
 try:
-    import peft
-    print(f"PEFT库版本：{peft.__version__}")
-    print("PEFT库成功导入")
+    # Execute the script and wait for it to complete
+    exit_code = subprocess.call(cmd)
+    sys.exit(exit_code)
 except Exception as e:
-    print(f"导入PEFT库时出错：{e}")
-    print("这可能会影响某些功能，但我们将继续执行")
-
-print(f"\n直接执行脚本: {script_to_run}...")
-print(f"参数: {sys.argv[1:]}")
-
-# 直接执行训练脚本，保留原始参数
-from subprocess import check_call
-try:
-    # 直接运行脚本并传递参数
-    ret = check_call([sys.executable, script_to_run] + sys.argv[1:])
-    sys.exit(ret)
-except Exception as e:
-    print(f"运行脚本出错：{e}")
+    print(f"Error executing training script: {e}")
     sys.exit(1) 
