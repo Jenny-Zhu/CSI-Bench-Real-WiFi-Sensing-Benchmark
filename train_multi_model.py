@@ -296,6 +296,12 @@ def get_args():
     parser.add_argument('--skip_train_for_debug', action='store_true', default=False,
                      help='Only for debugging, skip actual training process')
     
+    # 添加对use_direct_task_path的支持
+    parser.add_argument('--use_direct_task_path', action='store_true', default=False,
+                        help='直接使用任务名作为路径，不使用tasks子目录')
+    parser.add_argument('--use-direct-task-path', action='store_true', dest='use_direct_task_path', default=False,
+                        help='直接使用任务名作为路径，不使用tasks子目录（短横线格式）')
+    
     # Add S3 related parameters
     parser.add_argument('--save_to_s3', type=str, default=None,
                       help='S3 path for saving results, format: s3://bucket-name/path/')
@@ -732,7 +738,7 @@ def main():
                 except Exception as e:
                     logger.warning(f"Failed to parse SM_HPS: {e}")
         
-        # Initialize task_dir to None at the beginning
+        # 初始化task_dir为None
         task_dir = None
         
         # Get parameters
@@ -766,113 +772,111 @@ def main():
             logger.info(f"SageMaker environment detected. Using local path: {dataset_root}")
             logger.info(f"Original S3 path: {original_path}")
             
-            # 在SageMaker环境中查找任务目录
-            if task_dir is None:  # 尝试查找任务目录
-                # 首先检查数据集根目录是否存在
-                if os.path.exists(dataset_root):
-                    logger.info(f"Dataset root exists: {dataset_root}")
-                    # 检查标准任务目录: /opt/ml/input/data/training/TaskName
-                    direct_task_path = os.path.join(dataset_root, args.task_name)
-                    if os.path.exists(direct_task_path):
-                        logger.info(f"Task directory found at {direct_task_path}")
-                        task_dir = direct_task_path
-                    else:
-                        # 尝试tasks/任务名称目录: /opt/ml/input/data/training/tasks/TaskName
-                        tasks_dir = os.path.join(dataset_root, 'tasks')
-                        if os.path.exists(tasks_dir):
-                            tasks_task_path = os.path.join(tasks_dir, args.task_name)
-                            if os.path.exists(tasks_task_path):
-                                logger.info(f"Task directory found in tasks subdirectory: {tasks_task_path}")
-                                task_dir = tasks_task_path
-                            else:
-                                logger.warning(f"Task directory not found in tasks subdirectory: {tasks_task_path}")
-                                task_dir = None
-                        else:
-                            logger.warning(f"Neither {direct_task_path} nor {os.path.join(tasks_dir, args.task_name)} exists")
-                            task_dir = None
+            # 简化的路径查找逻辑
+            logger.info("检查任务目录路径")
+            
+            # 首先检查用户指定的路径方式
+            if args.use_direct_task_path:
+                logger.info("根据参数使用直接任务路径模式")
+                direct_task_path = os.path.join(dataset_root, args.task_name)
+                if os.path.exists(direct_task_path):
+                    logger.info(f"找到直接任务目录路径: {direct_task_path}")
+                    task_dir = direct_task_path
                 else:
-                    logger.warning(f"Dataset root path does not exist: {dataset_root}")
-                    task_dir = None
-            
-            # If task directory found, check its content
-            if task_dir and os.path.exists(task_dir):
-                logger.info(f"Final task directory selected: {task_dir}")
-                logger.info(f"Content of task directory {task_dir}: {os.listdir(task_dir)}")
-                
-                # Further check folder structure
-                if os.path.exists(os.path.join(task_dir, 'metadata')):
-                    logger.info(f"Metadata directory found: {os.path.join(task_dir, 'metadata')}")
-                if os.path.exists(os.path.join(task_dir, 'splits')):
-                    logger.info(f"Splits directory found: {os.path.join(task_dir, 'splits')}")
-                    logger.info(f"Contents of splits: {os.listdir(os.path.join(task_dir, 'splits'))}")
-                if os.path.exists(os.path.join(task_dir, 'train')):
-                    logger.info(f"Train directory found: {os.path.join(task_dir, 'train')}")
-            
-            # 简化的路径搜索逻辑 - 专注于tasks子目录
-            if is_sagemaker and task_dir is None:
-                logger.info("检查标准SageMaker任务路径")
-                # 标准路径: /opt/ml/input/data/training/tasks/TaskName
+                    logger.error(f"在直接路径中未找到任务目录: {direct_task_path}")
+            else:
+                # 首先检查标准路径: /opt/ml/input/data/training/tasks/TaskName
+                logger.info("使用标准路径模式")
                 tasks_dir = os.path.join(dataset_root, 'tasks')
                 if os.path.exists(tasks_dir):
                     tasks_task_path = os.path.join(tasks_dir, args.task_name)
                     if os.path.exists(tasks_task_path):
-                        logger.info(f"在tasks子目录中找到任务目录: {tasks_task_path}")
+                        logger.info(f"找到标准任务目录路径: {tasks_task_path}")
                         task_dir = tasks_task_path
+                    else:
+                        logger.warning(f"在标准路径中未找到任务目录: {tasks_task_path}")
+                        # 尝试直接路径作为备选
+                        direct_task_path = os.path.join(dataset_root, args.task_name)
+                        if os.path.exists(direct_task_path):
+                            logger.info(f"找到直接任务目录路径: {direct_task_path}")
+                            task_dir = direct_task_path
+                        else:
+                            logger.error(f"在直接路径中也未找到任务目录: {direct_task_path}")
+                else:
+                    logger.warning(f"标准tasks目录不存在: {tasks_dir}")
+                    # 尝试直接路径作为备选
+                    direct_task_path = os.path.join(dataset_root, args.task_name)
+                    if os.path.exists(direct_task_path):
+                        logger.info(f"找到直接任务目录路径: {direct_task_path}")
+                        task_dir = direct_task_path
+                    else:
+                        logger.error(f"在直接路径中也未找到任务目录: {direct_task_path}")
             
-            # 如果在尝试了标准方法后仍未找到任务目录，显示诊断信息
-            if is_sagemaker and task_dir is None:
+            # 如果找不到任务目录，显示诊断信息
+            if task_dir is None:
                 logger.error(f"无法找到任务目录: {args.task_name}")
-                logger.error("显示路径诊断信息:")
+                logger.error("==== 数据目录结构诊断 ====")
                 
-                # 记录数据根目录内容
-                logger.error(f"数据根目录({dataset_root})内容:")
+                # 显示数据根目录内容
                 if os.path.exists(dataset_root):
                     try:
-                        root_contents = os.listdir(dataset_root)
-                        for item in root_contents:
+                        root_items = os.listdir(dataset_root)
+                        logger.error(f"数据根目录({dataset_root})包含 {len(root_items)} 个项目:")
+                        for item in root_items:
                             item_path = os.path.join(dataset_root, item)
                             if os.path.isdir(item_path):
-                                logger.error(f"  [目录] {item}")
+                                subdir_items = os.listdir(item_path)
+                                logger.error(f"  目录: {item}/ ({len(subdir_items)} 个子项)")
+                                # 如果是tasks目录，进一步列出所有任务
+                                if item == 'tasks':
+                                    for task_item in subdir_items:
+                                        logger.error(f"    - {task_item}")
                             else:
-                                logger.error(f"  [文件] {item}")
+                                logger.error(f"  文件: {item}")
                     except Exception as e:
                         logger.error(f"无法列出目录内容: {e}")
-                else:
-                    logger.error(f"数据根目录不存在: {dataset_root}")
                 
-                # 检查tasks子目录
+                # 输出标准路径应该是什么样子
+                logger.error("\n==== 正确的数据路径结构 ====")
+                logger.error(f"1. {dataset_root}/{args.task_name}/ 或")
+                logger.error(f"2. {dataset_root}/tasks/{args.task_name}/")
+                
+                # 提供解决建议
+                logger.error("\n==== 解决方案 ====")
+                logger.error("1. 确保正确上传了数据到S3")
+                logger.error(f"2. 检查task_name参数 '{args.task_name}' 是否与实际目录名匹配")
+                logger.error("3. 在sagemaker_runner.py中设置use_direct_task_path=True以尝试不同的路径结构")
+                logger.error("4. 检查S3目录结构是否符合以下格式：s3://bucket/path/tasks/TaskName/")
+                logger.error("5. 确保SageMaker执行角色有权限访问S3数据")
+                
+                # 提供诊断信息并继续
+                logger.error("\n==== 任务诊断 ====")
+                
+                # 检查是否有其他任务可用
                 tasks_dir = os.path.join(dataset_root, 'tasks')
                 if os.path.exists(tasks_dir):
-                    logger.error(f"tasks子目录({tasks_dir})内容:")
                     try:
-                        tasks_contents = os.listdir(tasks_dir)
-                        for item in tasks_contents:
-                            item_path = os.path.join(tasks_dir, item)
-                            if os.path.isdir(item_path):
-                                logger.error(f"  [目录] {item}")
-                            else:
-                                logger.error(f"  [文件] {item}")
-                    except Exception as e:
-                        logger.error(f"无法列出tasks目录内容: {e}")
-                else:
-                    logger.error(f"tasks子目录不存在: {tasks_dir}")
-                    
-                # 显示S3路径信息
-                if original_path.startswith('s3://'):
-                    logger.error(f"原始S3路径: {original_path}")
-                    logger.error("请确保您的S3数据结构符合以下格式:")
-                    logger.error("s3://your-bucket/path/tasks/TaskName/")
-                    logger.error("其中TaskName与配置中的task_name参数匹配")
-                    
-                # 指导用户检查SageMaker Job配置
-                logger.error("建议检查:")
-                logger.error("1. SageMaker任务配置中的'task_name'参数与S3中的目录名称是否匹配")
-                logger.error("2. 数据是否已正确上传到S3路径")
-                logger.error("3. SageMaker执行角色是否有权限访问S3数据")
+                        avail_tasks = os.listdir(tasks_dir)
+                        if avail_tasks:
+                            logger.error(f"可用的任务: {', '.join(avail_tasks)}")
+                            logger.error(f"如果需要，你可以尝试其中一个: {avail_tasks[0]}")
+                    except:
+                        pass
         
         try:
+            # 使用找到的task_dir或回退到默认路径
+            effective_dataset_root = dataset_root
+            if task_dir is not None:
+                # 如果找到了特定的任务目录，则使用其父目录作为数据集根目录
+                # 这样load_benchmark_supervised函数就能正确找到任务文件夹
+                if task_dir.endswith(args.task_name):
+                    effective_dataset_root = os.path.dirname(task_dir)
+                    logger.info(f"使用任务目录的父目录作为有效数据集根目录: {effective_dataset_root}")
+            
+            logger.info(f"加载数据集，数据集根目录: {effective_dataset_root}，任务名称: {args.task_name}")
+            
             data = load_benchmark_supervised(
-                dataset_root=dataset_root,
+                dataset_root=effective_dataset_root,
                 task_name=args.task_name,
                 batch_size=args.batch_size,
                 data_key=args.data_key,

@@ -175,6 +175,21 @@ class SageMakerRunner:
             task_config = dict(base_config)
             task_config['task'] = task
             
+            # 为任务添加use_direct_task_path参数
+            # 支持以下几种路径查找策略:
+            # 1. 直接指定use_direct_task_path = True/False
+            # 2. 针对不同任务使用不同路径策略 (direct_path_tasks配置项)
+            # 3. 首次任务尝试不同路径，后续任务使用成功的路径
+            
+            # 首先检查这个任务是否在direct_path_tasks列表中
+            direct_path_tasks = task_config.get('direct_path_tasks', [])
+            if isinstance(direct_path_tasks, str):
+                direct_path_tasks = [t.strip() for t in direct_path_tasks.split(',')]
+                
+            if task in direct_path_tasks:
+                print(f"Task '{task}' is configured to use direct path")
+                task_config['use_direct_task_path'] = True
+            
             # Create an estimator that will run all models for this task
             estimator = self._create_estimator(
                 task_config,
@@ -226,7 +241,10 @@ class SageMakerRunner:
             'learning-rate': config.get('learning_rate', 0.001),  # Add default learning rate
             'weight-decay': config.get('weight_decay', 1e-5),  # Add default weight decay
             'warmup-epochs': config.get('warmup_epochs', 5),  # Add default warmup period
-            'patience': config.get('patience', 15)  # Add default patience value
+            'patience': config.get('patience', 15),  # Add default patience value
+            'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # 添加自适应路径选项
+            'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
+            'use-direct-task-path': "True" if config.get('use_direct_task_path', False) else "False"  # 添加直接任务路径选项
         }
         
         # Add few-shot parameters (if enabled)
