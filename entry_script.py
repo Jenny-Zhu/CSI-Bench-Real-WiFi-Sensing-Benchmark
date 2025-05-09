@@ -391,10 +391,9 @@ os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
 def format_arg(arg):
-    """
-    Format command line argument to standard format.
+    \"\"\"Format command line argument to standard format.
     Converts __param to --param and --param-name to --param_name
-    """
+    \"\"\"
     if arg.startswith('__'):
         return '--' + arg[2:]
     elif arg.startswith('--'):
@@ -402,27 +401,52 @@ def format_arg(arg):
     return arg
 
 def validate_args(args):
-    """
-    Validate required arguments are present
-    """
+    \"\"\"Validate required arguments are present\"\"\"
     required_params = ['task_name', 'models', 'win_len', 'feature_size']
-    missing_params = [param for param in required_params if not any(arg.startswith(f'--{param}') for arg in args)]
+    missing_params = [param for param in required_params if not any(arg.startswith(f'--{{param}}') for arg in args)]
     if missing_params:
-        raise ValueError(f"Missing required parameters: {', '.join(missing_params)}")
+        raise ValueError(f"Missing required parameters: {{', '.join(missing_params)}}")
 
 # Preprocess command line arguments
 args = sys.argv[1:]
-logger.info(f"Original command line arguments: {args}")
+logger.info(f"Original command line arguments: {{args}}")
 
-# Format arguments
-formatted_args = [format_arg(arg) for arg in args]
-logger.info(f"Parameters after format fixing: {formatted_args}")
+# Format arguments - handle both single and paired arguments
+formatted_args = []
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg.startswith('__'):
+        # Convert __param to --param
+        formatted_arg = '--' + arg[2:]
+        formatted_args.append(formatted_arg)
+        # If next argument exists and doesn't start with __ or --, it's a value
+        if i + 1 < len(args) and not (args[i + 1].startswith('__') or args[i + 1].startswith('--')):
+            formatted_args.append(args[i + 1])
+            i += 2
+        else:
+            i += 1
+    elif arg.startswith('--'):
+        # Convert --param-name to --param_name
+        formatted_arg = arg.replace('-', '_')
+        formatted_args.append(formatted_arg)
+        # If next argument exists and doesn't start with --, it's a value
+        if i + 1 < len(args) and not args[i + 1].startswith('--'):
+            formatted_args.append(args[i + 1])
+            i += 2
+        else:
+            i += 1
+    else:
+        formatted_args.append(arg)
+        i += 1
+
+logger.info(f"Parameters after format fixing: {{formatted_args}}")
 
 # Validate arguments
 try:
     validate_args(formatted_args)
 except ValueError as e:
-    logger.error(f"Argument validation failed: {e}")
+    logger.error(f"Argument validation failed: {{e}}")
     sys.exit(1)
 
 # Update sys.argv with formatted arguments
@@ -444,7 +468,7 @@ try:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 except Exception as e:
-    logger.error(f"Error configuring PyTorch: {e}")
+    logger.error(f"Error configuring PyTorch: {{e}}")
 
 # Actively perform garbage collection
 gc.collect()
