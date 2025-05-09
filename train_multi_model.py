@@ -698,7 +698,22 @@ def train_model(model_name, data, args, device):
     return trained_model, overall_metrics
 
 def main():
-    """Main function to run multi-model training"""
+    """
+    Main function to run multi-model training
+    
+    Data loading process:
+    1. Check if running in SageMaker environment by looking for SM_MODEL_DIR
+    2. If in SageMaker, set dataset_root to /opt/ml/input/data/training
+    3. Look for task directory in either:
+       - /opt/ml/input/data/training/TaskName     (direct path)
+       - /opt/ml/input/data/training/tasks/TaskName (standard path)
+    4. If task directory not found, display detailed diagnostics
+    5. Load data from the found task directory
+    6. Train models as specified in the configuration
+    
+    Returns:
+        None, but writes model files to specified output directory
+    """
     try:
         # Record environment variables for debugging in SageMaker environment
         if is_sagemaker:
@@ -716,6 +731,9 @@ def main():
                     logger.info(f"Hyperparameters from environment: {hps}")
                 except Exception as e:
                     logger.warning(f"Failed to parse SM_HPS: {e}")
+        
+        # Initialize task_dir to None at the beginning
+        task_dir = None
         
         # Get parameters
         args = get_args()
@@ -748,32 +766,32 @@ def main():
             logger.info(f"SageMaker environment detected. Using local path: {dataset_root}")
             logger.info(f"Original S3 path: {original_path}")
             
-            # If task directory found in SageMaker environment, no need to search again
-            if not is_sagemaker or task_dir is None:
-                # In non-SageMaker environment, or in SageMaker environment where task directory not found yet
+            # 在SageMaker环境中查找任务目录
+            if task_dir is None:  # 尝试查找任务目录
+                # 首先检查数据集根目录是否存在
                 if os.path.exists(dataset_root):
                     logger.info(f"Dataset root exists: {dataset_root}")
-                    # Check task directory
+                    # 检查标准任务目录: /opt/ml/input/data/training/TaskName
                     direct_task_path = os.path.join(dataset_root, args.task_name)
                     if os.path.exists(direct_task_path):
                         logger.info(f"Task directory found at {direct_task_path}")
                         task_dir = direct_task_path
                     else:
-                        # Try tasks/task_name
+                        # 尝试tasks/任务名称目录: /opt/ml/input/data/training/tasks/TaskName
                         tasks_dir = os.path.join(dataset_root, 'tasks')
                         if os.path.exists(tasks_dir):
                             tasks_task_path = os.path.join(tasks_dir, args.task_name)
                             if os.path.exists(tasks_task_path):
-                                logger.info(f"Task directory found at {tasks_task_path}")
+                                logger.info(f"Task directory found in tasks subdirectory: {tasks_task_path}")
                                 task_dir = tasks_task_path
                             else:
-                                logger.warning(f"Task directory not found at {tasks_task_path}")
+                                logger.warning(f"Task directory not found in tasks subdirectory: {tasks_task_path}")
                                 task_dir = None
                         else:
                             logger.warning(f"Neither {direct_task_path} nor {os.path.join(tasks_dir, args.task_name)} exists")
                             task_dir = None
                 else:
-                    logger.warning(f"Dataset root path {dataset_root} does not exist")
+                    logger.warning(f"Dataset root path does not exist: {dataset_root}")
                     task_dir = None
             
             # If task directory found, check its content
