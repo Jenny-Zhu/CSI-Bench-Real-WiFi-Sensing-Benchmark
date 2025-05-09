@@ -142,8 +142,35 @@ def validate_args(args):
 args = sys.argv[1:]
 logger.info(f"Original command line arguments: {args}")
 
-# Format arguments
-formatted_args = [format_arg(arg) for arg in args]
+# Format arguments - handle both single and paired arguments
+formatted_args = []
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg.startswith('__'):
+        # Convert __param to --param
+        formatted_arg = '--' + arg[2:]
+        formatted_args.append(formatted_arg)
+        # If next argument exists and doesn't start with __ or --, it's a value
+        if i + 1 < len(args) and not (args[i + 1].startswith('__') or args[i + 1].startswith('--')):
+            formatted_args.append(args[i + 1])
+            i += 2
+        else:
+            i += 1
+    elif arg.startswith('--'):
+        # Convert --param-name to --param_name
+        formatted_arg = arg.replace('-', '_')
+        formatted_args.append(formatted_arg)
+        # If next argument exists and doesn't start with --, it's a value
+        if i + 1 < len(args) and not args[i + 1].startswith('--'):
+            formatted_args.append(args[i + 1])
+            i += 2
+        else:
+            i += 1
+    else:
+        formatted_args.append(arg)
+        i += 1
+
 logger.info(f"Parameters after format fixing: {formatted_args}")
 
 # Validate arguments
