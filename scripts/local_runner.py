@@ -31,6 +31,20 @@ from datetime import datetime
 import importlib.util
 import pandas as pd
 
+# Fix encoding issues on Windows
+import io
+import locale
+
+# Try to set UTF-8 mode for Windows
+if hasattr(sys, 'setdefaultencoding'):
+    sys.setdefaultencoding('utf-8')
+
+# Set stdout encoding to UTF-8 if possible
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+elif hasattr(sys, 'stdout') and hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 # Default paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -622,17 +636,76 @@ def main():
     if 'training_dir' in config:
         os.environ['WIFI_DATA_DIR'] = config['training_dir']
     
-    # Get specific pipeline configuration
-    if pipeline == 'multitask':
-        config = get_multitask_config(config)
-    else:  # Default to supervised learning
-        config = get_supervised_config(config)
+    # Get all available models
+    available_models = config.get('available_models', [])
     
-    # Run appropriate pipeline - configuration file will be saved to experiment directory after training completes
-    if pipeline == 'multitask':
-        return run_multitask_direct(config)
-    else:  # Default to supervised learning
-        return run_supervised_direct(config)
+    # If no available models defined, or empty list, use single model from config
+    if not available_models:
+        if 'model' in config:
+            available_models = [config['model']]
+        else:
+            print("Error: No available models list or single model defined")
+            return 1
+    
+    # Record results for all models
+    results = {}
+    
+    # Run each model in a loop
+    for model in available_models:
+        print(f"\n{'='*60}")
+        print(f"Starting training for model: {model}")
+        print(f"{'='*60}\n")
+        
+        # Create a new config copy for each model
+        model_config = config.copy()
+        model_config['model'] = model
+        
+        # Get specific pipeline configuration
+        if pipeline == 'multitask':
+            pipeline_config = get_multitask_config(model_config)
+        else:  # Default to supervised learning
+            pipeline_config = get_supervised_config(model_config)
+        
+        # Run appropriate pipeline
+        start_time = time.time()
+        if pipeline == 'multitask':
+            return_code = run_multitask_direct(pipeline_config)
+        else:  # Default to supervised learning
+            return_code = run_supervised_direct(pipeline_config)
+        
+        # Record results
+        end_time = time.time()
+        results[model] = {
+            'status': 'SUCCESS' if return_code == 0 else 'FAILED',
+            'return_code': return_code,
+            'run_time': end_time - start_time
+        }
+        
+        print(f"\nModel {model} training {'successful' if return_code == 0 else 'failed'}")
+        print(f"Running time: {(end_time - start_time)/60:.2f} minutes")
+    
+    # Print summary of all model runs
+    print(f"\n{'='*60}")
+    print(f"All model training completed")
+    print(f"{'='*60}")
+    print(f"Results summary:")
+    
+    successful = 0
+    failed = 0
+    for model, result in results.items():
+        status = result['status']
+        run_time = result['run_time']
+        print(f"  - {model}: {status}, Running time: {run_time/60:.2f} minutes")
+        
+        if status == 'SUCCESS':
+            successful += 1
+        else:
+            failed += 1
+    
+    print(f"\nSuccessful: {successful}/{len(results)}, Failed: {failed}/{len(results)}")
+    
+    # Return non-zero status code if any model failed
+    return 0 if failed == 0 else 1
 
 if __name__ == "__main__":
     sys.exit(main())

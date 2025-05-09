@@ -244,7 +244,9 @@ class SageMakerRunner:
             'patience': config.get('patience', 15),  # Add default patience value
             'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # 添加自适应路径选项
             'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
-            'use-root-data-path': "True"  # 默认总是使用根目录数据
+            'use-root-data-path': "True",  # 默认总是使用根目录数据
+            'direct-upload': "True",  # 强制直接上传到S3
+            'save-to-s3': self.s3_output_base  # 设置保存的S3输出路径
         }
         
         # Add few-shot parameters (if enabled)
@@ -253,10 +255,28 @@ class SageMakerRunner:
             hyperparameters['k-shot'] = config.get('k_shot', 5)
             hyperparameters['inner-lr'] = config.get('inner_lr', 0.01)
             hyperparameters['num-inner-steps'] = config.get('num_inner_steps', 10)
-            hyperparameters['fewshot-support-split'] = config.get('fewshot_support_split', 'val_id')
-            hyperparameters['fewshot-query-split'] = config.get('fewshot_query_split', 'test_cross_env')
-            hyperparameters['fewshot-finetune-all'] = "True" if config.get('fewshot_finetune_all', False) else "False"
-            hyperparameters['fewshot-eval-shots'] = "True" if config.get('fewshot_eval_shots', False) else "False"
+            
+            # Add few-shot support and query splits (if they exist)
+            for param in ['fewshot_support_split', 'fewshot_query_split']:
+                if param in config:
+                    # Replace underscores with dashes in parameter name
+                    fixed_param = param.replace('_', '-')
+                    hyperparameters[fixed_param] = config[param]
+        
+        # Add model-specific parameters (if they exist)
+        if 'model_params' in config:
+            for key, value in config['model_params'].items():
+                # Replace underscores with dashes in parameter name
+                fixed_key = key.replace('_', '-')
+                hyperparameters[fixed_key] = value
+                
+        # Print hyperparameters for debugging
+        print(f"Setting up hyperparameters for estimator:")
+        for key, value in sorted(hyperparameters.items()):
+            print(f"  {key}: {value}")
+            
+        # Special focus on S3 output path
+        print(f"S3 output path for results: {self.s3_output_base}")
         
         # Create estimator
         estimator = PyTorch(
@@ -266,11 +286,15 @@ class SageMakerRunner:
             framework_version=config.get('framework_version', '1.12.1'),
             py_version=config.get('py_version', 'py38'),
             instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.2xlarge'),
+            instance_type=config.get('instance_type', 'ml.g4dn.xlarge'),
             base_job_name=base_job_name,
             hyperparameters=hyperparameters,
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
-            keep_alive_period_in_seconds=config.get('keep_alive_period', 1200)  # Default keep instance active 20 minutes
+            keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
+            output_path=self.s3_output_base,  # Explicitly set output path
+            environment={
+                'SAGEMAKER_S3_OUTPUT': self.s3_output_base  # Set environment variable for S3 output path
+            }
         )
         
         return estimator

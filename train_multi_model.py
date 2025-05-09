@@ -289,7 +289,7 @@ def get_args():
                         help='Automatically adapt to data path structure')
     parser.add_argument('--try_all_paths', action='store_true', default=False,
                         help='Try all possible path combinations')
-    parser.add_argument('--direct_upload', action='store_true', default=False,
+    parser.add_argument('--direct_upload', action='store_true', default=True,
                         help='Directly upload results to S3 without using SageMaker auto-packaging')
     parser.add_argument('--upload_final_model', action='store_true', default=False,
                         help='Upload final model to S3')
@@ -835,16 +835,53 @@ def main():
             best_model = max(all_results.items(), key=lambda x: x[1].get('test_accuracy', 0.0))
             logger.info(f"\n最佳模型: {best_model[0]}, 测试准确率 {best_model[1].get('test_accuracy', 0.0):.4f}")
         
-        # 直接上传最终结果到S3（如果启用）
-        if args.direct_upload and args.save_to_s3:
-            logger.info(f"直接上传结果到S3: {args.save_to_s3}")
-            s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
+        # 检查S3保存参数，如果没有设置，尝试从环境变量获取
+        if args.save_to_s3 is None:
+            logger.info("没有设置save_to_s3参数，尝试从环境变量获取S3输出路径")
+            # 从SageMaker环境变量获取S3输出路径
+            sm_output_dir = os.environ.get('SM_OUTPUT_DATA_DIR')
+            sm_model_dir = os.environ.get('SM_MODEL_DIR')
             
-            # 上传整个任务目录
-            task_dir = os.path.join(args.output_dir, args.task_name)
-            if os.path.exists(task_dir):
-                upload_to_s3(task_dir, s3_task_path)
-                logger.info(f"结果上传到 {s3_task_path}")
+            # 如果有SM_OUTPUT_DATA_DIR，构建S3输出路径
+            if sm_output_dir and sm_output_dir.startswith('/opt/ml/output/data'):
+                # 尝试从SageMaker任务设置中推导S3路径
+                sm_output_s3 = os.environ.get('SAGEMAKER_S3_OUTPUT')
+                if sm_output_s3:
+                    logger.info(f"找到SageMaker S3输出路径: {sm_output_s3}")
+                    args.save_to_s3 = sm_output_s3
+                else:
+                    logger.warning("无法从环境变量获取S3输出路径")
+        
+        # 直接上传最终结果到S3（如果启用）
+        if args.direct_upload:
+            if args.save_to_s3:
+                logger.info(f"直接上传结果到S3: {args.save_to_s3}")
+                s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
+                
+                # 上传整个任务目录
+                task_dir = os.path.join(args.output_dir, args.task_name)
+                if os.path.exists(task_dir):
+                    logger.info(f"准备上传目录: {task_dir} -> {s3_task_path}")
+                    
+                    # 列出要上传的文件
+                    all_files = []
+                    for root, _, files in os.walk(task_dir):
+                        for file in files:
+                            all_files.append(os.path.join(root, file))
+                    logger.info(f"找到 {len(all_files)} 个文件需要上传")
+                    
+                    # 执行上传
+                    upload_success = upload_to_s3(task_dir, s3_task_path)
+                    if upload_success:
+                        logger.info(f"结果成功上传到 {s3_task_path}")
+                    else:
+                        logger.error(f"上传到 {s3_task_path} 失败!")
+                else:
+                    logger.error(f"任务输出目录不存在: {task_dir}")
+            else:
+                logger.warning("未设置save_to_s3参数，跳过上传到S3")
+        else:
+            logger.info("未启用direct_upload，依赖SageMaker自动上传结果")
         
         # 清理SageMaker存储以减少空间使用
         cleanup_sagemaker_storage()

@@ -52,13 +52,13 @@ def load_benchmark_supervised(
     # Create all split names
     all_splits = [train_split, val_split] + test_splits
     
-    # 调试输出
+    # Debug output
     data_dir_debug = os.path.join(dataset_root, "tasks", task_name)
     print(f"________________________DATA DEBUG________{data_dir_debug}")
     
-    # 如果指定直接使用根目录
+    # If use_root_as_task_dir is specified
     if use_root_as_task_dir:
-        # 检查根目录是否包含必要的子目录
+        # Check if root directory contains necessary subdirectories
         has_metadata = os.path.exists(os.path.join(dataset_root, 'metadata'))
         has_splits = os.path.exists(os.path.join(dataset_root, 'splits'))
         
@@ -67,9 +67,9 @@ def load_benchmark_supervised(
             task_dir = dataset_root
         else:
             print(f"Root directory does not contain required subfolders, will try standard paths.")
-            use_root_as_task_dir = False  # 回退到标准路径查找
+            use_root_as_task_dir = False  # Fall back to standard path search
     
-    # 如果不直接使用根目录或者根目录不符合要求
+    # If not using root directory directly or root directory doesn't meet requirements
     if not use_root_as_task_dir:
         # Try multiple directory structures to find the task directory
         possible_paths = [
@@ -113,9 +113,9 @@ def load_benchmark_supervised(
                         task_dir = potential_task_dir
                         break
     
-    # 最终检查是否找到了任务目录
+    # Final check if task directory was found
     if task_dir is None:
-        # 如果仍然没有找到目录，且参数允许的话，再次尝试使用根目录（即使缺少标准子目录）
+        # If still no directory found and parameter allows, try using root directory again (even if missing standard subdirectories)
         if not use_root_as_task_dir and os.path.exists(dataset_root):
             print(f"No task directory found. As a last resort, trying to use root directory: {dataset_root}")
             task_dir = dataset_root
@@ -124,7 +124,7 @@ def load_benchmark_supervised(
     
     print(f"Using task directory: {task_dir}")
     
-    # 显示任务目录内容用于调试
+    # Display task directory contents for debugging
     print(f"\n==== Task Directory Contents ({task_dir}) ====")
     try:
         dir_items = os.listdir(task_dir)
@@ -132,15 +132,15 @@ def load_benchmark_supervised(
             item_path = os.path.join(task_dir, item)
             if os.path.isdir(item_path):
                 subdir_items = os.listdir(item_path)
-                print(f"  目录: {item}/ ({len(subdir_items)} 个子项)")
-                # 如果是metadata或splits目录，展示其内容
+                print(f"  Directory: {item}/ ({len(subdir_items)} items)")
+                # If it's a metadata or splits directory, display its contents
                 if item in ['metadata', 'splits']:
                     for subitem in subdir_items:
                         print(f"    - {subitem}")
             else:
-                print(f"  文件: {item}")
+                print(f"  File: {item}")
     except Exception as e:
-        print(f"无法列出任务目录内容: {e}")
+        print(f"Cannot list task directory contents: {e}")
     print("================================================\n")
     
     metadata_path = os.path.join(task_dir, 'metadata', 'sample_metadata.csv')
@@ -152,7 +152,7 @@ def load_benchmark_supervised(
         alternate_paths = [
             os.path.join(task_dir, 'metadata', 'metadata.csv'),
             os.path.join(task_dir, 'metadata', 'subset_metadata.csv'),
-            os.path.join(task_dir, 'sample_metadata.csv'),  # 直接在任务目录下
+            os.path.join(task_dir, 'sample_metadata.csv'),  # Direct in task directory
             os.path.join(task_dir, 'subset_metadata.csv'),
             os.path.join(task_dir, 'metadata.csv')
         ]
@@ -164,28 +164,28 @@ def load_benchmark_supervised(
                 break
         
         if not os.path.exists(metadata_path):
-            # 诊断信息
-            print(f"\n===== 元数据文件搜索失败 =====")
-            print(f"尝试了以下路径:")
+            # Diagnostic information
+            print(f"\n===== Metadata File Search Failed =====")
+            print(f"Tried the following paths:")
             print(f"- {os.path.join(task_dir, 'metadata', 'sample_metadata.csv')}")
             for path in alternate_paths:
                 print(f"- {path}")
             
-            # 检查任务目录中是否存在任何.csv文件，可能是元数据文件但命名不同
+            # Check if there are any .csv files in the task directory that might be metadata files with different names
             found_csvs = []
             for root, _, files in os.walk(task_dir):
                 for file in files:
                     if file.endswith('.csv'):
                         csv_path = os.path.join(root, file)
                         found_csvs.append(csv_path)
-                        print(f"找到可能的CSV文件: {csv_path}")
+                        print(f"Found possible CSV file: {csv_path}")
             
-            # 如果找到任何CSV文件，尝试使用第一个
+            # If any CSV files found, try using the first one
             if found_csvs:
-                print(f"尝试使用找到的第一个CSV文件: {found_csvs[0]}")
+                print(f"Trying to use first found CSV file: {found_csvs[0]}")
                 metadata_path = found_csvs[0]
             else:
-                raise FileNotFoundError(f"Metadata file not found: {metadata_path}. 请确保数据结构正确，并且包含必要的元数据文件。")
+                raise FileNotFoundError(f"Metadata file not found: {metadata_path}. Please make sure the data structure is correct and includes necessary metadata files.")
     
     print(f"Using metadata path: {metadata_path}")
     
