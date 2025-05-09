@@ -125,6 +125,7 @@ class BenchmarkCSIDataset(Dataset):
             # Try alternate locations for metadata file
             alternate_metadata_paths = [
                 os.path.join(self.task_dir, "metadata", "metadata.csv"),
+                os.path.join(self.task_dir, "metadata", "sample_metadata.csv"),
                 os.path.join(self.task_dir, "subset_metadata.csv"),
                 os.path.join(self.task_dir, "metadata.csv")
             ]
