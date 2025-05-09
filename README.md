@@ -459,3 +459,52 @@ The extended testing generates comprehensive reports for all test splits, includ
 - Comparative tables of performance across different test conditions
 
 This provides deeper insights into model robustness and potential areas for improvement in real-world deployment scenarios.
+
+## SageMaker Integration Updates
+
+The SageMaker integration has been improved with the following enhancements:
+
+### Parameter Handling Improvements
+
+1. **Consistent Parameter Naming**: 
+   - Parameters like `task_name` and `task` are now handled consistently across all scripts
+   - Parameter names with hyphens (e.g., `--param-name`) are automatically converted to underscore format (`--param_name`)
+
+2. **Enhanced Parameter Validation**:
+   - Required parameters (`task_name`, `models`, `win_len`, `feature_size`) are validated before execution
+   - Detailed error messages help identify missing parameters
+
+3. **Improved SageMaker Environment Variables Support**:
+   - SageMaker hyperparameters (`SM_HP_*`) are automatically detected and parsed
+   - Path variables are correctly set based on SageMaker environment
+
+4. **Default Value Alignment**:
+   - Default values are now consistent between local and SageMaker environments
+   - All model-specific defaults have been aligned to prevent inconsistencies
+
+### Using the SageMaker Pipeline
+
+To run training on SageMaker, use the `sagemaker_runner.py` script:
+
+```bash
+python sagemaker_runner.py --config configs/sagemaker_default_config.json
+```
+
+Or customize with specific parameters:
+
+```bash
+python sagemaker_runner.py --task MotionSourceRecognition --models transformer,vit --batch_size 32
+```
+
+When using SageMaker, ensure your data is organized correctly in the S3 bucket as described in the SageMaker Configuration section.
+
+### Troubleshooting SageMaker Jobs
+
+If you encounter issues with parameter passing:
+
+1. Check the CloudWatch logs for detailed parameter handling information
+2. Verify parameter names are consistent (use `task_name` instead of `task`)
+3. Ensure required parameters are provided
+4. Consider using the test environment mode with `--test-env` flag to verify setup
+
+For more details on SageMaker usage, see the SageMaker Integration section below.

@@ -119,43 +119,70 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def format_arg(arg):
+    """Format command line argument to standard format.
+    Converts __param to --param and --param-name to --param_name
     """
-    Format command line argument to standard format.
-    Converts --param-name to --param_name
-    """
-    if arg.startswith('--'):
-        # Remove the -- prefix, replace hyphens with underscores, then add -- back
-        param_name = arg[2:].replace('-', '_')
-        return f'--{param_name}'
+    if arg.startswith('__'):
+        return '--' + arg[2:]
+    elif arg.startswith('--'):
+        return arg.replace('-', '_')
     return arg
 
 def validate_args(args):
-    """
-    Validate required arguments are present
-    """
+    """Validate required arguments are present and check parameter compatibilities"""
+    # 核心必需参数
     required_params = ['task_name', 'models', 'win_len', 'feature_size']
-    # Convert required params to the same format as the arguments
-    formatted_required = [f'--{param.replace("-", "_")}' for param in required_params]
-    missing_params = [param for param in required_params if not any(arg == f'--{param.replace("-", "_")}' for arg in args)]
+    missing_params = []
+    
+    # 检查必需参数
+    for param in required_params:
+        param_found = False
+        for i, arg in enumerate(args):
+            if arg.startswith('--'):
+                # 去除前缀并比较
+                arg_name = arg[2:].replace('-', '_')
+                if arg_name == param or arg_name == param.replace('_', '-'):
+                    param_found = True
+                    break
+        if not param_found:
+            missing_params.append(param)
+    
     if missing_params:
         raise ValueError(f"Missing required parameters: {', '.join(missing_params)}")
+    
+    # 检查参数类型兼容性
+    # 在这里可以添加更多验证，比如检查批处理大小是否合理等
+    for i, arg in enumerate(args):
+        if arg == '--batch_size' and i+1 < len(args):
+            try:
+                batch_size = int(args[i+1])
+                if batch_size > 32:
+                    logging.warning(f"Large batch size detected: {batch_size}. Consider reducing to avoid memory issues.")
+            except ValueError:
+                pass
+            
+    # 确保参数名格式统一，替换task为task_name
+    for i, arg in enumerate(args):
+        if arg == '--task' and i+1 < len(args):
+            logging.warning("Using deprecated parameter name 'task'. Please use 'task_name' instead.")
+            args[i] = '--task_name'
 
-# Get and optimize command line arguments
-args = sys.argv[1:]
-logger.info(f"Original command line arguments: {args}")
+# Process command line arguments
+original_args = sys.argv[1:]
+logging.info(f"Original command line arguments: {original_args}")
 
 # Format arguments - handle both single and paired arguments
 formatted_args = []
 i = 0
-while i < len(args):
-    arg = args[i]
-    if arg.startswith('--'):
+while i < len(original_args):
+    arg = original_args[i]
+    if arg.startswith('__') or arg.startswith('--'):
         # Format the argument name
         formatted_arg = format_arg(arg)
         formatted_args.append(formatted_arg)
-        # If next argument exists and doesn't start with --, it's a value
-        if i + 1 < len(args) and not args[i + 1].startswith('--'):
-            formatted_args.append(args[i + 1])
+        # If next argument exists and doesn't start with __ or --, it's a value
+        if i + 1 < len(original_args) and not (original_args[i + 1].startswith('__') or original_args[i + 1].startswith('--')):
+            formatted_args.append(original_args[i + 1])
             i += 2
         else:
             i += 1
@@ -163,37 +190,14 @@ while i < len(args):
         formatted_args.append(arg)
         i += 1
 
-logger.info(f"Parameters after format fixing: {formatted_args}")
+logging.info(f"Parameters after format fixing: {formatted_args}")
 
 # Validate arguments
 try:
     validate_args(formatted_args)
 except ValueError as e:
-    logger.error(f"Argument validation failed: {e}")
+    logging.error(f"Argument validation failed: {e}")
     sys.exit(1)
-
-# Continue with other parameter optimizations - Reduce batch_size to lower memory usage
-modified_args = []
-i = 0
-while i < len(formatted_args):
-    if formatted_args[i] == '--batch_size' and i+1 < len(formatted_args):
-        try:
-            batch_size = int(formatted_args[i+1])
-            if batch_size > 4:
-                logger.warning(f"Detected large batch_size ({batch_size}), automatically reduced to 4 to lower memory usage")
-                modified_args.extend(['--batch_size', '4'])
-            else:
-                modified_args.extend([formatted_args[i], formatted_args[i+1]])
-        except ValueError:
-            modified_args.extend([formatted_args[i], formatted_args[i+1]])
-        i += 2
-    else:
-        modified_args.append(formatted_args[i])
-        i += 1
-
-if formatted_args != modified_args:
-    logger.info("Command line arguments adjusted to optimize memory usage")
-    formatted_args = modified_args
 
 # Update sys.argv with formatted arguments
 sys.argv[1:] = formatted_args
@@ -348,8 +352,8 @@ if not os.path.exists(script_to_run):
 # Create optimized version of wrapper script
 print(f"\nCreating optimized wrapper script...")
 
-# Modify wrapper script template, add test environment support
-wrapper_content = f"""#!/usr/bin/env python3
+# Modify wrapper script template using triple quotes for better readability
+wrapper_content = """#!/usr/bin/env python3
 # Automatically generated wrapper script to avoid Horovod dependency conflicts and optimize memory usage
 import sys
 import os
@@ -393,37 +397,134 @@ def format_arg(arg):
     return arg
 
 def validate_args(args):
-    \"\"\"Validate required arguments are present\"\"\"
+    \"\"\"Validate required arguments are present and check parameter compatibilities\"\"\"
+    # 核心必需参数
     required_params = ['task_name', 'models', 'win_len', 'feature_size']
-    missing_params = [param for param in required_params if not any(arg.startswith(f'--{{param}}') for arg in args)]
+    missing_params = []
+    
+    # 检查必需参数
+    for param in required_params:
+        param_found = False
+        for i, arg in enumerate(args):
+            if arg.startswith('--'):
+                # 去除前缀并比较
+                arg_name = arg[2:].replace('-', '_')
+                if arg_name == param or arg_name == param.replace('_', '-'):
+                    param_found = True
+                    break
+        if not param_found:
+            missing_params.append(param)
+    
     if missing_params:
-        raise ValueError(f"Missing required parameters: {{', '.join(missing_params)}}")
+        raise ValueError(f"Missing required parameters: {', '.join(missing_params)}")
+    
+    # 检查参数类型兼容性
+    # 在这里可以添加更多验证，比如检查批处理大小是否合理等
+    for i, arg in enumerate(args):
+        if arg == '--batch_size' and i+1 < len(args):
+            try:
+                batch_size = int(args[i+1])
+                if batch_size > 32:
+                    logger.warning(f"Large batch size detected: {batch_size}. Consider reducing to avoid memory issues.")
+            except ValueError:
+                pass
+            
+    # 确保参数名格式统一，替换task为task_name
+    for i, arg in enumerate(args):
+        if arg == '--task' and i+1 < len(args):
+            logger.warning("Using deprecated parameter name 'task'. Please use 'task_name' instead.")
+            args[i] = '--task_name'
+
+# Check for SageMaker environment variables and add them to args
+logger.info("Checking for SageMaker environment variables...")
+sagemaker_params = {}
+
+# Map SageMaker hyperparameters to CLI arguments
+for key, value in os.environ.items():
+    if key.startswith('SM_HP_'):
+        # Convert key: SM_HP_WIN_LEN -> win_len
+        param_name = key[6:].lower()  # Remove SM_HP_ prefix
+        sagemaker_params[param_name] = value
+        logger.info(f"Found SageMaker hyperparameter: {param_name} = {value}")
+
+# If we're in SageMaker environment, add necessary paths automatically
+if 'SM_MODEL_DIR' in os.environ:
+    logger.info("Running in SageMaker environment")
+    sagemaker_params['save_dir'] = os.environ['SM_MODEL_DIR']
+    sagemaker_params['output_dir'] = os.environ['SM_OUTPUT_DATA_DIR']
+    
+    # Get training data directory from SM_CHANNEL_TRAINING
+    if 'SM_CHANNEL_TRAINING' in os.environ:
+        sagemaker_params['data_dir'] = os.environ['SM_CHANNEL_TRAINING']
+        sagemaker_params['dataset_root'] = os.environ['SM_CHANNEL_TRAINING']
+        logger.info(f"Setting data directory to: {sagemaker_params['data_dir']}")
+    
+    # Get number of GPUs
+    if 'SM_NUM_GPUS' in os.environ:
+        num_gpus = int(os.environ['SM_NUM_GPUS'])
+        logger.info(f"Available GPUs: {num_gpus}")
+
+# Special handling for models - convert comma-separated string to list if needed
+if 'models' in sagemaker_params and ',' in sagemaker_params['models']:
+    logger.info(f"Converted comma-separated models to list: {sagemaker_params['models']}")
+    # Note: we don't actually convert to list here, as argparse will handle that
+    
+# Special handling for task_name vs task (handle backward compatibility)
+if 'task' in sagemaker_params and 'task_name' not in sagemaker_params:
+    logger.warning("Converting 'task' parameter to 'task_name' for consistency")
+    sagemaker_params['task_name'] = sagemaker_params['task']
+
+# Print information about directories and data paths
+logger.info("===== Data Path Information =====")
+# Print the current directory
+logger.info(f"Current directory: {os.getcwd()}")
+# Check for training data directory
+data_dir = os.environ.get('SM_CHANNEL_TRAINING', None)
+if data_dir:
+    logger.info(f"Training data directory: {data_dir}")
+    if os.path.exists(data_dir):
+        logger.info(f"Training data directory exists")
+        # List files in the training data directory
+        try:
+            files = os.listdir(data_dir)
+            if files:
+                logger.info(f"Files in training data directory: {files[:10]}")
+                if len(files) > 10:
+                    logger.info(f"... and {len(files) - 10} more files")
+            else:
+                logger.info("Training data directory is empty")
+        except Exception as e:
+            logger.error(f"Error listing training data directory: {e}")
+    else:
+        logger.warning(f"Training data directory does not exist")
+        
+# Check for model directory
+model_dir = os.environ.get('SM_MODEL_DIR', None)
+if model_dir:
+    logger.info(f"Model directory: {model_dir}")
+    if not os.path.exists(model_dir):
+        try:
+            os.makedirs(model_dir, exist_ok=True)
+            logger.info(f"Created model directory")
+        except Exception as e:
+            logger.error(f"Error creating model directory: {e}")
+logger.info("==================================")
 
 # Preprocess command line arguments
 args = sys.argv[1:]
-logger.info(f"Original command line arguments: {{args}}")
+logger.info(f"Original command line arguments: {args}")
 
 # Format arguments - handle both single and paired arguments
 formatted_args = []
 i = 0
 while i < len(args):
     arg = args[i]
-    if arg.startswith('__'):
-        # Convert __param to --param
-        formatted_arg = '--' + arg[2:]
+    if arg.startswith('__') or arg.startswith('--'):
+        # Format the argument name
+        formatted_arg = format_arg(arg)
         formatted_args.append(formatted_arg)
         # If next argument exists and doesn't start with __ or --, it's a value
         if i + 1 < len(args) and not (args[i + 1].startswith('__') or args[i + 1].startswith('--')):
-            formatted_args.append(args[i + 1])
-            i += 2
-        else:
-            i += 1
-    elif arg.startswith('--'):
-        # Convert --param-name to --param_name
-        formatted_arg = arg.replace('-', '_')
-        formatted_args.append(formatted_arg)
-        # If next argument exists and doesn't start with --, it's a value
-        if i + 1 < len(args) and not args[i + 1].startswith('--'):
             formatted_args.append(args[i + 1])
             i += 2
         else:
@@ -432,13 +533,13 @@ while i < len(args):
         formatted_args.append(arg)
         i += 1
 
-logger.info(f"Parameters after format fixing: {{formatted_args}}")
+logger.info(f"Parameters after format fixing: {formatted_args}")
 
 # Validate arguments
 try:
     validate_args(formatted_args)
 except ValueError as e:
-    logger.error(f"Argument validation failed: {{e}}")
+    logger.error(f"Argument validation failed: {e}")
     sys.exit(1)
 
 # Update sys.argv with formatted arguments
@@ -460,7 +561,7 @@ try:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 except Exception as e:
-    logger.error(f"Error configuring PyTorch: {{e}}")
+    logger.error(f"Error configuring PyTorch: {e}")
 
 # Actively perform garbage collection
 gc.collect()
@@ -479,12 +580,16 @@ import torch.nn as nn
 from tqdm import tqdm
 
 # Then import and execute the original script
-import {script_to_run.replace('.py', '')}
+import {script_name}
 
 # Call the main function of the original script (if it exists)
-if hasattr({script_to_run.replace('.py', '')}, 'main'):
-    {script_to_run.replace('.py', '')}.main()
+if hasattr({script_name}, 'main'):
+    {script_name}.main()
 """
+
+# Replace {script_name} with the actual script name
+script_name = script_to_run.replace('.py', '')
+wrapper_content = wrapper_content.replace('{script_name}', script_name)
 
 # Write temporary wrapper script
 wrapper_script = "wrapper_script.py"
@@ -497,7 +602,7 @@ print(f"\nStarting execution of optimized script {script_to_run}...\n")
 # Run the wrapper script with the same arguments
 try:
     print("Using memory optimized wrapper script...")
-    ret = check_call([sys.executable, wrapper_script] + args)
+    ret = check_call([sys.executable, wrapper_script] + formatted_args)
     sys.exit(ret)
 except Exception as e:
     print(f"Error running script: {e}")
@@ -505,8 +610,84 @@ except Exception as e:
     # As a fallback, try running the original script directly
     print("\nAttempting to run the original script as a fallback...")
     try:
-        ret = check_call([sys.executable, script_to_run] + args)
+        print(f"Original command line arguments: {sys.argv}")
+        ret = check_call([sys.executable, script_to_run] + formatted_args)
         sys.exit(ret)
     except Exception as e2:
         print(f"Running original script also failed: {e2}")
         sys.exit(1) 
+
+# Check for SageMaker environment variables and add them to args
+print("Checking for SageMaker environment variables...")
+sagemaker_params = {}
+
+# Map SageMaker hyperparameters to CLI arguments
+for key, value in os.environ.items():
+    if key.startswith('SM_HP_'):
+        # Convert key: SM_HP_WIN_LEN -> win_len
+        param_name = key[6:].lower()  # Remove SM_HP_ prefix
+        sagemaker_params[param_name] = value
+        print(f"Found SageMaker hyperparameter: {param_name} = {value}")
+
+# If we're in SageMaker environment, add necessary paths automatically
+if 'SM_MODEL_DIR' in os.environ:
+    print("Running in SageMaker environment")
+    sagemaker_params['save_dir'] = os.environ['SM_MODEL_DIR']
+    sagemaker_params['output_dir'] = os.environ['SM_OUTPUT_DATA_DIR']
+    
+    # Get training data directory from SM_CHANNEL_TRAINING
+    if 'SM_CHANNEL_TRAINING' in os.environ:
+        sagemaker_params['data_dir'] = os.environ['SM_CHANNEL_TRAINING']
+        sagemaker_params['dataset_root'] = os.environ['SM_CHANNEL_TRAINING']
+        print(f"Setting data directory to: {sagemaker_params['data_dir']}")
+    
+    # Get number of GPUs
+    if 'SM_NUM_GPUS' in os.environ:
+        num_gpus = int(os.environ['SM_NUM_GPUS'])
+        print(f"Available GPUs: {num_gpus}")
+
+# Special handling for models - convert comma-separated string to list if needed
+if 'models' in sagemaker_params and ',' in sagemaker_params['models']:
+    print(f"Converted comma-separated models to list: {sagemaker_params['models']}")
+    # Note: we don't actually convert to list here, as argparse will handle that
+    
+# Special handling for task_name vs task (handle backward compatibility)
+if 'task' in sagemaker_params and 'task_name' not in sagemaker_params:
+    logging.warning("Converting 'task' parameter to 'task_name' for consistency")
+    sagemaker_params['task_name'] = sagemaker_params['task']
+
+# Print information about directories and data paths
+print(f"\n===== Data Path Information =====")
+# Print the current directory
+print(f"Current directory: {os.getcwd()}")
+# Check for training data directory
+data_dir = os.environ.get('SM_CHANNEL_TRAINING', None)
+if data_dir:
+    print(f"Training data directory: {data_dir}")
+    if os.path.exists(data_dir):
+        print(f"Training data directory exists")
+        # List files in the training data directory
+        try:
+            files = os.listdir(data_dir)
+            if files:
+                print(f"Files in training data directory: {files[:10]}")
+                if len(files) > 10:
+                    print(f"... and {len(files) - 10} more files")
+            else:
+                print("Training data directory is empty")
+        except Exception as e:
+            print(f"Error listing training data directory: {e}")
+    else:
+        print(f"Training data directory does not exist")
+        
+# Check for model directory
+model_dir = os.environ.get('SM_MODEL_DIR', None)
+if model_dir:
+    print(f"Model directory: {model_dir}")
+    if not os.path.exists(model_dir):
+        try:
+            os.makedirs(model_dir, exist_ok=True)
+            print(f"Created model directory")
+        except Exception as e:
+            print(f"Error creating model directory: {e}")
+print("==================================\n") 
