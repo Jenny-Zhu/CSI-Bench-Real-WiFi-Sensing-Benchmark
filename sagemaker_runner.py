@@ -300,11 +300,10 @@ class SageMakerRunner:
         if not s3_data_base.endswith('/'):
             s3_data_base += '/'
         
-        # 始终使用根目录数据路径
-        task_data_path = f"{s3_data_base}"
-        print(f"使用根目录数据路径: {task_data_path}")
-        
-        print(f"Task name: {task} - Data will be downloaded to /opt/ml/input/data/training/")
+        # 使用任务特定的路径，而不是整个根目录
+        task_data_path = f"{s3_data_base}tasks/{task}/"
+        print(f"使用任务特定数据路径: {task_data_path}")
+        print(f"任务名称: {task} - 数据将下载到 /opt/ml/input/data/training/")
         
         # Define input channels
         input_data = {
