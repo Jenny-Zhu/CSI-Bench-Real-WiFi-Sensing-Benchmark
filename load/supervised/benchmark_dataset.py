@@ -92,7 +92,7 @@ class BenchmarkCSIDataset(Dataset):
         
         # Now use the task_dir to find the split and metadata files
         split_path = os.path.join(self.task_dir, "splits", f"{split_name}.json")
-        metadata_path = os.path.join(self.task_dir, "metadata", "subset_metadata.csv")
+        metadata_path = os.path.join(self.task_dir, "metadata", "sample_metadata.csv")
         
         # Check if files exist
         if not os.path.exists(split_path):
