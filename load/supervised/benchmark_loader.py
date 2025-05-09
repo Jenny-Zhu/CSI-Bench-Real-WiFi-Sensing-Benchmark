@@ -123,7 +123,27 @@ def load_benchmark_supervised(
             raise ValueError(f"Could not find task directory for {task_name} in {dataset_root}")
     
     print(f"Using task directory: {task_dir}")
-    metadata_path = os.path.join(task_dir, 'metadata', 'subset_metadata.csv')
+    
+    # 显示任务目录内容用于调试
+    print(f"\n==== Task Directory Contents ({task_dir}) ====")
+    try:
+        dir_items = os.listdir(task_dir)
+        for item in dir_items:
+            item_path = os.path.join(task_dir, item)
+            if os.path.isdir(item_path):
+                subdir_items = os.listdir(item_path)
+                print(f"  目录: {item}/ ({len(subdir_items)} 个子项)")
+                # 如果是metadata或splits目录，展示其内容
+                if item in ['metadata', 'splits']:
+                    for subitem in subdir_items:
+                        print(f"    - {subitem}")
+            else:
+                print(f"  文件: {item}")
+    except Exception as e:
+        print(f"无法列出任务目录内容: {e}")
+    print("================================================\n")
+    
+    metadata_path = os.path.join(task_dir, 'metadata', 'sample_metadata.csv')
     mapping_path = os.path.join(task_dir, 'metadata', 'label_mapping.json')
     
     # Check if metadata file exists
@@ -131,6 +151,8 @@ def load_benchmark_supervised(
         # Try alternative metadata file names
         alternate_paths = [
             os.path.join(task_dir, 'metadata', 'metadata.csv'),
+            os.path.join(task_dir, 'metadata', 'subset_metadata.csv'),
+            os.path.join(task_dir, 'sample_metadata.csv'),  # 直接在任务目录下
             os.path.join(task_dir, 'subset_metadata.csv'),
             os.path.join(task_dir, 'metadata.csv')
         ]
@@ -142,8 +164,29 @@ def load_benchmark_supervised(
                 break
         
         if not os.path.exists(metadata_path):
-            raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
-        
+            # 诊断信息
+            print(f"\n===== 元数据文件搜索失败 =====")
+            print(f"尝试了以下路径:")
+            print(f"- {os.path.join(task_dir, 'metadata', 'sample_metadata.csv')}")
+            for path in alternate_paths:
+                print(f"- {path}")
+            
+            # 检查任务目录中是否存在任何.csv文件，可能是元数据文件但命名不同
+            found_csvs = []
+            for root, _, files in os.walk(task_dir):
+                for file in files:
+                    if file.endswith('.csv'):
+                        csv_path = os.path.join(root, file)
+                        found_csvs.append(csv_path)
+                        print(f"找到可能的CSV文件: {csv_path}")
+            
+            # 如果找到任何CSV文件，尝试使用第一个
+            if found_csvs:
+                print(f"尝试使用找到的第一个CSV文件: {found_csvs[0]}")
+                metadata_path = found_csvs[0]
+            else:
+                raise FileNotFoundError(f"Metadata file not found: {metadata_path}. 请确保数据结构正确，并且包含必要的元数据文件。")
+    
     print(f"Using metadata path: {metadata_path}")
     
     # Create or load label mapper
