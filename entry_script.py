@@ -121,12 +121,12 @@ logger = logging.getLogger(__name__)
 def format_arg(arg):
     """
     Format command line argument to standard format.
-    Converts __param to --param and --param-name to --param_name
+    Converts --param-name to --param_name
     """
-    if arg.startswith('__'):
-        return '--' + arg[2:]
-    elif arg.startswith('--'):
-        return arg.replace('-', '_')
+    if arg.startswith('--'):
+        # Remove the -- prefix, replace hyphens with underscores, then add -- back
+        param_name = arg[2:].replace('-', '_')
+        return f'--{param_name}'
     return arg
 
 def validate_args(args):
@@ -134,7 +134,9 @@ def validate_args(args):
     Validate required arguments are present
     """
     required_params = ['task_name', 'models', 'win_len', 'feature_size']
-    missing_params = [param for param in required_params if not any(arg.startswith(f'--{param}') for arg in args)]
+    # Convert required params to the same format as the arguments
+    formatted_required = [f'--{param.replace("-", "_")}' for param in required_params]
+    missing_params = [param for param in required_params if not any(arg == f'--{param.replace("-", "_")}' for arg in args)]
     if missing_params:
         raise ValueError(f"Missing required parameters: {', '.join(missing_params)}")
 
@@ -147,19 +149,9 @@ formatted_args = []
 i = 0
 while i < len(args):
     arg = args[i]
-    if arg.startswith('__'):
-        # Convert __param to --param
-        formatted_arg = '--' + arg[2:]
-        formatted_args.append(formatted_arg)
-        # If next argument exists and doesn't start with __ or --, it's a value
-        if i + 1 < len(args) and not (args[i + 1].startswith('__') or args[i + 1].startswith('--')):
-            formatted_args.append(args[i + 1])
-            i += 2
-        else:
-            i += 1
-    elif arg.startswith('--'):
-        # Convert --param-name to --param_name
-        formatted_arg = arg.replace('-', '_')
+    if arg.startswith('--'):
+        # Format the argument name
+        formatted_arg = format_arg(arg)
         formatted_args.append(formatted_arg)
         # If next argument exists and doesn't start with --, it's a value
         if i + 1 < len(args) and not args[i + 1].startswith('--'):

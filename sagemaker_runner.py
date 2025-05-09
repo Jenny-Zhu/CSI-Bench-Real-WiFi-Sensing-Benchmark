@@ -219,12 +219,16 @@ class SageMakerRunner:
         hyperparameters = {
             'models': ','.join(models),
             'task_name': config.get('task_name', config.get('task')),  # Support both task and task_name for backward compatibility
-            'win_len': config.get('win_len', 500),
+            'win_len': config.get('win_len', 500),  # Match default in train_supervised.py
             'feature_size': config.get('feature_size', 232),
             'batch_size': config.get('batch_size', 32),  # Match default in train_multi_model.py
             'epochs': config.get('epochs', 100),
             'test_splits': config.get('test_splits', 'all'),
-            'seed': config.get('seed', 42)
+            'seed': config.get('seed', 42),
+            'learning_rate': config.get('learning_rate', 0.001),  # Add default learning rate
+            'weight_decay': config.get('weight_decay', 1e-5),  # Add default weight decay
+            'warmup_epochs': config.get('warmup_epochs', 5),  # Add default warmup epochs
+            'patience': config.get('patience', 15)  # Add default patience
         }
         
         # Add few-shot parameters if enabled
