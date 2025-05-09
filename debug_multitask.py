@@ -26,7 +26,8 @@ def debug_multitask(task_name='MotionSourceRecognition', batch_size=32):
         data = load_benchmark_supervised(
             dataset_root=data_dir,
             task_name=task_name,
-            batch_size=batch_size
+            batch_size=batch_size,
+            use_root_as_task_dir=False
         )
         print(f"Data loaded successfully!")
         print(f"Number of classes: {data['num_classes']}")

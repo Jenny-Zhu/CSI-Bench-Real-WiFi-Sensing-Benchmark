@@ -297,10 +297,16 @@ def get_args():
                      help='Only for debugging, skip actual training process')
     
     # 添加对use_direct_task_path的支持
-    parser.add_argument('--use_direct_task_path', action='store_true', default=False,
+    parser.add_argument('--use_direct_task_path', action='store_true', default=True,
                         help='直接使用任务名作为路径，不使用tasks子目录')
-    parser.add_argument('--use-direct-task-path', action='store_true', dest='use_direct_task_path', default=False,
+    parser.add_argument('--use-direct-task-path', action='store_true', dest='use_direct_task_path', default=True,
                         help='直接使用任务名作为路径，不使用tasks子目录（短横线格式）')
+    
+    # 添加use_root_data_path参数，直接使用整个/opt/ml/input/data/training目录作为有效数据
+    parser.add_argument('--use_root_data_path', action='store_true', default=True,
+                        help='直接使用根目录作为任务数据目录，忽略任务名称')
+    parser.add_argument('--use-root-data-path', action='store_true', dest='use_root_data_path', default=True,
+                        help='直接使用根目录作为任务数据目录，忽略任务名称（短横线格式）')
     
     # Add S3 related parameters
     parser.add_argument('--save_to_s3', type=str, default=None,
@@ -349,11 +355,11 @@ def get_args():
                 # For --flag False case, skip that parameter
                 i += 2
                 continue
-        
+            
         # Normal parameter addition
         args_to_parse.append(arg)
         i += 1
-
+    
     try:
         # Log the final arguments for debugging
         logger.info(f"Actual arguments to parse: {args_to_parse}")
@@ -775,42 +781,105 @@ def main():
             # 简化的路径查找逻辑
             logger.info("检查任务目录路径")
             
-            # 首先检查用户指定的路径方式
-            if args.use_direct_task_path:
-                logger.info("根据参数使用直接任务路径模式")
+            # 如果启用了use_root_data_path，直接使用整个training目录作为任务目录
+            if args.use_root_data_path:
+                logger.info("使用根目录作为任务数据目录模式")
+                # 检查直接使用根目录是否可行（是否存在metadata和splits目录）
+                if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
+                   os.path.exists(os.path.join(dataset_root, 'splits')):
+                    logger.info(f"根目录包含必要的任务数据结构，将直接使用根目录: {dataset_root}")
+                    
+                    # 创建任务根目录
+                    task_root_dir = os.path.join(dataset_root, 'tasks')
+                    os.makedirs(task_root_dir, exist_ok=True)
+                    
+                    # 创建从根目录到任务目录的符号链接
+                    task_dir = os.path.join(task_root_dir, args.task_name)
+                    
+                    # 检查任务目录是否已存在，如果不存在则创建符号链接
+                    if not os.path.exists(task_dir):
+                        try:
+                            # 在Windows上使用junction，在Unix上使用symlink
+                            if os.name == 'nt':
+                                import subprocess
+                                subprocess.run(['mklink', '/J', task_dir, dataset_root], shell=True)
+            else:
+                                # 在Linux/Unix上创建符号链接
+                                # 注意：实际创建符号链接的是到上一级目录的相对路径，这样更通用
+                                rel_path = os.path.relpath(dataset_root, os.path.dirname(task_dir))
+                                os.symlink(rel_path, task_dir)
+                            logger.info(f"创建了从 {task_dir} 到 {dataset_root} 的符号链接")
+                        except Exception as e:
+                            logger.warning(f"创建符号链接失败: {e}")
+                            logger.warning("将尝试直接使用根目录")
+                            
+                    # 检查符号链接是否创建成功
+                    if os.path.exists(task_dir):
+                        logger.info(f"将使用创建的任务目录: {task_dir}")
+        else:
+                        # 如果符号链接失败，使用原始目录作为有效根目录
+                        logger.warning("符号链接创建失败，改为使用直接路径方式")
+                        args.use_root_data_path = False
+                        args.use_direct_task_path = True
+            
+            # 如果启用了直接任务路径，或者根目录模式失败
+            if not args.use_root_data_path and args.use_direct_task_path:
+                logger.info("使用直接任务路径模式")
                 direct_task_path = os.path.join(dataset_root, args.task_name)
                 if os.path.exists(direct_task_path):
                     logger.info(f"找到直接任务目录路径: {direct_task_path}")
                     task_dir = direct_task_path
                 else:
                     logger.error(f"在直接路径中未找到任务目录: {direct_task_path}")
-            else:
-                # 首先检查标准路径: /opt/ml/input/data/training/tasks/TaskName
-                logger.info("使用标准路径模式")
-                tasks_dir = os.path.join(dataset_root, 'tasks')
-                if os.path.exists(tasks_dir):
-                    tasks_task_path = os.path.join(tasks_dir, args.task_name)
-                    if os.path.exists(tasks_task_path):
-                        logger.info(f"找到标准任务目录路径: {tasks_task_path}")
-                        task_dir = tasks_task_path
+                    # 尝试回退到使用根目录
+                    if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
+                       os.path.exists(os.path.join(dataset_root, 'splits')):
+                        task_dir = dataset_root
+                        logger.info(f"回退到使用根数据目录作为任务目录: {task_dir}")
                     else:
+                        logger.error("未找到有效的任务目录")
+            
+            # 如果既不使用根目录，也不使用直接路径，则使用标准任务路径
+            if not args.use_root_data_path and not args.use_direct_task_path:
+                logger.info("使用标准任务路径模式")
+                    tasks_dir = os.path.join(dataset_root, 'tasks')
+                    if os.path.exists(tasks_dir):
+                        tasks_task_path = os.path.join(tasks_dir, args.task_name)
+                        if os.path.exists(tasks_task_path):
+                        logger.info(f"找到标准任务目录路径: {tasks_task_path}")
+                            task_dir = tasks_task_path
+                        else:
                         logger.warning(f"在标准路径中未找到任务目录: {tasks_task_path}")
-                        # 尝试直接路径作为备选
+                        # 尝试回退到直接路径
                         direct_task_path = os.path.join(dataset_root, args.task_name)
                         if os.path.exists(direct_task_path):
                             logger.info(f"找到直接任务目录路径: {direct_task_path}")
                             task_dir = direct_task_path
-                        else:
+                    else:
                             logger.error(f"在直接路径中也未找到任务目录: {direct_task_path}")
+                            # 尝试回退到使用根目录
+                            if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
+                               os.path.exists(os.path.join(dataset_root, 'splits')):
+                                task_dir = dataset_root
+                                logger.info(f"回退到使用根数据目录作为任务目录: {task_dir}")
+            else:
+                                logger.error("未找到有效的任务目录")
                 else:
                     logger.warning(f"标准tasks目录不存在: {tasks_dir}")
-                    # 尝试直接路径作为备选
+                    # 尝试回退到直接路径
                     direct_task_path = os.path.join(dataset_root, args.task_name)
                     if os.path.exists(direct_task_path):
                         logger.info(f"找到直接任务目录路径: {direct_task_path}")
                         task_dir = direct_task_path
                     else:
                         logger.error(f"在直接路径中也未找到任务目录: {direct_task_path}")
+                        # 尝试回退到使用根目录
+                        if os.path.exists(os.path.join(dataset_root, 'metadata')) and \
+                           os.path.exists(os.path.join(dataset_root, 'splits')):
+                            task_dir = dataset_root
+                            logger.info(f"回退到使用根数据目录作为任务目录: {task_dir}")
+                        else:
+                            logger.error("未找到有效的任务目录")
             
             # 如果找不到任务目录，显示诊断信息
             if task_dir is None:
@@ -837,43 +906,100 @@ def main():
                         logger.error(f"无法列出目录内容: {e}")
                 
                 # 输出标准路径应该是什么样子
-                logger.error("\n==== 正确的数据路径结构 ====")
-                logger.error(f"1. {dataset_root}/{args.task_name}/ 或")
-                logger.error(f"2. {dataset_root}/tasks/{args.task_name}/")
-                
-                # 提供解决建议
                 logger.error("\n==== 解决方案 ====")
-                logger.error("1. 确保正确上传了数据到S3")
-                logger.error(f"2. 检查task_name参数 '{args.task_name}' 是否与实际目录名匹配")
-                logger.error("3. 在sagemaker_runner.py中设置use_direct_task_path=True以尝试不同的路径结构")
-                logger.error("4. 检查S3目录结构是否符合以下格式：s3://bucket/path/tasks/TaskName/")
-                logger.error("5. 确保SageMaker执行角色有权限访问S3数据")
+                logger.error("1. 从日志中检查数据根目录结构")
+                logger.error("2. 确保上传的数据包含metadata和splits目录")
+                logger.error("3. 添加--use_root_data_path=True参数直接使用根目录数据")
                 
-                # 提供诊断信息并继续
-                logger.error("\n==== 任务诊断 ====")
-                
-                # 检查是否有其他任务可用
-                tasks_dir = os.path.join(dataset_root, 'tasks')
-                if os.path.exists(tasks_dir):
-                    try:
-                        avail_tasks = os.listdir(tasks_dir)
-                        if avail_tasks:
-                            logger.error(f"可用的任务: {', '.join(avail_tasks)}")
-                            logger.error(f"如果需要，你可以尝试其中一个: {avail_tasks[0]}")
-                    except:
-                        pass
-        
+                # 尝试创建一个空的任务目录结构
+                try:
+                    logger.info("\n==== 尝试创建任务目录结构 ====")
+                    task_dir = os.path.join(dataset_root, 'tasks', args.task_name)
+                    os.makedirs(os.path.join(task_dir, 'metadata'), exist_ok=True)
+                    os.makedirs(os.path.join(task_dir, 'splits'), exist_ok=True)
+                    
+                    # 创建从根目录到任务目录的链接
+                    for subdir in ['metadata', 'splits']:
+                        src = os.path.join(dataset_root, subdir)
+                        dst = os.path.join(task_dir, subdir)
+                        if os.path.exists(src) and not os.path.exists(dst):
+                            try:
+                                if os.name == 'nt':
+                                    import subprocess
+                                    subprocess.run(['mklink', '/J', dst, src], shell=True)
+                                else:
+                                    # 在Linux/Unix上创建符号链接
+                                    rel_path = os.path.relpath(src, os.path.dirname(dst))
+                                    os.symlink(rel_path, dst)
+                                logger.info(f"创建了从 {dst} 到 {src} 的符号链接")
+                            except Exception as e:
+                                logger.warning(f"创建符号链接失败: {e}")
+                    
+                    for subdir in os.listdir(dataset_root):
+                        if subdir.startswith('sub_'):
+                            src = os.path.join(dataset_root, subdir)
+                            dst = os.path.join(task_dir, subdir)
+                            if os.path.exists(src) and not os.path.exists(dst):
+                                try:
+                                    if os.name == 'nt':
+                                        import subprocess
+                                        subprocess.run(['mklink', '/J', dst, src], shell=True)
+                                    else:
+                                        # 在Linux/Unix上创建符号链接
+                                        rel_path = os.path.relpath(src, os.path.dirname(dst))
+                                        os.symlink(rel_path, dst)
+                                    logger.info(f"创建了从 {dst} 到 {src} 的符号链接")
+                                except Exception as e:
+                                    logger.warning(f"创建符号链接失败: {e}")
+                    
+                    logger.info(f"创建了任务目录结构: {task_dir}")
+                except Exception as e:
+                    logger.error(f"创建任务目录结构失败: {e}")
+                    
         try:
-            # 使用找到的task_dir或回退到默认路径
+            # 使用找到的task_dir
             effective_dataset_root = dataset_root
             if task_dir is not None:
-                # 如果找到了特定的任务目录，则使用其父目录作为数据集根目录
-                # 这样load_benchmark_supervised函数就能正确找到任务文件夹
-                if task_dir.endswith(args.task_name):
-                    effective_dataset_root = os.path.dirname(task_dir)
-                    logger.info(f"使用任务目录的父目录作为有效数据集根目录: {effective_dataset_root}")
+                # 如果任务目录是标准路径，使用其父目录作为有效数据根目录
+                if 'tasks' in task_dir and task_dir.endswith(args.task_name):
+                    tasks_dir = os.path.dirname(task_dir)
+                    effective_dataset_root = os.path.dirname(tasks_dir)
+                    logger.info(f"使用标准任务结构，有效数据根目录: {effective_dataset_root}")
+                elif task_dir == dataset_root:
+                    # 如果任务目录就是根目录，使用特殊处理
+                    logger.info(f"使用根数据目录作为任务目录，需特殊处理")
+                    
+                    # 创建任务目录结构
+                    tasks_dir = os.path.join(dataset_root, 'tasks')
+                    task_link_dir = os.path.join(tasks_dir, args.task_name)
+                    
+                    # 如果任务链接目录不存在，创建它
+                    if not os.path.exists(task_link_dir):
+                        try:
+                            # 确保tasks目录存在
+                            os.makedirs(tasks_dir, exist_ok=True)
+                            
+                            if os.name == 'nt':  # Windows
+                                import subprocess
+                                subprocess.run(['mklink', '/J', task_link_dir, dataset_root], shell=True)
+                            else:  # Linux/Unix
+                                # 使用相对路径创建符号链接
+                                rel_path = os.path.relpath(dataset_root, os.path.dirname(task_link_dir))
+                                os.symlink(rel_path, task_link_dir)
+                            
+                            logger.info(f"创建了从 {task_link_dir} 到 {dataset_root} 的符号链接")
+                            
+                            # 设置任务目录为新创建的链接目录
+                            task_dir = task_link_dir
+                    except Exception as e:
+                            logger.warning(f"创建任务链接目录失败: {e}")
+                            # 如果链接创建失败，尝试使用直接数据加载方式
+                            logger.warning("将使用直接数据加载方式")
+                else:
+                        logger.info(f"使用已存在的任务链接目录: {task_link_dir}")
+                        task_dir = task_link_dir
             
-            logger.info(f"加载数据集，数据集根目录: {effective_dataset_root}，任务名称: {args.task_name}")
+            logger.info(f"加载数据集，数据集根目录: {effective_dataset_root}，任务名称: {args.task_name}，任务目录: {task_dir}")
             
             data = load_benchmark_supervised(
                 dataset_root=effective_dataset_root,
@@ -881,7 +1007,8 @@ def main():
                 batch_size=args.batch_size,
                 data_key=args.data_key,
                 file_format=args.file_format,
-                num_workers=args.num_workers
+                num_workers=args.num_workers,
+                use_root_as_task_dir=args.use_root_data_path  # 传递使用根目录作为任务目录的参数
             )
             
             # Check if data loaded successfully

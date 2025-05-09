@@ -227,7 +227,8 @@ def main(args=None):
         file_format="h5",
         data_key=args.data_key,
         num_workers=4,
-        test_splits=test_splits
+        test_splits=test_splits,
+        use_root_as_task_dir=False
     )
     
     # Extract data from the returned dictionary

@@ -244,7 +244,8 @@ class SageMakerRunner:
             'patience': config.get('patience', 15),  # Add default patience value
             'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # 添加自适应路径选项
             'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
-            'use-direct-task-path': "True" if config.get('use_direct_task_path', False) else "False"  # 添加直接任务路径选项
+            'use-direct-task-path': "True",  # 默认总是使用直接任务路径
+            'use-root-data-path': "True"  # 默认总是使用根目录数据
         }
         
         # Add few-shot parameters (if enabled)

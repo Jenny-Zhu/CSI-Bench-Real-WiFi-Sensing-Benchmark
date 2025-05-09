@@ -161,7 +161,8 @@ def main():
             dataset_root=args.data_dir,
             task_name=task,
             batch_size=args.batch_size,
-            test_splits=test_splits_to_use[task]
+            test_splits=test_splits_to_use[task],
+            use_root_as_task_dir=False
         )
         ld = data['loaders']
         train_loaders[task] = ld['train']
