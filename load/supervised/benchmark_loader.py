@@ -17,7 +17,7 @@ def load_benchmark_supervised(
     shuffle_train=True,
     train_split="train_id",
     val_split="val_id",
-    test_splits=None,
+    test_splits="all",
     use_root_as_task_dir=False,
     debug=False
 ):
@@ -38,7 +38,7 @@ def load_benchmark_supervised(
         shuffle_train: Whether to shuffle training data.
         train_split: Name of training split.
         val_split: Name of validation split.
-        test_splits: List of test split names.
+        test_splits: List of test split names or "all" to load all test_*.json splits.
         use_root_as_task_dir: Whether to directly use dataset_root as the task directory.
         debug: Whether to enable debug mode.
         
@@ -49,10 +49,11 @@ def load_benchmark_supervised(
     if test_splits is None:
         test_splits = ["test_id"]
     elif isinstance(test_splits, str):
-        test_splits = [test_splits]
-    
-    # Create all split names
-    all_splits = [train_split, val_split] + test_splits
+        if test_splits.lower() == "all":
+            # Handle the special 'all' case - will find all test_*.json files later
+            test_splits = "all"
+        else:
+            test_splits = [test_splits]
     
     # Debug output
     data_dir_debug = os.path.join(dataset_root, "tasks", task_name)
@@ -144,6 +145,26 @@ def load_benchmark_supervised(
     except Exception as e:
         print(f"Cannot list task directory contents: {e}")
     print("================================================\n")
+    
+    # If test_splits is "all", find all test_*.json files in the splits directory
+    if test_splits == "all":
+        test_splits = []
+        splits_dir = os.path.join(task_dir, 'splits')
+        if os.path.exists(splits_dir) and os.path.isdir(splits_dir):
+            for file in os.listdir(splits_dir):
+                if file.startswith('test_') and file.endswith('.json'):
+                    # Extract split name without .json extension
+                    split_name = file[:-5]  # Remove .json extension
+                    test_splits.append(split_name)
+            print(f"Found {len(test_splits)} test splits: {test_splits}")
+        
+        # If no test splits found, default to test_id
+        if not test_splits:
+            test_splits = ["test_id"]
+            print("No test splits found, defaulting to 'test_id'")
+    
+    # Create all split names
+    all_splits = [train_split, val_split] + test_splits
     
     metadata_path = os.path.join(task_dir, 'metadata', 'sample_metadata.csv')
     mapping_path = os.path.join(task_dir, 'metadata', 'label_mapping.json')
@@ -252,7 +273,12 @@ def load_benchmark_supervised(
     
     # Test loaders
     for test_split in test_splits:
-        loader_name = f'test_{test_split}' if test_split != 'test_id' else 'test'
+        # Special case for backward compatibility
+        if test_split == 'test_id':
+            loader_name = 'test'
+        else:
+            loader_name = f'test_{test_split}' if not test_split.startswith('test_') else test_split
+        
         loaders[loader_name] = DataLoader(
             datasets[test_split],
             batch_size=batch_size,
