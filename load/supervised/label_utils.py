@@ -66,10 +66,9 @@ class LabelMapper:
             Integer indices.
         """
         if isinstance(labels, (list, np.ndarray, pd.Series)):
-            return np.array([self.label_to_idx.get(label, 0) for label in labels])
+            return np.array([self.label_to_idx.get(str(label), 0) for label in labels])
         else:
-            # Single label
-            return self.label_to_idx.get(labels, 0)
+            return self.label_to_idx.get(str(labels), 0)
     
     def inverse_transform(self, indices):
         """
