@@ -135,36 +135,6 @@ for path in disable_paths:
         sys.path.remove(path)
         print(f"Removed {path} from Python path")
 
-# 确保有可视化和报告生成所需的库
-def install_visualization_packages():
-    """安装生成图表和报告所需的包"""
-    print("Installing visualization and reporting packages...")
-    packages = [
-        "matplotlib>=3.5.0",
-        "seaborn>=0.11.0",
-        "pandas>=1.3.0",
-        "scikit-learn>=1.0.0",
-        "scipy>=1.7.0"
-    ]
-    
-    for package in packages:
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--no-dependencies"])
-            print(f"Successfully installed {package}")
-        except Exception as e:
-            print(f"Warning: Failed to install {package}: {e}")
-    
-    # 设置matplotlib后端为Agg
-    try:
-        import matplotlib
-        matplotlib.use('Agg')  # 设置为非交互式后端
-        print("Successfully configured matplotlib backend to Agg")
-    except Exception as e:
-        print(f"Warning: Failed to configure matplotlib: {e}")
-
-# 安装可视化和报告生成所需的包
-install_visualization_packages()
-
 # Set up typing_extensions support to resolve issues with typing.Literal imports
 print("Setting up typing_extensions support...")
 try:
