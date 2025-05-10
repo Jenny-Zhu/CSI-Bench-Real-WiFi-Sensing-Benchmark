@@ -8,6 +8,7 @@ Main functions:
 1. Disable Horovod and SMDebug
 2. Install peft and its dependencies
 3. Directly pass all parameters to the training script
+4. Prevent model.tar.gz and output.tar.gz generation
 """
 
 import os
@@ -20,12 +21,76 @@ print("\n==========================================")
 print("Starting custom entry script entry_script.py")
 print("==========================================\n")
 
+# 禁用任何压缩文件生成 - 最早设置这些变量
+os.environ['SAGEMAKER_SUBMIT_DIRECTORY'] = '/tmp/empty_kernel'
+os.environ['SAGEMAKER_DISABLE_MODEL_PACKAGING'] = 'true'
+os.environ['SAGEMAKER_DISABLE_OUTPUT_COMPRESSION'] = 'true'
+os.environ['SAGEMAKER_MODEL_EXCLUDE_PATTERNS'] = '*'
+os.environ['NO_TAR_GZ'] = 'true'
+os.environ['FORCE_DIRECT_S3_UPLOAD'] = 'true'
+
+# 创建空内核目录
+os.makedirs('/tmp/empty_kernel', exist_ok=True)
+
+# 在关键位置创建"不打包"标记文件
+no_tar_markers = [
+    "/opt/ml/model/.nomerge",
+    "/opt/ml/model/.notarfile",
+    "/opt/ml/model/.no_archive",
+    "/opt/ml/output/.nomerge",
+    "/opt/ml/output/.notarfile",
+    "/opt/ml/output/.no_archive",
+    "/opt/ml/output/data/.nomerge",
+    "/opt/ml/output/data/.notarfile",
+    "/opt/ml/output/data/.no_archive"
+]
+
+for marker in no_tar_markers:
+    try:
+        # 确保目录存在
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, 'w') as f:
+            f.write(f"NO_TAR_GZ=true\nTIMESTAMP={subprocess.check_output('date').decode('utf-8')}\n")
+        print(f"Created no-tar marker: {marker}")
+    except Exception as e:
+        print(f"Failed to create marker {marker}: {e}")
+
 # 设置环境变量，确保在任何导入前禁用Debugger和Profiler
 os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 os.environ['SM_DISABLE_PROFILER'] = 'true'
 os.environ['DISABLE_PROFILER'] = 'true'
 os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# 尝试删除现有的tar.gz文件
+for tar_file in [
+    '/opt/ml/model.tar.gz',
+    '/opt/ml/output.tar.gz',
+    '/opt/ml/output/model.tar.gz',
+    '/opt/ml/output/data/model.tar.gz'
+]:
+    try:
+        if os.path.exists(tar_file):
+            os.remove(tar_file)
+            print(f"Removed existing tar.gz file: {tar_file}")
+    except Exception as e:
+        print(f"Failed to remove {tar_file}: {e}")
+
+# 尝试替换打包脚本
+packaging_script = '/opt/amazon/sagemaker/model-packing.py'
+if os.path.exists(packaging_script):
+    try:
+        # 创建一个不执行任何操作的空脚本替换原始打包脚本
+        with open(packaging_script, 'w') as f:
+            f.write('#!/usr/bin/env python3\n')
+            f.write('# Empty script that does nothing - disables model packing\n')
+            f.write('import sys\nimport os\n')
+            f.write('print("Model packing disabled by user script")\n')
+            f.write('sys.exit(0)\n')
+        os.chmod(packaging_script, 0o755)  # 确保脚本可执行
+        print(f"Replaced packaging script: {packaging_script}")
+    except Exception as e:
+        print(f"Failed to replace packaging script: {e}")
 
 # Set memory optimization options
 print("Configuring memory optimization settings...")
