@@ -270,7 +270,7 @@ class SageMakerRunner:
             instance_type=instance_type,
             volume_size=volume_size,
             max_run=max_run,
-            py_version='py39',
+            py_version='py310',
             framework_version='2.0.0',
             hyperparameters=hyperparameters,
             output_path=f"s3://{self.session.default_bucket()}/wifi-sensing-outputs",
@@ -279,7 +279,9 @@ class SageMakerRunner:
             environment={
                 'SMDEBUG_DISABLED': 'true',
                 'SM_DISABLE_DEBUGGER': 'true',
-                'SM_DISABLE_PROFILER': 'true'
+                'SM_DISABLE_PROFILER': 'true',
+                'SM_SKIP_ARTIFACT_PACKAGING': 'true',  # Custom variable to skip model.tar.gz
+                'SM_DIRECT_S3_UPLOAD': 'true'  # Custom variable to enable direct S3 upload
             }
         )
         
@@ -430,7 +432,7 @@ class SageMakerRunner:
             instance_type=instance_type,
             volume_size=volume_size,
             max_run=max_run,
-            py_version='py39',
+            py_version='py310',
             framework_version='2.0.0',
             hyperparameters=hyperparameters,
             output_path=f"s3://{self.session.default_bucket()}/wifi-sensing-outputs",
@@ -439,7 +441,9 @@ class SageMakerRunner:
             environment={
                 'SMDEBUG_DISABLED': 'true',
                 'SM_DISABLE_DEBUGGER': 'true',
-                'SM_DISABLE_PROFILER': 'true'
+                'SM_DISABLE_PROFILER': 'true',
+                'SM_SKIP_ARTIFACT_PACKAGING': 'true',  # Custom variable to skip model.tar.gz
+                'SM_DIRECT_S3_UPLOAD': 'true'  # Custom variable to enable direct S3 upload
             }
         )
         
