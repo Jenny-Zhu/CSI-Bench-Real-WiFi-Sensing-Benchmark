@@ -34,6 +34,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import logging
+import math
 
 # Detect if running in SageMaker environment
 is_sagemaker = 'SM_MODEL_DIR' in os.environ
@@ -274,206 +275,117 @@ def cleanup_sagemaker_storage():
 
 def get_args():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Train multiple models on WiFi benchmark dataset')
+    parser = argparse.ArgumentParser(description="WiFi Sensing Multi-Model Training")
     
-    # Required arguments
-    parser.add_argument('--models', type=str, default='vit', 
-                        help='Comma-separated list of models to train. E.g. "mlp,lstm,resnet18"')
-    parser.add_argument('--dataset_root', type=str, default='wifi_benchmark_dataset',
-                        help='Root directory of the dataset')
-    parser.add_argument('--task_name', type=str, default='MotionSourceRecognition',
-                        help='Name of the task to train on')
+    # Task parameters
+    parser.add_argument('--task_name', type=str, required=True, help='Task name to train')
     
-    # Also accept task-name with dash (SageMaker hyperparameters usually use dashes)
-    parser.add_argument('--task-name', type=str, dest='task_name', default=None,
-                        help='Name of the task to train on (dash version for SageMaker compatibility)')
-    
-    # Data parameters
-    parser.add_argument('--data_key', type=str, default='CSI_amps',
-                        help='Key for CSI data in h5 files')
-    parser.add_argument('--file_format', type=str, default='h5',
-                        help='Format of the data files (h5, tfrecord, etc.)')
-    parser.add_argument('--num_workers', type=int, default=4,
-                        help='Number of worker threads for data loading')
-    
-    # Model parameters
-    parser.add_argument('--win_len', type=int, default=250, 
-                        help='Window length for WiFi CSI data')
-    parser.add_argument('--feature_size', type=int, default=98, 
-                        help='Feature size for WiFi CSI data')
-    parser.add_argument('--in_channels', type=int, default=1, 
-                        help='Number of input channels')
-    parser.add_argument('--emb_dim', type=int, default=128, 
-                        help='Embedding dimension for ViT model')
-    parser.add_argument('--d_model', type=int, default=256, 
-                        help='Model dimension for Transformer model')
-    parser.add_argument('--dropout', type=float, default=0.1, 
-                        help='Dropout rate')
-    
-    # Training parameters
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-5, 
-                        help='Weight decay for optimizer')
-    parser.add_argument('--warmup_epochs', type=int, default=5,
-                        help='Number of warmup epochs')
-    parser.add_argument('--patience', type=int, default=15,
-                        help='Patience for early stopping')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--test_splits', type=str, default='all', 
-                        help='Test splits to evaluate on, comma-separated (e.g., "test_id,test_cross_env") or "all"')
+    # Data related parameters
+    parser.add_argument('--data_root', type=str, default='/opt/ml/input/data/training', help='Data root directory')
+    parser.add_argument('--tasks_dir', type=str, default='tasks', help='Tasks directory')
+    parser.add_argument('--data_key', type=str, default='data', help='Data key')
+    parser.add_argument('--file_format', type=str, default='h5', choices=['h5', 'npz', 'pt'], help='Data file format')
+    parser.add_argument('--use_root_data_path', action='store_true', default=True, help='Use root directory as data path')
+    parser.add_argument('--adaptive_path', action='store_true', default=True, help='Adaptively search path')
+    parser.add_argument('--try_all_paths', action='store_true', default=True, help='Try all possible data paths')
     
     # Output parameters
-    parser.add_argument('--save_dir', type=str, default='/opt/ml/model',
-                        help='Directory to save checkpoints and models')
-    parser.add_argument('--output_dir', type=str, default=None,
-                        help='Directory to save results (defaults to save_dir if not specified)')
+    parser.add_argument('--output_dir', type=str, default='/opt/ml/output/data', help='Output directory')
+    parser.add_argument('--save_dir', type=str, default='./saved_models', help='Model save directory')
+    parser.add_argument('--save_to_s3', type=str, default=None, help='S3 path for saving results (s3://bucket/path)')
     
-    # Add backward compatibility for data_dir parameter
-    parser.add_argument('--data_dir', type=str, default=None,
-                        help='Root directory of the dataset (deprecated, use dataset_root instead)')
+    # Model parameters
+    parser.add_argument('--models', type=str, default='mlp,lstm,resnet18,transformer', help='Models to train, comma separated')
+    parser.add_argument('--win_len', type=int, default=500, help='Window length')
+    parser.add_argument('--feature_size', type=int, default=232, help='Feature size')
+    parser.add_argument('--in_channels', type=int, default=1, help='Input channels')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--epochs', type=int, default=100, help='Training epochs')
+    parser.add_argument('--lr', '--learning_rate', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay')
+    parser.add_argument('--warmup_epochs', type=int, default=5, help='Warmup epochs')
+    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
+    parser.add_argument('--gpu', type=int, default=0, help='GPU index')
+    parser.add_argument('--num_workers', type=int, default=4, help='Data loader workers')
     
-    # Debug parameters - All boolean flag parameters
-    parser.add_argument('--debug', action='store_true', default=False,
-                        help='Enable detailed debug output')
-    parser.add_argument('--adaptive_path', action='store_true', default=False,
-                        help='Automatically adapt to data path structure')
-    parser.add_argument('--try_all_paths', action='store_true', default=False,
-                        help='Try all possible path combinations')
-    parser.add_argument('--direct_upload', action='store_true', default=True,
-                        help='Directly upload results to S3 without using SageMaker auto-packaging')
-    parser.add_argument('--upload_final_model', action='store_true', default=False,
-                        help='Upload final model to S3')
-    parser.add_argument('--skip_train_for_debug', action='store_true', default=False,
-                     help='Only for debugging, skip actual training process')
+    # Transformer/ViT specific parameters
+    parser.add_argument('--d_model', type=int, default=64, help='Transformer model dimension')
+    parser.add_argument('--emb_dim', type=int, default=64, help='Embedding dimension')
+    parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
     
-    # 添加use_root_data_path参数，直接使用整个/opt/ml/input/data/training目录作为有效数据
-    parser.add_argument('--use_root_data_path', action='store_true', default=True,
-                        help='直接使用整个数据根目录作为任务目录')
-    parser.add_argument('--use-root-data-path', action='store_true', dest='use_root_data_path', default=True,
-                        help='直接使用整个数据根目录作为任务目录（短横线格式）')
+    # Test parameters
+    parser.add_argument('--test_splits', type=str, default='test_id,test_ood,test_cross_env', help='Test splits, comma separated')
     
-    # Add S3 related parameters
-    parser.add_argument('--save_to_s3', type=str, default=None,
-                      help='S3 path for saving results, format: s3://bucket-name/path/')
-
-    # Modify parsing logic, handle SageMaker passed non-standard parameters
-    # First get original parameters, do preliminary processing
-    args_to_parse = []
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        
-        # Fix double underscore prefix first - this is the most critical issue
-        if arg.startswith('__'):
-            arg = '--' + arg[2:]
-            logger.warning(f"CRITICAL FIX: Replaced double underscore prefix with double dash: {sys.argv[i]} -> {arg}")
-        
-        # Fix parameter name format - Convert dash-separated parameters to underscore-separated format
-        # But keep the -- prefix intact!
-        if arg.startswith('--'):
-            # Extract the parameter name without the prefix
-            param_name = arg[2:]
-            # Replace dash with underscore in the parameter name only
-            fixed_param_name = param_name.replace('-', '_')
-            # Re-add the proper prefix
-            fixed_arg = f"--{fixed_param_name}"
-            
-            if fixed_arg != arg:
-                logger.info(f"Fixed parameter format: {arg} -> {fixed_arg}")
-                arg = fixed_arg
-        
-        # Ensure arg starts with -- (not __ or other prefix)
-        if not arg.startswith('--') and arg[0] == '-':
-            arg = f"--{arg[1:]}"
-            logger.info(f"Restored proper argument prefix: {arg}")
-        
-        # Handle flag parameters followed by True or False
-        if arg.startswith('--') and i + 1 < len(sys.argv):
-            next_arg = sys.argv[i+1]
-            if next_arg.lower() == 'true':
-                # For --flag True case, only keep --flag
-                args_to_parse.append(arg)
-                i += 2
-                continue
-            elif next_arg.lower() == 'false':
-                # For --flag False case, skip that parameter
-                i += 2
-                continue
-            
-        # Normal parameter addition
-        args_to_parse.append(arg)
-        i += 1
+    # Experiment parameters
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
     
-    try:
-        # Log the final arguments for debugging
-        logger.info(f"Actual arguments to parse: {args_to_parse}")
-        
-        # Final sanity check to ensure no __ prefixes
-        for i, arg in enumerate(args_to_parse):
-            if arg.startswith('__'):
-                args_to_parse[i] = '--' + arg[2:]
-                logger.warning(f"CRITICAL FIX: Found double underscore prefix after first pass: {arg} -> {args_to_parse[i]}")
-        
-        # Use preprocessed parameters for parsing
-        args = parser.parse_args(args_to_parse)
-        
-        # Print actual parsed parameters (for debugging)
-        logger.info(f"Parsed arguments: {args_to_parse}")
-        
-        # Check if we need to get task_name from environment variables
-        # This is a critical parameter that might be missing from command line
-        if args.task_name in (None, 'MotionSourceRecognition'):
-            # Try to get from SM_HP_TASK_NAME or SM_HP_TASK-NAME environment variable
-            env_task_name = os.environ.get('SM_HP_TASK_NAME') or os.environ.get('SM_HP_TASK-NAME')
-            if env_task_name:
-                args.task_name = env_task_name
-                logger.info(f"Got task_name from environment variable: {args.task_name}")
-        
-    except Exception as e:
-        logger.error(f"Error parsing arguments: {e}")
-        logger.error(f"Original arguments: {sys.argv}")
-        logger.error(f"Processed arguments: {args_to_parse}")
-        
-        # Try using original parameters parsing, ignore errors
-        try:
-            args = parser.parse_args()
-        except:
-            # Last fallback: Use default parameters
-            logger.warning("Using default arguments due to parsing failure")
-            args = parser.parse_args([])
+    # Parse known arguments
+    args, unknown = parser.parse_known_args()
     
-    # If debug mode is enabled, set log level to DEBUG
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled - verbose logging activated")
-        # Print all parameters
-        logger.debug("All command line arguments:")
-        for arg, value in sorted(vars(args).items()):
-            logger.debug(f"  {arg}: {value}")
+    # Convert models list to list
+    args.all_models = [m.strip() for m in args.models.split(',')]
     
-    # For backward compatibility: if data_dir is provided but dataset_root is not, use data_dir
-    if args.data_dir is not None and args.dataset_root == 'wifi_benchmark_dataset':
-        logger.warning("Using data_dir instead of dataset_root (data_dir is deprecated)")
-        args.dataset_root = args.data_dir
-    
-    # Parse all models to train
-    if ',' in args.models:
-        args.all_models = args.models.split(',')
+    # Convert test splits to list
+    if args.test_splits == 'all':
+        args.test_splits = ['test_id', 'test_ood', 'test_cross_env']
     else:
-        args.all_models = [args.models]
+        args.test_splits = [ts.strip() for ts in args.test_splits.split(',')]
     
-    # Validate model validity
-    for model_name in args.all_models:
-        if model_name.lower() not in MODEL_TYPES:
-            logger.error(f"Unsupported model: {model_name}. Valid models: {list(MODEL_TYPES.keys())}")
-            sys.exit(1)
-    
-    # Set output directory
-    if args.output_dir is None:
-        args.output_dir = args.save_dir
+    # Process legacy parameters from SM_HP environment variables
+    for k, v in os.environ.items():
+        # Check SM_HP_* format environment variables
+        if k.startswith('SM_HP_'):
+            # Convert parameter name
+            param_name = k[6:].lower().replace('-', '_')
+            
+            # Handle learning rate alias (learning_rate vs lr)
+            if param_name == 'learning_rate':
+                param_name = 'lr'
+            
+            # Check if parameter exists
+            if hasattr(args, param_name):
+                # Convert value based on parameter type
+                if isinstance(getattr(args, param_name), bool):
+                    if v.lower() in ('true', 'yes', '1'):
+                        setattr(args, param_name, True)
+                    elif v.lower() in ('false', 'no', '0'):
+                        setattr(args, param_name, False)
+                elif isinstance(getattr(args, param_name), int):
+                    try:
+                        setattr(args, param_name, int(v))
+                    except ValueError:
+                        pass
+                elif isinstance(getattr(args, param_name), float):
+                    try:
+                        setattr(args, param_name, float(v))
+                    except ValueError:
+                        pass
+                else:
+                    setattr(args, param_name, v)
+                    
+                # Special case - models list
+                if param_name == 'models':
+                    args.all_models = [m.strip() for m in v.split(',')]
+                    
+                # Special case - test splits
+                if param_name == 'test_splits' and v != 'all':
+                    args.test_splits = [ts.strip() for ts in v.split(',')]
         
+        # Check S3 output path
+        if k == 'SAGEMAKER_S3_OUTPUT' and args.save_to_s3 is None:
+            args.save_to_s3 = v
+            print(f"Setting S3 output path from environment variable: {v}")
+    
+    # Create output directories if needed
+    if is_sagemaker:
+        os.makedirs(os.path.join(args.output_dir, args.task_name), exist_ok=True)
+    
+    # Print parameters
+    print("\n===== Parameters =====")
+    for k, v in sorted(vars(args).items()):
+        print(f"  {k}: {v}")
+    print("=====================\n")
+    
     return args
 
 def set_seed(seed):
@@ -527,282 +439,253 @@ def train_model(model_name, data, args, device):
     
     logger.info(f"Model created: {model_name}")
     
-    # Set base output directory - These directories will be added with experiment_id
-    if is_sagemaker:
-        # For SageMaker, use /opt/ml/model as the base path for saving models
-        model_base_dir = '/opt/ml/model'
-    else:
-        model_base_dir = args.save_dir
+    # Set base output directory
+    model_base_dir = args.save_dir if not is_sagemaker else '/opt/ml/model'
     
-    # Create model type directory, without experiment_id
-    model_save_dir = os.path.join(model_base_dir, args.task_name, model_name)
-    model_output_dir = os.path.join(args.output_dir, args.task_name, model_name)
-    
-    # Ensure directories exist
-    os.makedirs(model_save_dir, exist_ok=True)
-    
-    # Create config object
-    config = argparse.Namespace(
-        epochs=args.epochs,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        warmup_epochs=args.warmup_epochs,
-        patience=args.patience,
-        num_classes=num_classes,
-        device=str(device),
-        save_dir=model_save_dir,  # This is the base directory without experiment_id
-        output_dir=model_output_dir,  # This is the base directory without experiment_id
-        results_subdir='supervised',
-        model_name=model_name,
-        task_name=args.task_name,
-        # Later, when adding experiment_id, config_dict will update these paths
-    )
-    
-    # Don't save config yet, wait until after experiment_id is created
-
     # Create experiment ID from timestamp and model name
     import hashlib
     timestamp = int(time.time())
     experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{timestamp}'.encode()).hexdigest()[:8]}"
     
-    # Update output directory, ensure it includes experiment_id
-    model_output_dir = os.path.join(args.output_dir, args.task_name, model_name, experiment_id)
-    os.makedirs(model_output_dir, exist_ok=True)
+    # Create consistent directory structure that matches local pipeline
+    # /base_dir/task_name/model_name/experiment_id/
+    results_dir = os.path.join(args.output_dir, args.task_name, model_name, experiment_id)
+    checkpoint_dir = os.path.join(model_base_dir, args.task_name, model_name, experiment_id)
     
-    # Now save config to experiment directory
-    config_path = os.path.join(model_output_dir, "supervised_config.json")
-    with open(config_path, "w") as f:
-        config_dict = {k: v for k, v in vars(config).items() if not k.startswith('__')}
-        # Update paths to reflect new location
-        config_dict['output_dir'] = model_output_dir
-        config_dict['save_dir'] = os.path.join(args.save_dir, args.task_name, model_name, experiment_id)
-        config_dict['experiment_id'] = experiment_id
-        json.dump(config_dict, f, indent=4)
+    # Ensure directories exist
+    os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
     
-    logger.info(f"Config saved to model directory: {config_path}")
+    logger.info(f"Results will be saved to: {results_dir}")
+    logger.info(f"Model checkpoints will be saved to: {checkpoint_dir}")
     
-    # Create trainer
+    # Create config
+    config = {
+        'model': model_name,
+        'task': args.task_name,
+        'num_classes': num_classes,
+        'batch_size': args.batch_size,
+        'learning_rate': args.learning_rate,
+        'weight_decay': args.weight_decay,
+        'epochs': args.epochs,
+        'warmup_epochs': args.warmup_epochs,
+        'patience': args.patience,
+        'win_len': args.win_len,
+        'feature_size': args.feature_size,
+        'experiment_id': experiment_id
+    }
+    
+    # Save configuration
+    config_path = os.path.join(results_dir, f"{model_name}_{args.task_name}_config.json")
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=4)
+    
+    # Create optimizer and criterion
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
+    # Create scheduler
+    num_steps = len(train_loader) * args.epochs
+    warmup_steps = len(train_loader) * args.warmup_epochs
+    
+    def warmup_cosine_schedule(step):
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        else:
+            progress = float(step - warmup_steps) / float(max(1, num_steps - warmup_steps))
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+    
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_cosine_schedule)
+    
+    # Get test loaders
+    test_loaders = {k: v for k, v in loaders.items() if k.startswith('test')}
+    if not test_loaders:
+        logger.warning("No test splits found in the dataset. Check split names and dataset structure.")
+    else:
+        logger.info(f"Loaded {len(test_loaders)} test splits: {list(test_loaders.keys())}")
+    
+    # Create TaskTrainer
     trainer = TaskTrainer(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
+        test_loader=test_loaders,
         criterion=criterion,
         optimizer=optimizer,
         scheduler=scheduler,
         device=device,
-        save_path=model_save_dir,
+        save_path=results_dir,  # Use results_dir for plots, metrics, etc.
         num_classes=num_classes,
-        label_mapper=label_mapper,
-        config=config
+        config=config,
+        label_mapper=label_mapper
     )
     
-    # Train model
+    # Train the model with early stopping
     trained_model, training_results = trainer.train()
     
-    # Evaluate on test sets
-    logger.info("Evaluating on test sets:")
-    all_test_loaders = {k: v for k, v in loaders.items() if k.startswith('test')}
+    # Make sure the model is saved
+    torch.save(trained_model.state_dict(), os.path.join(checkpoint_dir, "final_model.pt"))
     
-    # Filter test loaders based on test_splits parameter
-    if args.test_splits.lower() != 'all':
-        # Split the comma-separated string and create a list of test split names
-        requested_splits = [split.strip() for split in args.test_splits.split(',')]
-        test_loaders = {}
-        for split_name in requested_splits:
-            # Ensure the split name starts with 'test'
-            if not split_name.startswith('test'):
-                split_name = f"test_{split_name}"
-            
-            # Add the loader if it exists
-            if split_name in all_test_loaders:
-                test_loaders[split_name] = all_test_loaders[split_name]
-            else:
-                logger.warning(f"Requested test split '{split_name}' not found in available splits: {list(all_test_loaders.keys())}")
-        
-        if not test_loaders:
-            logger.warning(f"None of the requested test splits were found. Using all available test splits instead.")
-            test_loaders = all_test_loaders
-    else:
-        # Use all available test loaders
-        test_loaders = all_test_loaders
+    # Save the best model separately for clarity
+    best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
+    if os.path.exists(os.path.join(results_dir, "best_model.pt")):
+        # Copy from results_dir to checkpoint_dir if it exists
+        import shutil
+        shutil.copy2(os.path.join(results_dir, "best_model.pt"), best_model_path)
     
-    logger.info(f"Using test splits: {list(test_loaders.keys())}")
+    # Track best epoch
+    best_epoch = training_results.get('best_epoch', args.epochs)
     
-    overall_metrics = {
-        'model_name': model_name,
-        'task_name': args.task_name
-    }
+    # Extract history dataframe
+    if 'training_dataframe' in training_results:
+        history = training_results['training_dataframe']
+        # Save training history
+        history_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_train_history.csv")
+        history.to_csv(history_file, index=False)
     
-    # Convert training_results to standard format if needed
-    import pandas as pd
-    if isinstance(training_results, pd.DataFrame):
-        train_history = {
-            'epochs': training_results['Epoch'].tolist() if 'Epoch' in training_results.columns else list(range(1, args.epochs + 1)),
-            'train_loss_history': training_results['Train Loss'].tolist() if 'Train Loss' in training_results.columns else [],
-            'val_loss_history': training_results['Val Loss'].tolist() if 'Val Loss' in training_results.columns else [],
-            'train_accuracy_history': training_results['Train Accuracy'].tolist() if 'Train Accuracy' in training_results.columns else [],
-            'val_accuracy_history': training_results['Val Accuracy'].tolist() if 'Val Accuracy' in training_results.columns else []
-        }
-    else:
-        # Assuming it's already a dictionary with history information
-        train_history = training_results
-    
-    # Add best model info
-    if hasattr(trainer, 'best_val_accuracy'):
-        train_history['best_val_accuracy'] = trainer.best_val_accuracy
-        # Add safety check, prevent attribute from not existing
-        if hasattr(trainer, 'best_epoch'):
-            train_history['best_epoch'] = trainer.best_epoch
-        else:
-            # If best_epoch doesn't exist, use current epoch or set to -1
-            train_history['best_epoch'] = args.epochs  # Default use last epoch
-            logger.warning(f"TaskTrainer missing best_epoch attribute, using last epoch ({args.epochs}) as best")
+    # Store overall metrics
+    overall_metrics = {}
     
     # Run evaluation on each test set
     for test_name, test_loader in test_loaders.items():
         logger.info(f"Evaluating on {test_name}...")
-        test_loss, test_accuracy, test_f1, test_cm = trainer.evaluate(trained_model, test_loader)
-        logger.info(f"{test_name} Loss: {test_loss:.4f}, Accuracy: {test_accuracy:.4f}, F1 Score: {test_f1:.4f}")
+        test_loss, test_accuracy = trainer.evaluate(test_loader)
         
-        overall_metrics[f"{test_name}_loss"] = test_loss
-        overall_metrics[f"{test_name}_accuracy"] = test_accuracy
-        overall_metrics[f"{test_name}_f1_score"] = test_f1
+        # Use calculate_metrics to get f1_score if available
+        try:
+            test_f1, _ = trainer.calculate_metrics(test_loader)
+        except:
+            test_f1 = 0.0  # Default if not available
+            
+        # Store metrics consistently with local pipeline
+        overall_metrics[test_name] = {
+            'loss': test_loss,
+            'accuracy': test_accuracy,
+            'f1_score': test_f1
+        }
+        
+        logger.info(f"{test_name} Loss: {test_loss:.4f}, Accuracy: {test_accuracy:.4f}, F1 Score: {test_f1:.4f}")
     
-    # Overall test accuracy (use only 'test' if available, otherwise average all test sets)
-    if 'test_accuracy' in overall_metrics:
-        overall_metrics['test_accuracy'] = overall_metrics['test_accuracy'] 
-    elif len(test_loaders) > 0:
-        test_accuracies = [v for k, v in overall_metrics.items() if k.endswith('_accuracy') and k.startswith('test')]
-        overall_metrics['test_accuracy'] = sum(test_accuracies) / len(test_accuracies)
+    # Save test results to match local pipeline format
+    results_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_results.json")
     
-    # Save model summary to experiment_id directory
-    summary_file = os.path.join(model_output_dir, f"model_summary.json")
-    
-    # Merge results and add experiment_id
-    summary_results = {**train_history, **overall_metrics, "experiment_id": experiment_id}
-    
-    # Ensure all data is JSON serializable
+    # Make sure results are JSON serializable
     def convert_to_json_serializable(obj):
-        if isinstance(obj, (np.integer, np.int64)):
+        if isinstance(obj, (np.int64, np.int32)):
             return int(obj)
-        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+        elif isinstance(obj, (np.float64, np.float32)):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         elif isinstance(obj, pd.DataFrame):
             return obj.to_dict()
-        elif isinstance(obj, list):
-            return [convert_to_json_serializable(item) for item in obj]
-        elif isinstance(obj, dict):
-            return {key: convert_to_json_serializable(value) for key, value in obj.items()}
         else:
             return obj
     
-    summary_results = convert_to_json_serializable(summary_results)
+    # Process all metrics
+    serializable_metrics = {}
+    for key, value in overall_metrics.items():
+        serializable_metrics[key] = {k: convert_to_json_serializable(v) for k, v in value.items()}
     
-    with open(summary_file, 'w') as f:
-        json.dump(summary_results, f, indent=4)
+    with open(results_file, 'w') as f:
+        json.dump(serializable_metrics, f, indent=4)
     
-    logger.info(f"Model summary saved to {summary_file}")
+    # Save summary that includes training history, best epoch (match local pipeline format)
+    try:
+        summary = {
+            'best_epoch': best_epoch,
+            'experiment_id': experiment_id,
+            'experiment_completed': True
+        }
+        
+        # Add val metrics if available
+        if 'val_accuracy_history' in training_results and len(training_results['val_accuracy_history']) > 0:
+            best_idx = best_epoch - 1 if best_epoch > 0 else 0
+            if best_idx < len(training_results['val_accuracy_history']):
+                summary['best_val_accuracy'] = training_results['val_accuracy_history'][best_idx]
+                
+            if 'val_loss_history' in training_results and best_idx < len(training_results['val_loss_history']):
+                summary['best_val_loss'] = training_results['val_loss_history'][best_idx]
+        
+        # Add test results to summary (match local pipeline format)
+        for split_name, metrics in serializable_metrics.items():
+            summary[f'{split_name}_accuracy'] = metrics['accuracy']
+            summary[f'{split_name}_f1_score'] = metrics['f1_score']
+        
+        summary_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_summary.json")
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving summary: {e}")
     
-    # Update or create best_performance.json
-    best_performance_file = os.path.join(os.path.dirname(os.path.dirname(model_output_dir)), model_name, "best_performance.json")
-    os.makedirs(os.path.dirname(best_performance_file), exist_ok=True)
+    # Save overall test accuracy for consistency with previous code
+    if len(serializable_metrics) > 0:
+        all_test_accuracies = [metrics.get('accuracy', 0) for metrics in serializable_metrics.values()]
+        overall_metrics['test_accuracy'] = sum(all_test_accuracies) / len(all_test_accuracies)
     
-    # experiment_id already created, no need to create again
-    # Use previously defined timestamp and experiment_id
-    
-    # Check if best_performance.json exists and compare results
-    best_performance = {
-        "best_experiment_id": experiment_id,
-        "best_test_accuracy": overall_metrics.get('test_accuracy', 0.0),
-        "best_test_f1_score": overall_metrics.get('test_f1_score', 0.0),
-        "best_experiment_params": {
-            "learning_rate": args.learning_rate,
-            "batch_size": args.batch_size,
-            "epochs": args.epochs,
-            "weight_decay": args.weight_decay,
-            "dropout": args.dropout
-        },
-        "timestamp": timestamp
-    }
-    
-    if os.path.exists(best_performance_file):
-        try:
-            with open(best_performance_file, 'r') as f:
-                existing_best = json.load(f)
-            
-            # Only update if current model is better
-            if overall_metrics.get('test_accuracy', 0.0) > existing_best.get('best_test_accuracy', 0.0):
-                logger.info(f"New best model! Accuracy: {overall_metrics.get('test_accuracy', 0.0):.4f} > {existing_best.get('best_test_accuracy', 0.0):.4f}")
-                with open(best_performance_file, 'w') as f:
-                    json.dump(best_performance, f, indent=4)
-            else:
-                logger.info(f"Current model not better than existing best. Accuracy: {overall_metrics.get('test_accuracy', 0.0):.4f} <= {existing_best.get('best_test_accuracy', 0.0):.4f}")
-        except Exception as e:
-            logger.warning(f"Error reading existing best_performance.json: {e}")
-            with open(best_performance_file, 'w') as f:
-                json.dump(best_performance, f, indent=4)
-    else:
-        # Create new best_performance.json
-        with open(best_performance_file, 'w') as f:
-            json.dump(best_performance, f, indent=4)
-        logger.info(f"Created new best_performance.json at {best_performance_file}")
+    logger.info(f"Training and evaluation completed. Results saved to {results_dir}")
     
     return trained_model, overall_metrics
 
 def main():
     """
-    简化的主函数 - 假设在SageMaker环境中运行，数据在根目录
+    Main function - Train multiple models on a specified task
     
-    数据加载流程:
-    1. 使用/opt/ml/input/data/training作为数据根目录
-    2. 直接使用根目录作为任务目录，不进行额外的路径检查
-    3. 加载数据并训练指定的模型
-    
-    返回:
-        None，但会将模型文件写入指定的输出目录
+    This function handles:
+    1. Parsing command line arguments
+    2. Loading data for the specified task
+    3. Training multiple model architectures
+    4. Evaluating models on test splits
+    5. Saving results and models
+    6. Uploading results to S3 if running in SageMaker
     """
     try:
-        # 记录环境变量，用于调试
-        logger.info("在SageMaker环境中运行")
-        logger.info("环境变量:")
-        for key in sorted([k for k in os.environ.keys() if k.startswith(('SM_', 'SAGEMAKER_'))]):
-            logger.info(f"  {key}: {os.environ.get(key)}")
+        # Replace SageMaker packing scripts to prevent tar.gz generation
+        replace_packing_scripts()
+        
+        # Log environment variables for debugging
+        if is_sagemaker:
+            logger.info("Running in SageMaker environment")
+            logger.info("Environment variables:")
+            for key in sorted([k for k in os.environ.keys() if k.startswith(('SM_', 'SAGEMAKER_'))]):
+                logger.info(f"  {key}: {os.environ.get(key)}")
 
-        # 获取参数
+        # Get command line arguments
         args = get_args()
         
-        # 打印解析参数
-        logger.info("解析的参数:")
+        # Log parsed arguments
+        logger.info("Parsed arguments:")
         for arg_name, arg_value in sorted(vars(args).items()):
             logger.info(f"  {arg_name}: {arg_value}")
         
-        # 设置设备
+        # Set device
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"使用设备: {device}")
+        logger.info(f"Using device: {device}")
         
-        # 设置随机种子
+        # Set random seed
         set_seed(args.seed)
-        logger.info(f"随机种子设置为 {args.seed}")
+        logger.info(f"Random seed set to {args.seed}")
         
-        # 日志记录起始信息
-        logger.info(f"开始多模型训练，任务: {args.task_name}")
-        logger.info(f"待训练模型: {args.all_models}")
+        # Log training start
+        logger.info(f"Starting multi-model training, task: {args.task_name}")
+        logger.info(f"Models to train: {args.all_models}")
         
-        # 直接使用 /opt/ml/input/data/training 作为数据根目录
-        dataset_root = '/opt/ml/input/data/training'
-        logger.info(f"使用数据根目录: {dataset_root}")
+        # Check for S3 output path in environment variables if not specified
+        if args.save_to_s3 is None and is_sagemaker:
+            sm_output_s3 = os.environ.get('SAGEMAKER_S3_OUTPUT')
+            if sm_output_s3:
+                logger.info(f"Found S3 output path in environment variables: {sm_output_s3}")
+                args.save_to_s3 = sm_output_s3
         
-        # 强制使用根目录作为任务目录
-        args.use_root_data_path = True
+        if args.save_to_s3:
+            logger.info(f"Results will be uploaded to S3: {args.save_to_s3}")
         
-        # 加载数据
-        logger.info(f"从 {dataset_root} 加载数据，任务名称: {args.task_name}")
+        # Set data root directory - directly use SM_CHANNEL_TRAINING in SageMaker
+        dataset_root = '/opt/ml/input/data/training' if is_sagemaker else args.data_root
+        logger.info(f"Using data root directory: {dataset_root}")
+        
+        # Load data
+        logger.info(f"Loading data from {dataset_root}, task name: {args.task_name}")
         data = load_benchmark_supervised(
             dataset_root=dataset_root,
             task_name=args.task_name,
@@ -810,186 +693,133 @@ def main():
             data_key=args.data_key,
             file_format=args.file_format,
             num_workers=args.num_workers,
-            use_root_as_task_dir=True  # 始终使用根目录作为任务目录
+            use_root_as_task_dir=args.use_root_data_path
         )
         
-        # 检查数据加载是否成功
+        # Check if data loaded successfully
         if not data or 'loaders' not in data:
-            logger.error(f"加载任务 {args.task_name} 的数据失败")
+            logger.error(f"Failed to load data for task {args.task_name}")
             sys.exit(1)
         
-        logger.info(f"数据加载成功。类别数量: {data['num_classes']}")
-        logger.info(f"可用数据加载器: {list(data['loaders'].keys())}")
+        logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
+        logger.info(f"Available data loaders: {list(data['loaders'].keys())}")
         
-        # 记录模型运行结果
+        # Track model results
         successful_models = []
         failed_models = []
         
-        # 训练每个模型
+        # Store all results
         all_results = {}
+        
+        # Train each model
         for model_name in args.all_models:
             try:
-                logger.info(f"\n{'='*40}\n训练模型: {model_name}\n{'='*40}")
+                logger.info(f"\n{'='*40}\nTraining model: {model_name}\n{'='*40}")
                 
-                # 尝试加载模型类来验证兼容性
+                # Verify model compatibility
                 try:
                     ModelClass = MODEL_TYPES[model_name.lower()]
-                    logger.info(f"模型类 {model_name} 加载成功")
+                    logger.info(f"Model class {model_name} loaded successfully")
                 except Exception as e:
-                    logger.error(f"加载模型类 {model_name} 时出错: {e}")
-                    failed_models.append((model_name, f"模型类错误: {str(e)}"))
+                    logger.error(f"Error loading model class {model_name}: {e}")
+                    failed_models.append((model_name, f"Model class error: {str(e)}"))
                     continue
                 
-                # 训练模型
+                # Train model
                 model, metrics = train_model(model_name, data, args, device)
                 
-                # 检查训练是否成功
+                # Check if training succeeded
                 if model is None or (isinstance(metrics, dict) and 'error' in metrics):
-                    error_msg = metrics.get('error', '未知错误') if isinstance(metrics, dict) else '未知错误'
-                    logger.error(f"模型 {model_name} 训练失败: {error_msg}")
+                    error_msg = metrics.get('error', 'Unknown error') if isinstance(metrics, dict) else 'Unknown error'
+                    logger.error(f"Model {model_name} training failed: {error_msg}")
                     failed_models.append((model_name, error_msg))
                 else:
                     all_results[model_name] = metrics
                     successful_models.append(model_name)
-                    logger.info(f"完成 {model_name} 的训练")
+                    logger.info(f"Completed training for {model_name}")
             except Exception as e:
-                logger.error(f"训练 {model_name} 时出错: {e}")
+                logger.error(f"Error training {model_name}: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
                 failed_models.append((model_name, str(e)))
         
-        # 打印训练结果摘要
+        # Print training summary
         logger.info("\n" + "="*60)
-        logger.info("训练摘要")
+        logger.info("Training Summary")
         logger.info("="*60)
-        logger.info(f"任务: {args.task_name}")
-        logger.info(f"成功训练的模型 ({len(successful_models)}): {', '.join(successful_models)}")
-        logger.info(f"失败的模型 ({len(failed_models)}): {', '.join([m[0] for m in failed_models])}")
+        logger.info(f"Task: {args.task_name}")
+        logger.info(f"Successfully trained models ({len(successful_models)}): {', '.join(successful_models)}")
+        logger.info(f"Failed models ({len(failed_models)}): {', '.join([m[0] for m in failed_models])}")
         
         if failed_models:
-            logger.info("\n失败详情:")
+            logger.info("\nFailure details:")
             for model_name, error in failed_models:
                 logger.info(f"  - {model_name}: {error}")
         
-        # 保存整体结果摘要
+        # Save overall results summary
         results_path = os.path.join(args.output_dir, args.task_name, "multi_model_results.json")
         os.makedirs(os.path.dirname(results_path), exist_ok=True)
         with open(results_path, 'w') as f:
             json.dump(all_results, f, indent=4)
         
-        logger.info(f"所有训练完成。结果保存到 {results_path}")
-        logger.info("结果摘要:")
+        logger.info(f"All training completed. Results saved to {results_path}")
+        logger.info("Results summary:")
         for model_name, metrics in all_results.items():
-            logger.info(f"  - {model_name}: 测试准确率 = {metrics.get('test_accuracy', 0.0):.4f}")
+            logger.info(f"  - {model_name}: Test accuracy = {metrics.get('test_accuracy', 0.0):.4f}")
         
-        # 识别最佳模型
-        if all_results:
-            best_model = max(all_results.items(), key=lambda x: x[1].get('test_accuracy', 0.0))
-            logger.info(f"\n最佳模型: {best_model[0]}, 测试准确率 {best_model[1].get('test_accuracy', 0.0):.4f}")
-        
-        # 检查S3保存参数，如果没有设置，尝试从环境变量获取
-        if args.save_to_s3 is None:
-            logger.info("没有设置save_to_s3参数，尝试从环境变量获取S3输出路径")
-            # 从SageMaker环境变量获取S3输出路径
-            sm_output_dir = os.environ.get('SM_OUTPUT_DATA_DIR')
-            sm_model_dir = os.environ.get('SM_MODEL_DIR')
+        # Upload results to S3 if running in SageMaker
+        if is_sagemaker and args.save_to_s3:
+            logger.info(f"Uploading results to S3: {args.save_to_s3}")
             
-            # 如果有SM_OUTPUT_DATA_DIR，构建S3输出路径
-            if sm_output_dir and sm_output_dir.startswith('/opt/ml/output/data'):
-                # 尝试从SageMaker任务设置中推导S3路径
-                sm_output_s3 = os.environ.get('SAGEMAKER_S3_OUTPUT')
-                if sm_output_s3:
-                    logger.info(f"找到SageMaker S3输出路径: {sm_output_s3}")
-                    args.save_to_s3 = sm_output_s3
-                else:
-                    logger.warning("无法从环境变量获取S3输出路径")
-        
-        # 直接上传最终结果到S3（如果启用）
-        if args.direct_upload:
-            if args.save_to_s3:
-                logger.info(f"直接上传结果到S3: {args.save_to_s3}")
+            # Print directory structure for debugging
+            task_dir = os.path.join(args.output_dir, args.task_name)
+            logger.info(f"Directory structure to upload:")
+            
+            # List contents of task directory
+            if os.path.exists(task_dir):
+                total_files = 0
+                file_sizes = 0
                 
-                # 输出结果目录结构以便调试
-                task_dir = os.path.join(args.output_dir, args.task_name)
-                logger.info(f"实例上的结果目录结构:")
-                if os.path.exists(task_dir):
-                    # 输出目录结构
-                    def print_dir_structure(path, prefix=""):
-                        logger.info(f"{prefix}├── {os.path.basename(path)}/")
-                        for item in sorted(os.listdir(path)):
-                            item_path = os.path.join(path, item)
-                            if os.path.isdir(item_path):
-                                print_dir_structure(item_path, prefix + "│   ")
-                            else:
-                                logger.info(f"{prefix}│   ├── {item}")
-                    
-                    # 输出顶层目录结构
-                    logger.info(f"任务目录 ({task_dir}) 的内容:")
-                    for item in sorted(os.listdir(task_dir)):
-                        item_path = os.path.join(task_dir, item)
-                        if os.path.isdir(item_path):
-                            logger.info(f"├── {item}/ (目录)")
-                            # 显示模型子目录中的实验ID
-                            for exp_id in sorted(os.listdir(item_path)):
-                                logger.info(f"│   ├── {exp_id}/ (实验ID)")
-                        else:
-                            logger.info(f"├── {item} (文件)")
+                for root, dirs, files in os.walk(task_dir):
+                    for name in files:
+                        total_files += 1
+                        file_path = os.path.join(root, name)
+                        file_sizes += os.path.getsize(file_path)
+                        # Only log key files to avoid excessive logging
+                        if name.endswith(('.json', '.csv', '.png')) and total_files < 50:
+                            rel_path = os.path.relpath(file_path, task_dir)
+                            logger.info(f"  - {rel_path} ({os.path.getsize(file_path)/1024:.1f} KB)")
                 
-                    # 上传整个任务目录结构，保持原有目录结构
-                    s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
-                    logger.info(f"准备上传目录: {task_dir} -> {s3_task_path}")
-                    
-                    # 列出要上传的文件
-                    all_files = []
-                    for root, _, files in os.walk(task_dir):
-                        for file in files:
-                            all_files.append(os.path.join(root, file))
-                    logger.info(f"找到 {len(all_files)} 个文件需要上传")
-                    
-                    # 执行上传
+                logger.info(f"Total: {total_files} files, {file_sizes/1024/1024:.2f} MB")
+                
+                # Construct S3 target path
+                s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
+                logger.info(f"Uploading directory: {task_dir} -> {s3_task_path}")
+                
+                # Upload directory - retry once if failed
+                try:
                     upload_success = upload_to_s3(task_dir, s3_task_path)
+                    if not upload_success:
+                        logger.warning("First upload attempt failed. Retrying once...")
+                        time.sleep(5)  # Short delay before retry
+                        upload_success = upload_to_s3(task_dir, s3_task_path)
+                    
                     if upload_success:
-                        logger.info(f"结果成功上传到 {s3_task_path}")
+                        logger.info(f"Successfully uploaded results to {s3_task_path}")
                     else:
-                        logger.error(f"上传到 {s3_task_path} 失败!")
-                
-                # 如果实例上的目录结构与预期不同，输出更多调试信息
-                else:
-                    logger.error(f"任务输出目录不存在: {task_dir}")
-                    
-                    # 尝试查找在其他可能位置的结果目录
-                    possible_dirs = [
-                        os.path.join('/opt/ml/model', args.task_name),
-                        os.path.join('/opt/ml/output/data', args.task_name),
-                        '/opt/ml/model',
-                        '/opt/ml/output/data'
-                    ]
-                    
-                    for possible_dir in possible_dirs:
-                        if os.path.exists(possible_dir):
-                            logger.info(f"找到可能的结果目录: {possible_dir}")
-                            logger.info(f"目录内容:")
-                            for item in sorted(os.listdir(possible_dir)):
-                                logger.info(f"  - {item}")
-                            
-                            # 如果找到合适的目录，尝试上传
-                            if args.task_name in possible_dir:
-                                alt_s3_path = f"{args.save_to_s3.rstrip('/')}/{os.path.basename(possible_dir)}"
-                                logger.info(f"尝试上传替代目录: {possible_dir} -> {alt_s3_path}")
-                                alt_success = upload_to_s3(possible_dir, alt_s3_path)
-                                if alt_success:
-                                    logger.info(f"成功上传替代目录到 {alt_s3_path}")
+                        logger.error(f"Failed to upload results to {s3_task_path} after retry")
+                except Exception as e:
+                    logger.error(f"Error during upload: {e}")
             else:
-                logger.warning("未设置save_to_s3参数，跳过上传到S3")
-        else:
-            logger.info("未启用direct_upload，依赖SageMaker自动上传结果")
+                logger.error(f"Task directory {task_dir} does not exist. Cannot upload results.")
         
-        # 清理SageMaker存储以减少空间使用
-        cleanup_sagemaker_storage()
+        # Clean up SageMaker storage
+        if is_sagemaker:
+            cleanup_sagemaker_storage()
         
-        logger.info("多模型训练成功完成!")
+        logger.info("Multi-model training completed successfully!")
     except Exception as e:
-        logger.error(f"main函数中出错: {e}")
+        logger.error(f"Error in main function: {e}")
         import traceback
         logger.error(traceback.format_exc())
         sys.exit(1)
