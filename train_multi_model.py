@@ -84,32 +84,34 @@ from engine.supervised.task_trainer import TaskTrainer
 
 def upload_to_s3(local_path, s3_path):
     """
-    Upload a local file or directory to S3
+    上传本地文件或目录到S3，保持原始目录结构
     
     Args:
-        local_path: Path to the local file or directory
-        s3_path: S3 path, format: 's3://bucket-name/path/to/destination'
+        local_path: 本地文件或目录路径
+        s3_path: S3路径，格式：'s3://bucket-name/path/to/destination'
     
     Returns:
-        bool: Whether the upload was successful
+        bool: 上传是否成功
     """
     if not s3_client:
-        logger.warning("S3 client not initialized, skipping upload")
+        logger.warning("S3客户端未初始化，跳过上传")
         return False
     
     if not s3_path.startswith('s3://'):
-        logger.error(f"Invalid S3 path: {s3_path}")
+        logger.error(f"无效的S3路径: {s3_path}")
         return False
     
     try:
-        # Parse S3 path
+        # 解析S3路径
         s3_parts = s3_path.replace('s3://', '').split('/', 1)
         if len(s3_parts) != 2:
-            logger.error(f"Invalid S3 path format: {s3_path}")
+            logger.error(f"无效的S3路径格式: {s3_path}")
             return False
         
         bucket_name = s3_parts[0]
         s3_key_prefix = s3_parts[1]
+        
+        # 确保前缀以斜杠结尾
         if not s3_key_prefix.endswith('/'):
             s3_key_prefix += '/'
             
@@ -133,13 +135,24 @@ def upload_to_s3(local_path, s3_path):
             max_retries = 3
             for retry in range(max_retries):
                 try:
-                    s3_client.upload_file(local_path, bucket_name, file_key)
+                    # 添加元数据标记，表明这是直接上传而非model.tar.gz包装
+                    s3_client.upload_file(
+                        local_path, 
+                        bucket_name, 
+                        file_key,
+                        ExtraArgs={
+                            'Metadata': {
+                                'upload-method': 'direct',
+                                'content-type': 'application/octet-stream'
+                            }
+                        }
+                    )
                     logger.info(f"成功上传文件到 s3://{bucket_name}/{file_key}")
                     break
                 except Exception as e:
                     if retry < max_retries - 1:
                         logger.warning(f"文件上传失败，重试中 ({retry+1}/{max_retries}): {e}")
-                        time.sleep(1)  # 短暂延迟后重试
+                        time.sleep(2)  # 失败后延迟更长时间再重试
                     else:
                         logger.error(f"文件上传失败，已达到最大重试次数: {e}")
                         return False
@@ -152,7 +165,23 @@ def upload_to_s3(local_path, s3_path):
             uploaded_files = 0
             failed_files = 0
             
-            for root, _, files in os.walk(local_path):
+            for root, dirs, files in os.walk(local_path):
+                # 确保空目录也被创建
+                if not files and not dirs:
+                    # 创建一个空目录标记文件
+                    relative_path = os.path.relpath(root, local_path)
+                    s3_key = os.path.join(s3_key_prefix, relative_path, '.directory_marker')
+                    try:
+                        s3_client.put_object(
+                            Bucket=bucket_name,
+                            Key=s3_key,
+                            Body=b'',
+                            Metadata={'directory': 'true'}
+                        )
+                        logger.debug(f"创建空目录标记: s3://{bucket_name}/{s3_key}")
+                    except Exception as e:
+                        logger.warning(f"创建空目录标记失败: {e}")
+                
                 for file in files:
                     local_file_path = os.path.join(root, file)
                     
@@ -160,11 +189,25 @@ def upload_to_s3(local_path, s3_path):
                     relative_path = os.path.relpath(local_file_path, local_path)
                     s3_key = os.path.join(s3_key_prefix, relative_path)
                     
+                    # 对Windows路径进行处理
+                    s3_key = s3_key.replace('\\', '/')
+                    
                     # 上传文件，带有重试逻辑
                     max_retries = 3
                     for retry in range(max_retries):
                         try:
-                            s3_client.upload_file(local_file_path, bucket_name, s3_key)
+                            # 添加元数据标记，表明这是直接上传而非model.tar.gz包装
+                            s3_client.upload_file(
+                                local_file_path, 
+                                bucket_name, 
+                                s3_key,
+                                ExtraArgs={
+                                    'Metadata': {
+                                        'upload-method': 'direct',
+                                        'original-path': relative_path
+                                    }
+                                }
+                            )
                             uploaded_files += 1
                             # 每上传10个文件或最后一个文件时，输出进度信息
                             if uploaded_files % 10 == 0 or uploaded_files == total_files:
@@ -173,7 +216,7 @@ def upload_to_s3(local_path, s3_path):
                         except Exception as e:
                             if retry < max_retries - 1:
                                 logger.warning(f"文件上传失败 {local_file_path}，重试中 ({retry+1}/{max_retries}): {e}")
-                                time.sleep(1)  # 短暂延迟后重试
+                                time.sleep(2)  # 失败后延迟更长时间再重试
                             else:
                                 logger.error(f"文件上传失败 {local_file_path}，已达到最大重试次数: {e}")
                                 failed_files += 1
@@ -186,6 +229,19 @@ def upload_to_s3(local_path, s3_path):
             else:
                 logger.info(f"成功上传目录内容到 s3://{bucket_name}/{s3_key_prefix}，共 {uploaded_files} 个文件")
         
+        # 上传成功完成标记文件
+        try:
+            completion_marker = os.path.join(s3_key_prefix, '.upload_complete')
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=completion_marker,
+                Body=f"Upload completed at {time.strftime('%Y-%m-%d %H:%M:%S')}".encode('utf-8'),
+                Metadata={'upload-completion': 'true'}
+            )
+            logger.info(f"已创建上传完成标记: s3://{bucket_name}/{completion_marker}")
+        except Exception as e:
+            logger.warning(f"创建上传完成标记失败: {e}")
+        
         return True
     except Exception as e:
         logger.error(f"S3上传过程中发生错误: {e}")
@@ -193,34 +249,42 @@ def upload_to_s3(local_path, s3_path):
 
 def cleanup_sagemaker_storage():
     """
-    Clean up unnecessary files in SageMaker environment to reduce storage usage
+    清理SageMaker环境中不必要的文件以减少存储使用
+    同时确保不会生成model.tar.gz文件
     """
     if not is_sagemaker:
-        # Only run in SageMaker environment
+        # 仅在SageMaker环境中运行
         return
     
-    logger.info("Cleaning up unnecessary files to reduce storage usage...")
+    logger.info("清理不必要的文件以减少存储使用...")
     
     try:
-        # Delete unnecessary temporary files and logs
+        # 删除不必要的临时文件和日志
         dirs_to_clean = [
-            "/tmp",                        # Temporary directory
-            "/opt/ml/output/profiler",     # Profiler output
-            "/opt/ml/output/tensors",      # Debugger tensors
+            "/tmp",                        # 临时目录
+            "/opt/ml/output/profiler",     # 分析器输出
+            "/opt/ml/output/tensors",      # 调试器张量
+            "/opt/ml/output/data/logs",    # 保留但清理大型日志文件
         ]
         
-        # Only keep the smallest log files
-        log_files = [
-            "/opt/ml/output/data/logs/algo-1-stdout.log",
-            "/opt/ml/output/data/logs/algo-1-stderr.log"
-        ]
+        # 检查是否存在model.tar.gz构建相关文件
+        model_dir = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
+        if os.path.exists(model_dir):
+            # 创建一个标记文件，表明我们使用直接上传而不是model.tar.gz
+            direct_upload_marker = os.path.join(model_dir, '.direct_upload_marker')
+            try:
+                with open(direct_upload_marker, 'w') as f:
+                    f.write(f"Direct upload enabled. Do not create model.tar.gz. {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"已创建直接上传标记文件: {direct_upload_marker}")
+            except Exception as e:
+                logger.warning(f"创建直接上传标记文件失败: {e}")
         
-        # Clean up temporary directories (but don't delete all)
+        # 清理临时目录（但不要全部删除）
         import shutil
         for cleanup_dir in dirs_to_clean:
             if os.path.exists(cleanup_dir):
-                logger.info(f"Cleaning directory: {cleanup_dir}")
-                # Read-only access to directory content, don't delete recursively
+                logger.info(f"清理目录: {cleanup_dir}")
+                # 只读取目录内容，不要递归删除
                 try:
                     for item in os.listdir(cleanup_dir):
                         item_path = os.path.join(cleanup_dir, item)
@@ -228,252 +292,222 @@ def cleanup_sagemaker_storage():
                             try:
                                 shutil.rmtree(item_path)
                             except Exception as e:
-                                logger.warning(f"Could not remove directory {item_path}: {e}")
+                                logger.warning(f"无法删除目录 {item_path}: {e}")
                         elif os.path.isfile(item_path) and not item.startswith('.'):
                             try:
-                                os.remove(item_path)
+                                # 如果是日志文件并且超过1MB，则保留最后的10KB
+                                if item_path.endswith('.log') and os.path.getsize(item_path) > 1024 * 1024:
+                                    try:
+                                        with open(item_path, 'rb') as f:
+                                            # 跳到文件末尾前10KB
+                                            f.seek(-10240, 2)  # 2表示从文件末尾
+                                            last_10kb = f.read()
+                                        
+                                        # 重写日志文件，只保留最后10KB
+                                        with open(item_path, 'wb') as f:
+                                            f.write(b"[...Log truncated...]\n\n")
+                                            f.write(last_10kb)
+                                        logger.info(f"已截断大型日志文件: {item_path}")
+                                    except Exception:
+                                        # 如果截断失败，尝试删除
+                                        os.remove(item_path)
+                                else:
+                                    # 其他文件直接删除
+                                    os.remove(item_path)
                             except Exception as e:
-                                logger.warning(f"Could not remove file {item_path}: {e}")
+                                logger.warning(f"无法删除文件 {item_path}: {e}")
                 except Exception as e:
-                    logger.warning(f"Error cleaning directory {cleanup_dir}: {e}")
+                    logger.warning(f"清理目录 {cleanup_dir} 时出错: {e}")
         
-        # Clean up log files (keep last 10KB)
+        # 禁用model.tar.gz的生成 - 在导出路径创建一个标记文件
+        if 'SM_MODEL_DIR' in os.environ:
+            model_dir = os.environ['SM_MODEL_DIR']
+            no_tar_marker = os.path.join(model_dir, '.no_tar_gz')
+            try:
+                with open(no_tar_marker, 'w') as f:
+                    f.write("direct_s3_upload=True\n")
+                    f.write(f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                logger.info(f"已创建禁用tar.gz标记文件: {no_tar_marker}")
+                
+                # 创建README文件解释数据已上传到S3
+                readme_path = os.path.join(model_dir, 'README.txt')
+                with open(readme_path, 'w') as f:
+                    f.write("Model and data files have been directly uploaded to S3.\n")
+                    f.write("This directory contains only marker files to prevent model.tar.gz creation.\n")
+                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                logger.info(f"已创建README文件: {readme_path}")
+            except Exception as e:
+                logger.warning(f"创建标记文件失败: {e}")
+        
+        # 清理日志文件（保留最后10KB）
+        log_files = [
+            "/opt/ml/output/data/logs/algo-1-stdout.log",
+            "/opt/ml/output/data/logs/algo-1-stderr.log"
+        ]
+        
         for log_file in log_files:
             if os.path.exists(log_file) and os.path.getsize(log_file) > 10240:
                 try:
                     with open(log_file, 'rb') as f:
-                        # Jump to 10KB before end of file
-                        f.seek(-10240, 2)  # 2 means from end of file
+                        # 跳到文件末尾前10KB
+                        f.seek(-10240, 2)  # 2表示从文件末尾
                         last_10kb = f.read()
                     
-                    # Rewrite log file, keep only last 10KB
+                    # 重写日志文件，只保留最后10KB
                     with open(log_file, 'wb') as f:
-                        f.write(b"[...previous logs truncated...]\n")
+                        f.write(b"[...Log truncated...]\n\n")
                         f.write(last_10kb)
-                    
-                    logger.info(f"Truncated log file: {log_file}")
+                    logger.info(f"已截断日志文件 {log_file}")
                 except Exception as e:
-                    logger.warning(f"Could not truncate log file {log_file}: {e}")
+                    logger.warning(f"截断日志文件 {log_file} 时出错: {e}")
         
-        # Clean up sourcedir cache
-        sourcedir_cache = "/opt/ml/code/.sourcedir.tar.gz"
-        if os.path.exists(sourcedir_cache):
-            try:
-                os.remove(sourcedir_cache)
-                logger.info("Removed sourcedir cache")
-            except Exception as e:
-                logger.warning(f"Could not remove sourcedir cache: {e}")
-        
-        # Try to trigger memory cleanup
-        import gc
+        # 运行垃圾回收
         gc.collect()
-        
-        logger.info("Storage cleanup completed!")
+        logger.info("已完成存储清理")
     except Exception as e:
-        logger.error(f"Error during storage cleanup: {e}")
+        logger.error(f"清理存储时出错: {e}")
 
 def get_args():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Train multiple models on WiFi benchmark dataset')
+    """分析命令行参数"""
+    parser = argparse.ArgumentParser(description="WiFi感知多模型训练")
     
-    # Required arguments
-    parser.add_argument('--models', type=str, default='vit', 
-                        help='Comma-separated list of models to train. E.g. "mlp,lstm,resnet18"')
-    parser.add_argument('--dataset_root', type=str, default='wifi_benchmark_dataset',
-                        help='Root directory of the dataset')
-    parser.add_argument('--task_name', type=str, default='MotionSourceRecognition',
-                        help='Name of the task to train on')
+    # 任务参数
+    parser.add_argument('--task_name', type=str, required=True, help='要训练的任务名称')
     
-    # Also accept task-name with dash (SageMaker hyperparameters usually use dashes)
-    parser.add_argument('--task-name', type=str, dest='task_name', default=None,
-                        help='Name of the task to train on (dash version for SageMaker compatibility)')
+    # 数据相关参数
+    parser.add_argument('--data_root', type=str, default='/opt/ml/input/data/training', help='数据根目录')
+    parser.add_argument('--tasks_dir', type=str, default='tasks', help='任务目录')
+    parser.add_argument('--data_key', type=str, default='data', help='数据键')
+    parser.add_argument('--file_format', type=str, default='h5', choices=['h5', 'npz', 'pt'], help='数据文件格式')
+    parser.add_argument('--use_root_data_path', action='store_true', default=True, help='是否使用根目录作为数据路径')
+    parser.add_argument('--adaptive_path', action='store_true', default=True, help='自适应搜索路径')
+    parser.add_argument('--try_all_paths', action='store_true', default=True, help='尝试所有可能的数据路径')
     
-    # Data parameters
-    parser.add_argument('--data_key', type=str, default='CSI_amps',
-                        help='Key for CSI data in h5 files')
-    parser.add_argument('--file_format', type=str, default='h5',
-                        help='Format of the data files (h5, tfrecord, etc.)')
-    parser.add_argument('--num_workers', type=int, default=4,
-                        help='Number of worker threads for data loading')
+    # 输出参数
+    parser.add_argument('--output_dir', type=str, default='/opt/ml/output/data', help='输出目录')
+    parser.add_argument('--save_to_s3', type=str, default=None, help='S3路径，用于保存结果 (s3://bucket/path)')
     
-    # Model parameters
-    parser.add_argument('--win_len', type=int, default=250, 
-                        help='Window length for WiFi CSI data')
-    parser.add_argument('--feature_size', type=int, default=98, 
-                        help='Feature size for WiFi CSI data')
-    parser.add_argument('--in_channels', type=int, default=1, 
-                        help='Number of input channels')
-    parser.add_argument('--emb_dim', type=int, default=128, 
-                        help='Embedding dimension for ViT model')
-    parser.add_argument('--d_model', type=int, default=256, 
-                        help='Model dimension for Transformer model')
-    parser.add_argument('--dropout', type=float, default=0.1, 
-                        help='Dropout rate')
+    # 模型参数
+    parser.add_argument('--models', type=str, default='mlp,lstm,resnet18,transformer', help='要训练的模型，逗号分隔')
+    parser.add_argument('--win_len', type=int, default=500, help='窗口长度')
+    parser.add_argument('--feature_size', type=int, default=232, help='特征大小')
+    parser.add_argument('--batch_size', type=int, default=32, help='批大小')
+    parser.add_argument('--epochs', type=int, default=100, help='训练轮数')
+    parser.add_argument('--lr', '--learning_rate', type=float, default=0.001, help='学习率')
+    parser.add_argument('--weight_decay', type=float, default=1e-5, help='权重衰减')
+    parser.add_argument('--warmup_epochs', type=int, default=5, help='预热轮数')
+    parser.add_argument('--patience', type=int, default=15, help='早停的耐心值')
+    parser.add_argument('--gpu', type=int, default=0, help='GPU索引')
+    parser.add_argument('--num_workers', type=int, default=4, help='数据加载器工作进程数量')
     
-    # Training parameters
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-5, 
-                        help='Weight decay for optimizer')
-    parser.add_argument('--warmup_epochs', type=int, default=5,
-                        help='Number of warmup epochs')
-    parser.add_argument('--patience', type=int, default=15,
-                        help='Patience for early stopping')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--test_splits', type=str, default='all', 
-                        help='Test splits to evaluate on, comma-separated (e.g., "test_id,test_cross_env") or "all"')
+    # 测试参数
+    parser.add_argument('--test_splits', type=str, default='test_id,test_ood,test_cross_env', help='测试分割，逗号分隔')
     
-    # Output parameters
-    parser.add_argument('--save_dir', type=str, default='/opt/ml/model',
-                        help='Directory to save checkpoints and models')
-    parser.add_argument('--output_dir', type=str, default=None,
-                        help='Directory to save results (defaults to save_dir if not specified)')
+    # 实验参数
+    parser.add_argument('--seed', type=int, default=42, help='随机种子')
     
-    # Add backward compatibility for data_dir parameter
-    parser.add_argument('--data_dir', type=str, default=None,
-                        help='Root directory of the dataset (deprecated, use dataset_root instead)')
+    # 少样本学习参数
+    parser.add_argument('--enable_few_shot', action='store_true', default=False, help='启用少样本学习')
+    parser.add_argument('--k_shot', type=int, default=5, help='每类样本数量')
+    parser.add_argument('--inner_lr', type=float, default=0.01, help='内部学习率')
+    parser.add_argument('--num_inner_steps', type=int, default=10, help='内部适应步骤')
+    parser.add_argument('--fewshot_support_split', type=str, default='val_id', help='少样本支持集分割')
+    parser.add_argument('--fewshot_query_split', type=str, default='test_cross_env', help='少样本查询集分割')
     
-    # Debug parameters - All boolean flag parameters
-    parser.add_argument('--debug', action='store_true', default=False,
-                        help='Enable detailed debug output')
-    parser.add_argument('--adaptive_path', action='store_true', default=False,
-                        help='Automatically adapt to data path structure')
-    parser.add_argument('--try_all_paths', action='store_true', default=False,
-                        help='Try all possible path combinations')
-    parser.add_argument('--direct_upload', action='store_true', default=True,
-                        help='Directly upload results to S3 without using SageMaker auto-packaging')
-    parser.add_argument('--upload_final_model', action='store_true', default=False,
-                        help='Upload final model to S3')
-    parser.add_argument('--skip_train_for_debug', action='store_true', default=False,
-                     help='Only for debugging, skip actual training process')
+    # 解析SageMaker超参数
+    args, unknown = parser.parse_known_args()
     
-    # 添加use_root_data_path参数，直接使用整个/opt/ml/input/data/training目录作为有效数据
-    parser.add_argument('--use_root_data_path', action='store_true', default=True,
-                        help='直接使用整个数据根目录作为任务目录')
-    parser.add_argument('--use-root-data-path', action='store_true', dest='use_root_data_path', default=True,
-                        help='直接使用整个数据根目录作为任务目录（短横线格式）')
+    # 将模型列表转换为列表
+    args.all_models = [m.strip() for m in args.models.split(',')]
     
-    # Add S3 related parameters
-    parser.add_argument('--save_to_s3', type=str, default=None,
-                      help='S3 path for saving results, format: s3://bucket-name/path/')
-
-    # Modify parsing logic, handle SageMaker passed non-standard parameters
-    # First get original parameters, do preliminary processing
-    args_to_parse = []
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        
-        # Fix double underscore prefix first - this is the most critical issue
-        if arg.startswith('__'):
-            arg = '--' + arg[2:]
-            logger.warning(f"CRITICAL FIX: Replaced double underscore prefix with double dash: {sys.argv[i]} -> {arg}")
-        
-        # Fix parameter name format - Convert dash-separated parameters to underscore-separated format
-        # But keep the -- prefix intact!
-        if arg.startswith('--'):
-            # Extract the parameter name without the prefix
-            param_name = arg[2:]
-            # Replace dash with underscore in the parameter name only
-            fixed_param_name = param_name.replace('-', '_')
-            # Re-add the proper prefix
-            fixed_arg = f"--{fixed_param_name}"
-            
-            if fixed_arg != arg:
-                logger.info(f"Fixed parameter format: {arg} -> {fixed_arg}")
-                arg = fixed_arg
-        
-        # Ensure arg starts with -- (not __ or other prefix)
-        if not arg.startswith('--') and arg[0] == '-':
-            arg = f"--{arg[1:]}"
-            logger.info(f"Restored proper argument prefix: {arg}")
-        
-        # Handle flag parameters followed by True or False
-        if arg.startswith('--') and i + 1 < len(sys.argv):
-            next_arg = sys.argv[i+1]
-            if next_arg.lower() == 'true':
-                # For --flag True case, only keep --flag
-                args_to_parse.append(arg)
-                i += 2
-                continue
-            elif next_arg.lower() == 'false':
-                # For --flag False case, skip that parameter
-                i += 2
-                continue
-            
-        # Normal parameter addition
-        args_to_parse.append(arg)
-        i += 1
-    
-    try:
-        # Log the final arguments for debugging
-        logger.info(f"Actual arguments to parse: {args_to_parse}")
-        
-        # Final sanity check to ensure no __ prefixes
-        for i, arg in enumerate(args_to_parse):
-            if arg.startswith('__'):
-                args_to_parse[i] = '--' + arg[2:]
-                logger.warning(f"CRITICAL FIX: Found double underscore prefix after first pass: {arg} -> {args_to_parse[i]}")
-        
-        # Use preprocessed parameters for parsing
-        args = parser.parse_args(args_to_parse)
-        
-        # Print actual parsed parameters (for debugging)
-        logger.info(f"Parsed arguments: {args_to_parse}")
-        
-        # Check if we need to get task_name from environment variables
-        # This is a critical parameter that might be missing from command line
-        if args.task_name in (None, 'MotionSourceRecognition'):
-            # Try to get from SM_HP_TASK_NAME or SM_HP_TASK-NAME environment variable
-            env_task_name = os.environ.get('SM_HP_TASK_NAME') or os.environ.get('SM_HP_TASK-NAME')
-            if env_task_name:
-                args.task_name = env_task_name
-                logger.info(f"Got task_name from environment variable: {args.task_name}")
-        
-    except Exception as e:
-        logger.error(f"Error parsing arguments: {e}")
-        logger.error(f"Original arguments: {sys.argv}")
-        logger.error(f"Processed arguments: {args_to_parse}")
-        
-        # Try using original parameters parsing, ignore errors
-        try:
-            args = parser.parse_args()
-        except:
-            # Last fallback: Use default parameters
-            logger.warning("Using default arguments due to parsing failure")
-            args = parser.parse_args([])
-    
-    # If debug mode is enabled, set log level to DEBUG
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled - verbose logging activated")
-        # Print all parameters
-        logger.debug("All command line arguments:")
-        for arg, value in sorted(vars(args).items()):
-            logger.debug(f"  {arg}: {value}")
-    
-    # For backward compatibility: if data_dir is provided but dataset_root is not, use data_dir
-    if args.data_dir is not None and args.dataset_root == 'wifi_benchmark_dataset':
-        logger.warning("Using data_dir instead of dataset_root (data_dir is deprecated)")
-        args.dataset_root = args.data_dir
-    
-    # Parse all models to train
-    if ',' in args.models:
-        args.all_models = args.models.split(',')
+    # 将测试分割转换为列表
+    if args.test_splits == 'all':
+        args.test_splits = ['test_id', 'test_ood', 'test_cross_env']
     else:
-        args.all_models = [args.models]
+        args.test_splits = [ts.strip() for ts in args.test_splits.split(',')]
     
-    # Validate model validity
-    for model_name in args.all_models:
-        if model_name.lower() not in MODEL_TYPES:
-            logger.error(f"Unsupported model: {model_name}. Valid models: {list(MODEL_TYPES.keys())}")
-            sys.exit(1)
+    # 根据超参数环境变量覆盖参数
+    for arg in unknown:
+        if arg.startswith(('--sm-hp-', '--SM_HP_')):
+            # Argument format: --sm-hp-name or --SM_HP_NAME
+            parts = arg.split('-', 2) if arg.startswith('--sm-hp-') else arg.split('_', 2)
+            if len(parts) < 3:
+                continue
+                
+            # 获取参数名和值
+            param_name = parts[-1].replace('-', '_').lower()
+            
+            # 查找下一个参数是否为值
+            idx = sys.argv.index(arg) if arg in sys.argv else -1
+            if idx >= 0 and idx < len(sys.argv) - 1 and not sys.argv[idx + 1].startswith('--'):
+                param_value = sys.argv[idx + 1]
+                
+                # 设置参数
+                if hasattr(args, param_name):
+                    # 根据参数类型转换值
+                    if isinstance(getattr(args, param_name), bool):
+                        if param_value.lower() in ('true', 'yes', '1'):
+                            setattr(args, param_name, True)
+                        elif param_value.lower() in ('false', 'no', '0'):
+                            setattr(args, param_name, False)
+                    elif isinstance(getattr(args, param_name), int):
+                        setattr(args, param_name, int(param_value))
+                    elif isinstance(getattr(args, param_name), float):
+                        setattr(args, param_name, float(param_value))
+                    else:
+                        setattr(args, param_name, param_value)
     
-    # Set output directory
-    if args.output_dir is None:
-        args.output_dir = args.save_dir
+    # 处理环境变量中的参数
+    for k, v in os.environ.items():
+        # 检查SM_HP_格式的环境变量
+        if k.startswith('SM_HP_'):
+            # 转换参数名
+            param_name = k[6:].lower().replace('-', '_')
+            
+            # 检查参数是否存在
+            if hasattr(args, param_name):
+                # 根据参数类型转换值
+                if isinstance(getattr(args, param_name), bool):
+                    if v.lower() in ('true', 'yes', '1'):
+                        setattr(args, param_name, True)
+                    elif v.lower() in ('false', 'no', '0'):
+                        setattr(args, param_name, False)
+                elif isinstance(getattr(args, param_name), int):
+                    try:
+                        setattr(args, param_name, int(v))
+                    except ValueError:
+                        pass
+                elif isinstance(getattr(args, param_name), float):
+                    try:
+                        setattr(args, param_name, float(v))
+                    except ValueError:
+                        pass
+                else:
+                    setattr(args, param_name, v)
+                    
+                # 处理特殊情况 - 模型列表
+                if param_name == 'models':
+                    args.all_models = [m.strip() for m in v.split(',')]
+                    
+                # 处理特殊情况 - 测试分割
+                if param_name == 'test_splits' and v != 'all':
+                    args.test_splits = [ts.strip() for ts in v.split(',')]
         
+        # 检查S3输出路径
+        if k == 'SAGEMAKER_S3_OUTPUT' and args.save_to_s3 is None:
+            args.save_to_s3 = v
+            print(f"从环境变量设置S3输出路径: {v}")
+    
+    # 如果在SageMaker中运行，确保目录存在
+    if is_sagemaker:
+        os.makedirs(os.path.join(args.output_dir, args.task_name), exist_ok=True)
+    
+    # 输出参数
+    print("\n===== 参数 =====")
+    for k, v in sorted(vars(args).items()):
+        print(f"  {k}: {v}")
+    print("================\n")
+    
     return args
 
 def set_seed(seed):
@@ -882,14 +916,9 @@ def main():
         for model_name, metrics in all_results.items():
             logger.info(f"  - {model_name}: 测试准确率 = {metrics.get('test_accuracy', 0.0):.4f}")
         
-        # 识别最佳模型
-        if all_results:
-            best_model = max(all_results.items(), key=lambda x: x[1].get('test_accuracy', 0.0))
-            logger.info(f"\n最佳模型: {best_model[0]}, 测试准确率 {best_model[1].get('test_accuracy', 0.0):.4f}")
-        
         # 检查S3保存参数，如果没有设置，尝试从环境变量获取
         if args.save_to_s3 is None:
-            logger.info("没有设置save_to_s3参数，尝试从环境变量获取S3输出路径")
+            logger.info("未设置save_to_s3参数，尝试从环境变量获取S3输出路径")
             # 从SageMaker环境变量获取S3输出路径
             sm_output_dir = os.environ.get('SM_OUTPUT_DATA_DIR')
             sm_model_dir = os.environ.get('SM_MODEL_DIR')
@@ -904,85 +933,129 @@ def main():
                 else:
                     logger.warning("无法从环境变量获取S3输出路径")
         
-        # 直接上传最终结果到S3（如果启用）
-        if args.direct_upload:
-            if args.save_to_s3:
-                logger.info(f"直接上传结果到S3: {args.save_to_s3}")
-                
-                # 输出结果目录结构以便调试
-                task_dir = os.path.join(args.output_dir, args.task_name)
-                logger.info(f"实例上的结果目录结构:")
-                if os.path.exists(task_dir):
-                    # 输出目录结构
-                    def print_dir_structure(path, prefix=""):
-                        logger.info(f"{prefix}├── {os.path.basename(path)}/")
-                        for item in sorted(os.listdir(path)):
-                            item_path = os.path.join(path, item)
-                            if os.path.isdir(item_path):
-                                print_dir_structure(item_path, prefix + "│   ")
-                            else:
-                                logger.info(f"{prefix}│   ├── {item}")
-                    
-                    # 输出顶层目录结构
-                    logger.info(f"任务目录 ({task_dir}) 的内容:")
-                    for item in sorted(os.listdir(task_dir)):
-                        item_path = os.path.join(task_dir, item)
+        # 直接上传最终结果到S3（默认行为）
+        if args.save_to_s3:
+            logger.info(f"直接上传结果到S3: {args.save_to_s3}")
+            
+            # 输出结果目录结构以便调试
+            task_dir = os.path.join(args.output_dir, args.task_name)
+            logger.info(f"实例上的结果目录结构:")
+            if os.path.exists(task_dir):
+                # 输出目录结构
+                def print_dir_structure(path, prefix=""):
+                    logger.info(f"{prefix}├── {os.path.basename(path)}/")
+                    for item in sorted(os.listdir(path)):
+                        item_path = os.path.join(path, item)
                         if os.path.isdir(item_path):
-                            logger.info(f"├── {item}/ (目录)")
-                            # 显示模型子目录中的实验ID
-                            for exp_id in sorted(os.listdir(item_path)):
-                                logger.info(f"│   ├── {exp_id}/ (实验ID)")
+                            print_dir_structure(item_path, prefix + "│   ")
                         else:
-                            logger.info(f"├── {item} (文件)")
+                            logger.info(f"{prefix}│   ├── {item}")
                 
-                    # 上传整个任务目录结构，保持原有目录结构
-                    s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
-                    logger.info(f"准备上传目录: {task_dir} -> {s3_task_path}")
-                    
-                    # 列出要上传的文件
-                    all_files = []
-                    for root, _, files in os.walk(task_dir):
-                        for file in files:
-                            all_files.append(os.path.join(root, file))
-                    logger.info(f"找到 {len(all_files)} 个文件需要上传")
-                    
-                    # 执行上传
-                    upload_success = upload_to_s3(task_dir, s3_task_path)
-                    if upload_success:
-                        logger.info(f"结果成功上传到 {s3_task_path}")
+                # 输出顶层目录结构
+                logger.info(f"任务目录 ({task_dir}) 的内容:")
+                for item in sorted(os.listdir(task_dir)):
+                    item_path = os.path.join(task_dir, item)
+                    if os.path.isdir(item_path):
+                        logger.info(f"├── {item}/ (目录)")
+                        # 显示模型子目录中的实验ID
+                        for exp_id in sorted(os.listdir(item_path))[:5]:  # 仅显示前5个条目
+                            logger.info(f"│   ├── {exp_id}/ (实验ID)")
+                        if len(os.listdir(item_path)) > 5:
+                            logger.info(f"│   ├── ... 以及更多 ({len(os.listdir(item_path)) - 5} 个条目)")
                     else:
-                        logger.error(f"上传到 {s3_task_path} 失败!")
+                        logger.info(f"├── {item} (文件)")
+            
+                # 上传整个任务目录结构，保持原有目录结构
+                s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
+                logger.info(f"准备上传目录: {task_dir} -> {s3_task_path}")
                 
-                # 如果实例上的目录结构与预期不同，输出更多调试信息
+                # 列出要上传的文件
+                all_files = []
+                for root, _, files in os.walk(task_dir):
+                    for file in files:
+                        all_files.append(os.path.join(root, file))
+                logger.info(f"找到 {len(all_files)} 个文件需要上传")
+                
+                # 创建在SM_MODEL_DIR中的标记，表明我们使用直接上传
+                if 'SM_MODEL_DIR' in os.environ:
+                    model_dir = os.environ['SM_MODEL_DIR']
+                    os.makedirs(model_dir, exist_ok=True)
+                    
+                    # 创建标记文件和README
+                    marker_path = os.path.join(model_dir, '.direct_s3_upload')
+                    with open(marker_path, 'w') as f:
+                        f.write(f"Results directly uploaded to S3 at: {s3_task_path}\n")
+                        f.write(f"Upload timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Task: {args.task_name}\n")
+                        f.write(f"Total files: {len(all_files)}\n")
+                    
+                    # 将结果摘要也复制到model_dir，以便在model.tar.gz中至少有一些信息
+                    if os.path.exists(results_path):
+                        model_results_path = os.path.join(model_dir, 'multi_model_results.json')
+                        import shutil
+                        shutil.copy2(results_path, model_results_path)
+                        logger.info(f"结果摘要已复制到model目录: {model_results_path}")
+                
+                # 执行上传
+                upload_success = upload_to_s3(task_dir, s3_task_path)
+                if upload_success:
+                    logger.info(f"结果成功上传到 {s3_task_path}")
+                    
+                    # 将上传成功标记写入model_dir
+                    if 'SM_MODEL_DIR' in os.environ:
+                        success_marker = os.path.join(os.environ['SM_MODEL_DIR'], '.upload_success')
+                        with open(success_marker, 'w') as f:
+                            f.write(f"Upload successful to: {s3_task_path}\n")
+                            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 else:
-                    logger.error(f"任务输出目录不存在: {task_dir}")
+                    logger.error(f"上传到 {s3_task_path} 失败!")
                     
-                    # 尝试查找在其他可能位置的结果目录
-                    possible_dirs = [
-                        os.path.join('/opt/ml/model', args.task_name),
-                        os.path.join('/opt/ml/output/data', args.task_name),
-                        '/opt/ml/model',
-                        '/opt/ml/output/data'
-                    ]
-                    
-                    for possible_dir in possible_dirs:
-                        if os.path.exists(possible_dir):
-                            logger.info(f"找到可能的结果目录: {possible_dir}")
-                            logger.info(f"目录内容:")
-                            for item in sorted(os.listdir(possible_dir)):
-                                logger.info(f"  - {item}")
-                            
-                            # 如果找到合适的目录，尝试上传
-                            if args.task_name in possible_dir:
-                                alt_s3_path = f"{args.save_to_s3.rstrip('/')}/{os.path.basename(possible_dir)}"
-                                logger.info(f"尝试上传替代目录: {possible_dir} -> {alt_s3_path}")
-                                alt_success = upload_to_s3(possible_dir, alt_s3_path)
-                                if alt_success:
-                                    logger.info(f"成功上传替代目录到 {alt_s3_path}")
+                    # 在model_dir中记录上传失败
+                    if 'SM_MODEL_DIR' in os.environ:
+                        failure_marker = os.path.join(os.environ['SM_MODEL_DIR'], '.upload_failure')
+                        with open(failure_marker, 'w') as f:
+                            f.write(f"Upload failed to: {s3_task_path}\n")
+                            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            f.write("Check logs for details on the failure.\n")
+            
+            # 如果实例上的目录结构与预期不同，输出更多调试信息
             else:
-                logger.warning("未设置save_to_s3参数，跳过上传到S3")
+                logger.error(f"任务输出目录不存在: {task_dir}")
+                
+                # 尝试查找在其他可能位置的结果目录
+                possible_dirs = [
+                    os.path.join('/opt/ml/model', args.task_name),
+                    os.path.join('/opt/ml/output/data', args.task_name),
+                    '/opt/ml/model',
+                    '/opt/ml/output/data'
+                ]
+                
+                for possible_dir in possible_dirs:
+                    if os.path.exists(possible_dir):
+                        logger.info(f"找到可能的结果目录: {possible_dir}")
+                        logger.info(f"目录内容:")
+                        for item in sorted(os.listdir(possible_dir))[:10]:  # 只显示前10个文件
+                            logger.info(f"  - {item}")
+                        if len(os.listdir(possible_dir)) > 10:
+                            logger.info(f"  - ... 以及更多 ({len(os.listdir(possible_dir)) - 10} 个文件)")
+                        
+                        # 如果找到合适的目录，尝试上传
+                        if args.task_name in possible_dir or possible_dir.endswith('/model'):
+                            alt_s3_path = f"{args.save_to_s3.rstrip('/')}/{os.path.basename(possible_dir)}"
+                            logger.info(f"尝试上传替代目录: {possible_dir} -> {alt_s3_path}")
+                            alt_success = upload_to_s3(possible_dir, alt_s3_path)
+                            if alt_success:
+                                logger.info(f"成功上传替代目录到 {alt_s3_path}")
+                                
+                                # 记录上传成功
+                                if 'SM_MODEL_DIR' in os.environ:
+                                    alt_success_marker = os.path.join(os.environ['SM_MODEL_DIR'], '.alt_upload_success')
+                                    with open(alt_success_marker, 'w') as f:
+                                        f.write(f"Alternative upload successful to: {alt_s3_path}\n")
+                                        f.write(f"Source directory: {possible_dir}\n")
+                                        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         else:
-            logger.info("未启用direct_upload，依赖SageMaker自动上传结果")
+            logger.warning("未设置save_to_s3参数，无法直接上传到S3。将依赖SageMaker默认机制上传模型")
         
         # 清理SageMaker存储以减少空间使用
         cleanup_sagemaker_storage()
