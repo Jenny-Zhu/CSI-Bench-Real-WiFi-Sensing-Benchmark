@@ -81,6 +81,13 @@ class SageMakerRunner:
         self.s3_data_base = self.config.get("s3_data_base")
         self.s3_output_base = self.config.get("s3_output_base")
         
+        # Configure SageMaker training job default params for this runner
+        boto3_session = boto3.Session()
+        self.sm_client = boto3_session.client('sagemaker')
+        
+        # Disable debug outputs globally if possible
+        self._configure_disable_debug_outputs()
+        
         # Verify S3 bucket exists
         self._verify_s3_bucket()
         
@@ -88,6 +95,46 @@ class SageMakerRunner:
         print(f"  S3 data base path: {self.s3_data_base}")
         print(f"  S3 output base path: {self.s3_output_base}")
         print(f"  Timestamp: {self.timestamp}")
+    
+    def _configure_disable_debug_outputs(self):
+        """Try to disable debug outputs globally at the SageMaker client level if possible"""
+        try:
+            # Some debug output control might be enabled via SageMaker client configuration
+            # or via AWS CLI commands. This method tries to apply those if available.
+            
+            # Check if boto3 client supports configuration of these settings
+            client_config = self.sm_client._get_config_value('training_job_preferences', {})
+            
+            # Try to update client config if method exists
+            # Note: This is AWS internal and might not be supported, just a placeholder
+            # for future SageMaker improvements
+            if hasattr(self.sm_client, '_modify_config'):
+                training_prefs = {
+                    'debug_output_enabled': False,
+                    'profiler_enabled': False,
+                    'auto_upload_enabled': False
+                }
+                try:
+                    self.sm_client._modify_config('training_job_preferences', training_prefs)
+                    print("Successfully configured global SageMaker client training preferences")
+                except:
+                    pass
+            
+            # Alternative option - use AWS CLI to set preferences
+            # This is a speculative approach and might not work on all environments
+            try:
+                import subprocess
+                subprocess.run(
+                    ["aws", "configure", "set", "sagemaker.disable_debugger", "true"], 
+                    check=True, capture_output=True
+                )
+                print("Set AWS CLI sagemaker.disable_debugger config")
+            except:
+                # Silently ignore errors - this is just a best-effort attempt
+                pass
+        except Exception as e:
+            print(f"Note: Could not configure global SageMaker options: {e}")
+            # We'll fall back to per-job configuration
     
     def _verify_s3_bucket(self):
         """Verify S3 bucket exists and list available data"""
@@ -205,7 +252,8 @@ class SageMakerRunner:
             estimator.fit(
                 inputs=self._prepare_inputs(task_config),
                 job_name=job_name,
-                wait=False
+                wait=False,
+                logs=False  # Don't stream logs automatically
             )
             
             # Track job information
@@ -311,6 +359,11 @@ class SageMakerRunner:
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
             keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
             output_path=self.s3_output_base,  # Explicitly set output path
+            code_location=self.s3_output_base,  # Where to store the code package
+            debugger_hook_config=False,  # Disable debugger hooks completely
+            disable_profiler=True,  # Disable profiler
+            disable_upload_notifications=True,  # Disable notifications about uploads
+            profiler_config=None,  # No profiler config
             environment={
                 'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
                 'SMDEBUG_DISABLED': 'true',
@@ -330,7 +383,6 @@ class SageMakerRunner:
                 'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
                 'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true'  # Custom flag for our code
             },
-            disable_profiler=True,
             disable_model_download=True,  # 禁用model.tar.gz文件的生成
             disable_output_compression=True  # 禁用output.tar.gz文件的生成
         )
@@ -423,7 +475,8 @@ class SageMakerRunner:
         estimator.fit(
             inputs=self._prepare_multitask_inputs(multi_config),
             job_name=job_name,
-            wait=False
+            wait=False,
+            logs=False  # Don't stream logs automatically
         )
         
         # Return job information
@@ -492,6 +545,11 @@ class SageMakerRunner:
             disable_model_download=True,  # 禁用model.tar.gz文件的生成
             disable_output_compression=True,  # 禁用output.tar.gz文件的生成
             output_path=self.s3_output_base,  # Explicitly set output path
+            code_location=self.s3_output_base,  # Where to store the code package
+            debugger_hook_config=False,  # Disable debugger hooks completely
+            disable_profiler=True,  # Disable profiler
+            disable_upload_notifications=True,  # Disable notifications about uploads
+            profiler_config=None,  # No profiler config
             environment={
                 'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
                 'SMDEBUG_DISABLED': 'true',

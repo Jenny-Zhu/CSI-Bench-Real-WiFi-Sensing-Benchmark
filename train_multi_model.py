@@ -185,6 +185,13 @@ def cleanup_sagemaker_storage():
         os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLE'] = 'true'
         os.environ['SAGEMAKER_DEBUG_OUTPUT_DISABLED'] = 'true'
         
+        # Make sure debug-output directory exists before SageMaker tries to create it
+        # This is a workaround - by creating it empty ourselves, we prevent SageMaker from creating and filling it
+        os.makedirs("/opt/ml/output/debug-output", exist_ok=True)
+        # Create an empty file to prevent SageMaker from creating the training_job_end.ts file
+        with open("/opt/ml/output/debug-output/training_job_end.ts", "w") as f:
+            f.write("")
+        
         # Delete unnecessary temporary files and logs
         dirs_to_clean = [
             "/tmp",                        # Temporary directory
@@ -284,6 +291,29 @@ def cleanup_sagemaker_storage():
                                 logger.info(f"Cleaned up nested output directories")
                             except Exception as e:
                                 logger.warning(f"Error reorganizing nested output: {e}")
+        
+        # Also remove any debug-output directories in our task results
+        for root, dirs, _ in os.walk("/opt/ml/output/data"):
+            for dir_name in dirs:
+                if dir_name == "debug-output":
+                    debug_dir = os.path.join(root, dir_name)
+                    try:
+                        shutil.rmtree(debug_dir)
+                        logger.info(f"Removed debug-output directory: {debug_dir}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove debug-output directory {debug_dir}: {e}")
+        
+        # Make sure the main /opt/ml/output/debug-output directory is empty
+        if os.path.exists("/opt/ml/output/debug-output"):
+            for item in os.listdir("/opt/ml/output/debug-output"):
+                item_path = os.path.join("/opt/ml/output/debug-output", item)
+                try:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                except Exception as e:
+                    logger.warning(f"Could not remove {item_path}: {e}")
         
         logger.info("Storage cleanup completed!")
     except Exception as e:
