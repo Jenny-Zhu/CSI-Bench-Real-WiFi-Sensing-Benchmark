@@ -361,7 +361,6 @@ class SageMakerRunner:
             output_path=self.s3_output_base,  # Explicitly set output path
             code_location=self.s3_output_base,  # Where to store the code package
             debugger_hook_config=False,  # Disable debugger hooks completely
-            disable_profiler=True,  # Disable profiler
             disable_upload_notifications=True,  # Disable notifications about uploads
             profiler_config=None,  # No profiler config
             environment={
@@ -547,7 +546,6 @@ class SageMakerRunner:
             output_path=self.s3_output_base,  # Explicitly set output path
             code_location=self.s3_output_base,  # Where to store the code package
             debugger_hook_config=False,  # Disable debugger hooks completely
-            disable_profiler=True,  # Disable profiler
             disable_upload_notifications=True,  # Disable notifications about uploads
             profiler_config=None,  # No profiler config
             environment={
@@ -568,8 +566,7 @@ class SageMakerRunner:
                 'SAGEMAKER_TRAINING_JOB_END_DISABLE': 'true',
                 'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
                 'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true'  # Custom flag for our code
-            },
-            disable_profiler=True
+            }
         )
         
         return estimator
