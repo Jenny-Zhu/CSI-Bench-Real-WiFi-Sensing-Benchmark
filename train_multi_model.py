@@ -16,6 +16,8 @@ try:
     sys.modules['smdebug'] = None
     os.environ['SMDEBUG_DISABLED'] = 'true'
     os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+    os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
+    os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
     
     # Also disable Horovod
     sys.modules['horovod'] = None
@@ -208,6 +210,7 @@ def cleanup_sagemaker_storage():
             "/tmp",                        # Temporary directory
             "/opt/ml/output/profiler",     # Profiler output
             "/opt/ml/output/tensors",      # Debugger tensors
+            "/opt/ml/output/debug-output", # Debug output
         ]
         
         # Only keep the smallest log files
