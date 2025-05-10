@@ -293,36 +293,16 @@ class SageMakerRunner:
             output_path=self.s3_output_base,  # Explicitly set output path
             environment={
                 'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
-                'SMDEBUG_DISABLED': 'true',                  # 显式禁用调试器
-                'SM_DISABLE_DEBUGGER': 'true',               # 禁用 SageMaker 调试器
-                'SM_DISABLE_PROFILER': 'true',               # 禁用 SageMaker 分析器
-                'DISABLE_PROFILER': 'true',                  # 禁用分析器
-                'PYTHONIOENCODING': 'utf-8',                 # 确保编码一致性
-                'SAGEMAKER_SUBMIT_DIRECTORY': '/tmp/null',   # 防止源代码打包
-                'SAGEMAKER_DISABLE_MODEL_PACKAGING': 'true', # 禁用模型打包
-                'SAGEMAKER_DISABLE_OUTPUT_COMPRESSION': 'true', # 禁用输出压缩
-                'SAGEMAKER_MODEL_EXCLUDE_PATTERNS': '*',     # 排除所有文件不包含在model.tar.gz中
-                'FORCE_DIRECT_S3_UPLOAD': 'true',           # 强制直接上传到S3
-                'NO_TAR_GZ': 'true',                         # 自定义标志以禁用tar.gz
-                # 新增参数：直接禁用模型和输出包装
-                'DISABLE_OUTPUT_COMPRESSION': 'true',
-                'DISABLE_MODEL_PACKAGING': 'true',
-                'DISABLE_FILE_UPLOADING': 'false',
-                'CHECKPOINT_S3_URI': str(config.get('checkpoint_s3_uri', '')),
-                'CHECKPOINT_LOCAL_PATH': str(config.get('checkpoint_local_path', ''))
+                'SAGEMAKER_PROGRAM': 'train_multi_model.py',  # 确保正确的入口脚本
+                'FORCE_DIRECT_S3_UPLOAD': 'true'            # 强制直接上传到S3
             },
             # 完全禁用 debugger 和 profiler
             debugger_hook_config=False,
             profiler_config=None,
             disable_profiler=True,
-            # Disable model saving
-            model_uri=None,
             # 禁用输出和模型压缩
             container_log_level=20,  # INFO level
             code_location=None,      # 不保存源代码
-            # 确保不打包模型
-            dependencies=None,
-            output_kms_key=None,
             # 新增：明确禁用模型打包和输出压缩的PyTorch估算器参数
             disable_model_download=True,  # 防止下载模型到本地，然后再上传
             disable_output_compression=True  # 禁用输出压缩
