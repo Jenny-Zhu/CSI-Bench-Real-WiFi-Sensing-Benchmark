@@ -245,82 +245,184 @@ python scripts/generate_summary_table.py --results_dir ./results
 
 ## SageMaker Integration
 
-You can run the WiFi sensing benchmark on AWS SageMaker using the provided integration scripts. The SageMaker runner supports both local and cloud execution environments.
-
-### Running on SageMaker
-
-To run training jobs on SageMaker, use the `sagemaker_runner.py` script:
-
-```bash
-python sagemaker_runner.py --config configs/sagemaker_default_config.json
-```
-
-### Directory Structure
-
-The SageMaker integration follows this workflow:
-
-```
-sagemaker_runner.py -> entry_script.py -> train_multi_model.py -> (uses TaskTrainer from) scripts/train_supervised.py
-```
-
-- `sagemaker_runner.py`: Creates and submits SageMaker training jobs
-- `entry_script.py`: Entry point that runs in the SageMaker environment 
-- `train_multi_model.py`: Handles training multiple models for a task
-- `scripts/train_supervised.py`: Core training logic for single models
+For large-scale training on AWS SageMaker, we provide a specialized runner that allows you to train models in the cloud. The SageMaker runner has been optimized to run multiple models on a single instance for each task, improving resource utilization and reducing costs.
 
 ### Key Features
 
-1. **Optimized Storage**:
-   - Training output is automatically saved to the specified S3 bucket
-   - Results are stored in a structured directory format: `s3://bucket-name/Benchmark_Log/TaskName/ModelName/`
-   - Output includes model files, metrics, and evaluation results
+- **Batch Processing**: Train all models for a task on a single instance, reducing resource costs
+- **S3 Integration**: Automatically handles S3 paths for data input and output
+- **Parameter Handling**: Converts hyperparameters to the format expected by the training script
 
-2. **Debugging and Profiling**:
-   - SageMaker Debugger and Profiler are disabled by default to save storage space
-   - This prevents generation of unnecessary debug and profiling artifacts
-   - Disabling these features significantly reduces the size of result files
+### Parameter Passing in SageMaker
 
-3. **Batch Processing**:
-   - The runner can process multiple tasks in a batch
-   - Each task is run on a single instance with multiple models training sequentially
+When using SageMaker, pay attention to the following parameter format requirements:
 
-### Configuration Options
+- **Use double dash (--) prefixes**: Parameters should use double dash prefixes (e.g., `--win-len`) not double underscore prefixes (`__win-len`).
+- **Use dashes for parameter names**: In SageMaker environment, parameter names should use dashes instead of underscores (e.g., `win-len` instead of `win_len`).
+- **Special parameter handling**: Some parameters like `task_name` are handled specially and should keep their underscore format.
 
-The SageMaker configuration file (`configs/sagemaker_default_config.json`) contains important settings:
-
-```json
-{
-  "s3_data_base": "s3://your-bucket-name/Data/Benchmark/",
-  "s3_output_base": "s3://your-bucket-name/Benchmark_Log/",
-  "base_job_name": "wifi-sensing",
-  "instance_type": "ml.g4dn.xlarge",
-  "instance_count": 1,
-  "max_run": 86400,
-  "volume_size": 100,
-  "available_tasks": ["MotionSourceRecognition", "HumanMotion", "HumanID"],
-  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit"],
-  "batch_wait_time": 30
+Example of correct parameter format in SageMaker:
+```python
+hyperparameters = {
+    'models': 'transformer,vit',
+    'task_name': 'MotionSourceRecognition',  # This special parameter keeps underscores
+    'win-len': 500,                          # Use dash instead of underscore
+    'feature-size': 232,                     # Use dash instead of underscore
+    'batch-size': 32                         # Use dash instead of underscore
 }
 ```
 
-### Example: Running Multiple Tasks
+Our `entry_script.py` contains validation logic to fix parameter format issues, but it's best to use the correct format from the start to avoid any potential problems.
 
-```bash
-# Run all models for the MotionSourceRecognition task
-python sagemaker_runner.py --config configs/sagemaker_default_config.json --task MotionSourceRecognition
+### Running on SageMaker
 
-# Run specific models for multiple tasks
-python sagemaker_runner.py --config configs/sagemaker_default_config.json --tasks MotionSourceRecognition,HumanMotion --models lstm,transformer
+You can use the SageMaker runner in a Python script or Jupyter notebook:
+
+```python
+import sagemaker_runner
+runner = sagemaker_runner.SageMakerRunner()
+runner.run_batch_by_task(
+    tasks=['MotionSourceRecognition', 'HumanID'], 
+    models=['vit', 'transformer', 'resnet18']
+)
 ```
 
-### Troubleshooting SageMaker Jobs
+Or from the command line:
 
-If you encounter issues with storage or output files:
+```bash
+python sagemaker_runner.py --tasks MotionSourceRecognition HumanID --models vit transformer resnet18
+```
 
-1. Check the CloudWatch logs for your SageMaker job
-2. Verify the S3 paths in your configuration file
-3. Ensure your IAM role has proper permissions for S3 access
-4. Check if debug/profiler settings are properly disabled
+### Requirements
+
+- AWS account with SageMaker access
+- S3 bucket named "rnd-sagemaker" (configurable)
+- IAM role with appropriate permissions
+
+### Additional Options
+
+- `--mode`: Data modality ('csi' or 'acf')
+- `--instance-type`: SageMaker instance type (default: ml.g4dn.xlarge)
+- `--batch-wait`: Wait time between batch job submissions in seconds
+- `--volume-size`: Size of the EBS volume in GB (default: 30)
+
+### SageMaker Configuration
+
+The SageMaker configuration can be customized by editing the `configs/sagemaker_default_config.json` file. This includes:
+
+- S3 paths for data and output
+- Default instance types
+- Available tasks and models
+- Training parameters
+
+### Data Organization for SageMaker
+
+When using SageMaker, your data should be organized in S3 as follows:
+
+```
+s3://rnd-sagemaker/Data/Benchmark/
+  ├── tasks/
+  │   ├── TaskName1/
+  │   │   ├── train/
+  │   │   │   └── data files (.h5)
+  │   │   ├── val/
+  │   │   │   └── data files (.h5)
+  │   │   └── test/
+  │   │       └── data files (.h5)
+  │   └── ...
+  └── ...
+```
+
+### Output Structure
+
+The SageMaker runner maintains the same output structure as the local training pipeline:
+
+```
+s3://rnd-sagemaker/Benchmark_Log/
+  ├── TaskName1/
+  │   ├── ModelName1/
+  │   │   ├── experiment_id_1/
+  │   │   │   ├── model.pth
+  │   │   │   ├── model_summary.json
+  │   │   │   └── training_results.csv
+  │   │   ├── ...
+  │   │   └── best_performance.json
+  │   └── ...
+  └── ...
+```
+
+### Monitoring SageMaker Jobs
+
+You can monitor your SageMaker jobs in several ways:
+
+1. **SageMaker Console**: 
+   - View all training jobs in the AWS SageMaker console
+   - Monitor metrics in real-time
+   - Check logs for errors or progress
+
+2. **CloudWatch Logs**:
+   - Detailed logs are available in CloudWatch
+   - Search for specific error messages
+   - Set up alerts for job completion or failures
+
+3. **Local Job Summaries**:
+   - The `batch_summaries/` directory contains summaries of all submitted jobs
+   - Each batch has both text and JSON format summaries
+   - Reference these files to track job names and S3 output locations
+
+### Debugging SageMaker Jobs
+
+If you encounter issues with SageMaker training:
+
+1. Check CloudWatch logs for error messages
+2. Verify your S3 data paths and permissions
+3. Confirm that your IAM role has sufficient permissions
+4. Try running with a smaller dataset locally first to validate your pipeline
+
+The improved debugging information in `train_multi_model.py` will help identify data loading issues by printing detailed information about the dataset structure and sample dimensions.
+
+### Known Issues and Solutions
+
+#### Recent Fixes
+
+1. **LabelMapper Attribute Error**
+   - Fixed issue where the code was incorrectly trying to access `class_to_idx` attribute instead of `label_to_idx`
+   - If you encounter attribute errors with label mapping, ensure you're using the correct attribute names
+
+2. **Data Path Resolution**
+   - The system now supports multiple methods to find the correct data path in SageMaker environment:
+     - `--adaptive_path`: Automatically adapts to the SageMaker directory structure
+     - `--try_all_paths`: Tries multiple combinations of paths to locate datasets
+   - These flags are enabled by default in the SageMaker runner
+
+3. **Enhanced Logging**
+   - Improved debug logging to show detailed information about the SageMaker environment
+   - Use `--debug` flag to enable verbose logging in SageMaker jobs
+
+#### Best Practices for SageMaker Jobs
+
+1. **Test Locally First**
+   - Run a small-scale test locally using `local_runner.py` before submitting to SageMaker
+   - Verify that your data loading pipeline works with the same dataset structure
+
+2. **Validate File Paths**
+   - Use the AWS CLI to verify your S3 paths before submitting jobs:
+     ```bash
+     aws s3 ls s3://rnd-sagemaker/Data/Benchmark/tasks/
+     aws s3 ls s3://rnd-sagemaker/Data/Benchmark/tasks/MotionSourceRecognition/
+     ```
+
+3. **Use Debugging Flags**
+   - Always include `--debug` flag in your SageMaker jobs for verbose logging
+   - Enable `--adaptive_path` and `--try_all_paths` for robust path resolution
+
+4. **Start Small**
+   - Begin with a single task and model before scaling to multiple tasks
+   - Use a smaller number of epochs for initial testing 
+
+5. **Check Instance Types**
+   - Ensure your SageMaker instance type has sufficient GPU memory for your models
+   - `ml.g4dn.xlarge` works well for most models, but larger models may require `ml.g4dn.2xlarge`
 
 ## Enhanced Testing Capabilities
 

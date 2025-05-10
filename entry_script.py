@@ -20,10 +20,6 @@ print("\n==========================================")
 print("Starting custom entry script entry_script.py")
 print("==========================================\n")
 
-# Signal that we prefer direct S3 upload over model.tar.gz packaging
-print("Setting direct upload preference...")
-os.environ['USE_DIRECT_S3_UPLOAD'] = 'true'
-
 # Set memory optimization options
 print("Configuring memory optimization settings...")
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -48,39 +44,6 @@ print("Disabling SMDebug...")
 sys.modules['smdebug'] = None
 os.environ['SMDEBUG_DISABLED'] = 'true'
 os.environ['SM_DISABLE_DEBUGGER'] = 'true'
-
-# Completely disable profiler
-print("Disabling SageMaker Profiler...")
-os.environ['SM_DISABLE_PROFILER'] = 'true'
-
-# Ensure AWS monitoring tools are disabled 
-def disable_monitoring_tools():
-    """Disable all SageMaker monitoring and profiling tools"""
-    disabled_modules = [
-        'smdebug', 'smdebug.pytorch', 'smdebug.tensorflow', 
-        'smdistributed', 'smprofiler', 
-        'horovod', 'horovod.torch'
-    ]
-    
-    # Disable by setting modules to None in sys.modules
-    for module_name in disabled_modules:
-        sys.modules[module_name] = None
-        
-    # Set environment variables
-    monitoring_env_vars = {
-        'SMDEBUG_DISABLED': 'true',
-        'SM_DISABLE_DEBUGGER': 'true',
-        'SM_DISABLE_PROFILER': 'true',
-        'SM_FRAMEWORK_PARAMS': 'disable_smdebug=true,disable_profiler=true'
-    }
-    
-    for env_var, value in monitoring_env_vars.items():
-        os.environ[env_var] = value
-        
-    print("All SageMaker monitoring tools disabled")
-
-# Call function to disable monitoring tools
-disable_monitoring_tools()
 
 # Set up typing_extensions support to resolve issues with typing.Literal imports
 print("Setting up typing_extensions support...")
