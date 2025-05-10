@@ -134,7 +134,10 @@ try:
         LSTMClassifier, 
         ResNet18Classifier, 
         TransformerClassifier, 
-        ViTClassifier
+        ViTClassifier,
+        PatchTST,
+        TimeSeriesTransformer,
+        TimesFormer1D
     )
 except ImportError as e:
     logger.error(f"Import failed: {e}")
@@ -146,7 +149,9 @@ MODEL_TYPES = {
     'lstm': LSTMClassifier,
     'resnet18': ResNet18Classifier,
     'transformer': TransformerClassifier,
-    'vit': ViTClassifier
+    'vit': ViTClassifier,
+    'patchtst': PatchTST,
+    'timesformer1d': TimesFormer1D
 }
 
 # Task trainer class (extracted from scripts/train_supervised.py)
@@ -269,6 +274,13 @@ def get_args():
     parser.add_argument('--d_model', type=int, default=64, help='Transformer model dimension')
     parser.add_argument('--emb_dim', type=int, default=64, help='Embedding dimension')
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
+    
+    # PatchTST specific parameters
+    parser.add_argument('--patch_len', type=int, default=16, help='Patch length for PatchTST')
+    parser.add_argument('--stride', type=int, default=8, help='Stride for PatchTST')
+    
+    # TimesFormer1D specific parameters
+    parser.add_argument('--patch_size', type=int, default=4, help='Patch size for TimesFormer1D')
     
     # Test parameters
     parser.add_argument('--test_splits', type=str, default='test_id,test_ood,test_cross_env', help='Test splits, comma separated')
@@ -402,20 +414,77 @@ def train_model(model_name, data, args, device):
     logger.info(f"Creating {model_name.upper()} model...")
     ModelClass = MODEL_TYPES[model_name.lower()]
     
-    # Common model parameters
-    model_kwargs = {
-        'num_classes': num_classes,
-        'win_len': args.win_len,
-        'feature_size': args.feature_size,
-        'emb_dim': args.emb_dim,
-        'dropout': args.dropout
+    # Create model-specific parameter sets
+    base_kwargs = {
+        'num_classes': num_classes
     }
     
-    # Add model-specific parameters
-    if model_name.lower() == 'transformer':
-        model_kwargs['d_model'] = args.d_model
-    elif model_name.lower() in ['mlp', 'lstm', 'resnet18', 'vit']:
-        model_kwargs['in_channels'] = args.in_channels
+    # Model-specific parameters
+    if model_name.lower() == 'mlp':
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'feature_size': args.feature_size
+        }
+    elif model_name.lower() == 'lstm':
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'feature_size': args.feature_size,
+            'dropout': args.dropout
+        }
+    elif model_name.lower() == 'resnet18':
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'feature_size': args.feature_size
+        }
+    elif model_name.lower() == 'transformer':
+        model_kwargs = {
+            **base_kwargs,
+            'feature_size': args.feature_size,
+            'd_model': args.d_model,
+            'win_len': args.win_len,
+            'dropout': args.dropout
+        }
+    elif model_name.lower() == 'vit':
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'win_len': args.win_len,
+            'feature_size': args.feature_size,
+            'emb_dim': args.emb_dim,
+            'dropout': args.dropout
+        }
+    elif model_name.lower() == 'patchtst':
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'win_len': args.win_len,
+            'feature_size': args.feature_size,
+            'emb_dim': args.emb_dim,
+            'dropout': args.dropout,
+            'patch_len': args.patch_len,
+            'stride': args.stride
+        }
+    elif model_name.lower() == 'timesformer1d':
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'win_len': args.win_len,
+            'feature_size': args.feature_size,
+            'emb_dim': args.emb_dim,
+            'dropout': args.dropout,
+            'patch_size': args.patch_size
+        }
+    else:
+        # Generic fallback parameters
+        model_kwargs = {
+            **base_kwargs,
+            'in_channels': args.in_channels,
+            'win_len': args.win_len,
+            'feature_size': args.feature_size
+        }
     
     # Create model instance
     model = ModelClass(**model_kwargs)
@@ -727,6 +796,37 @@ def main():
         # Set data root directory - directly use SM_CHANNEL_TRAINING in SageMaker
         dataset_root = '/opt/ml/input/data/training' if is_sagemaker else args.data_root
         logger.info(f"Using data root directory: {dataset_root}")
+        
+        # Check for actual H5 file keys if running in SageMaker
+        if is_sagemaker and args.file_format == 'h5':
+            try:
+                import h5py
+                # Find an H5 file to inspect
+                h5_files = []
+                for root, _, files in os.walk(dataset_root):
+                    for file in files:
+                        if file.endswith('.h5'):
+                            h5_files.append(os.path.join(root, file))
+                            break
+                    if h5_files:
+                        break
+                
+                if h5_files:
+                    # Open first H5 file and check available keys
+                    with h5py.File(h5_files[0], 'r') as f:
+                        available_keys = list(f.keys())
+                        logger.info(f"H5 file contains these keys: {available_keys}")
+                        
+                        # If 'data' key is not found, try to use the first available key
+                        if 'data' not in available_keys and available_keys:
+                            # Check specifically for 'CSI_amps' which is common in WiFi datasets
+                            if 'CSI_amps' in available_keys:
+                                args.data_key = 'CSI_amps'
+                            else:
+                                args.data_key = available_keys[0]
+                            logger.info(f"Setting data_key to '{args.data_key}' based on file contents")
+            except Exception as e:
+                logger.warning(f"Failed to inspect H5 files: {e}")
         
         # Load data
         logger.info(f"Loading data from {dataset_root}, task name: {args.task_name}")

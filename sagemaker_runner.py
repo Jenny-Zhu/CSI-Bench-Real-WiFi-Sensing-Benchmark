@@ -262,7 +262,10 @@ class SageMakerRunner:
             'd-model': config.get('d_model', 64),  # Transformer model dimension
             'emb-dim': config.get('emb_dim', 64),  # Embedding dimension
             'dropout': config.get('dropout', 0.1),  # Dropout rate
-            'in-channels': config.get('in_channels', 1)  # Input channels
+            'in-channels': config.get('in_channels', 1),  # Input channels
+            'patch-len': config.get('patch_len', 16),  # PatchTST patch length
+            'stride': config.get('stride', 8),  # PatchTST stride
+            'patch-size': config.get('patch_size', 4)  # TimesFormer1D patch size
         }
         
         # Add few-shot parameters (if enabled)
