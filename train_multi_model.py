@@ -643,9 +643,6 @@ def main():
     6. Uploading results to S3 if running in SageMaker
     """
     try:
-        # Replace SageMaker packing scripts to prevent tar.gz generation
-        replace_packing_scripts()
-        
         # Log environment variables for debugging
         if is_sagemaker:
             logger.info("Running in SageMaker environment")
