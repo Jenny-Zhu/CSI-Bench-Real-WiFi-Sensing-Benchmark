@@ -8,20 +8,20 @@ on the same task.
 
 SageMaker Training Job Parameters Guide:
 -----------------------------------------
-当通过SageMaker启动训练任务时，可以使用以下参数禁用调试器和控制源代码打包：
+当通过SageMaker启动训练任务时，可以使用以下参数禁用调试器和源代码打包：
 1. 主要参数：
    - disable_profiler=True  # 禁用SageMaker性能分析器
    - debugger_hook_config=False  # 禁用SageMaker调试钩子
-   - source_dir='path/to/your/code'  # 指定源代码目录
-   - code_location='s3://rnd-sagemaker/source_code/'  # 指定代码打包上传的S3位置
+   - source_dir=None  # 不使用源代码目录，而是直接上传脚本
 
 2. 环境变量设置 (在 environment 参数中):
    - SMDEBUG_DISABLED: 'true'
    - SM_DISABLE_DEBUGGER: 'true'
    - SAGEMAKER_DISABLE_PROFILER: 'true'
    - SMPROFILER_DISABLED: 'true'
+   - SAGEMAKER_DISABLE_SOURCEDIR: 'true'
 
-3. 使用正确打包源代码并禁用调试器的SageMaker示例代码：
+3. 使用禁用调试器的SageMaker示例代码：
 ```python
 import sagemaker
 from sagemaker.pytorch import PyTorch
@@ -37,13 +37,13 @@ estimator = PyTorch(
     instance_type='ml.g4dn.xlarge',
     disable_profiler=True,  # 禁用性能分析器
     debugger_hook_config=False,  # 禁用调试钩子
-    source_dir='path/to/your/code',  # 指定源代码目录
-    code_location='s3://rnd-sagemaker/source_code/',  # 指定代码打包上传的S3位置
+    source_dir=None,  # 不打包源代码目录
     environment={
         'SMDEBUG_DISABLED': 'true',
         'SM_DISABLE_DEBUGGER': 'true',
         'SAGEMAKER_DISABLE_PROFILER': 'true',
         'SMPROFILER_DISABLED': 'true',
+        'SAGEMAKER_DISABLE_SOURCEDIR': 'true',
     },
     hyperparameters={
         'task_name': 'TestTask',
@@ -59,9 +59,8 @@ estimator.fit()
 import os
 import sys
 
-# 禁用所有 SageMaker 调试器和分析器相关功能，确保不生成任何调试输出
+# Disable SMDebug and Horovod to avoid PyTorch version conflicts
 try:
-    # 完全禁用 SageMaker Debugger
     sys.modules['smdebug'] = None
     sys.modules['smddp'] = None
     sys.modules['smprofiler'] = None
@@ -80,7 +79,9 @@ try:
     os.environ['SM_SMDDP_DISABLE_PROFILING'] = 'true'
     os.environ['SAGEMAKER_DISABLE_PROFILER'] = 'true'
     
-    # 禁用其他功能
+    # 禁用源代码包装和其他功能
+    os.environ['SAGEMAKER_DISABLE_SOURCEDIR'] = 'true'
+    os.environ['SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS'] = 'true'
     os.environ['SAGEMAKER_DISABLE_BUILT_IN_PROFILER'] = 'true'
     os.environ['SAGEMAKER_DISABLE_DEFAULT_RULES'] = 'true'
     
@@ -262,74 +263,84 @@ def upload_to_s3(local_path, s3_path):
 
 def cleanup_sagemaker_storage():
     """
-    清理 SageMaker 环境中的不必要文件以减少存储使用
+    Clean up unnecessary files in SageMaker environment to reduce storage usage
     """
     if not is_sagemaker:
-        # 仅在 SageMaker 环境中运行
+        # Only run in SageMaker environment
         return
     
-    logger.info("清理不必要的文件以减少存储使用...")
+    logger.info("Cleaning up unnecessary files to reduce storage usage...")
     
     try:
-        # 删除不必要的临时文件和日志，但保留源代码相关目录
+        # Delete unnecessary temporary files and logs
         dirs_to_clean = [
-            "/tmp",                        # 临时目录
-            "/opt/ml/output/profiler",     # Profiler 输出
+            "/tmp",                        # Temporary directory
+            "/opt/ml/output/profiler",     # Profiler output
             "/opt/ml/output/tensors",      # Debugger tensors
-            "/opt/ml/output/debug-output", # Debug 输出
+            "/opt/ml/output/debug-output", # Debug output
+            "/opt/ml/code",                # 源代码目录
+            "/opt/ml/code/.sourcedir.tar.gz", # 源代码打包
             "/opt/ml/model",               # 模型目录（不需要）
         ]
         
-        # 只保留最小的日志文件
+        # Only keep the smallest log files
         log_files = [
             "/opt/ml/output/data/logs/algo-1-stdout.log",
             "/opt/ml/output/data/logs/algo-1-stderr.log"
         ]
         
-        # 清理临时目录（但不删除所有）
+        # Clean up temporary directories (but don't delete all)
         for cleanup_dir in dirs_to_clean:
             if os.path.exists(cleanup_dir):
-                logger.info(f"清理目录: {cleanup_dir}")
+                logger.info(f"Cleaning directory: {cleanup_dir}")
+                # Read-only access to directory content, don't delete recursively
                 try:
-                    # 尝试完全删除目录（如果可能）
-                    if cleanup_dir in ["/opt/ml/output/profiler", "/opt/ml/output/tensors", "/opt/ml/output/debug-output"]:
-                        shutil.rmtree(cleanup_dir, ignore_errors=True)
-                        logger.info(f"完全删除了目录: {cleanup_dir}")
-                    else:
-                        # 逐个清理文件
-                        for item in os.listdir(cleanup_dir):
-                            item_path = os.path.join(cleanup_dir, item)
-                            if os.path.isdir(item_path) and not item.startswith('.'):
-                                try:
-                                    shutil.rmtree(item_path)
-                                except Exception as e:
-                                    logger.warning(f"无法删除目录 {item_path}: {e}")
-                            elif os.path.isfile(item_path) and not item.startswith('.'):
-                                try:
-                                    os.remove(item_path)
-                                except Exception as e:
-                                    logger.warning(f"无法删除文件 {item_path}: {e}")
+                    for item in os.listdir(cleanup_dir):
+                        item_path = os.path.join(cleanup_dir, item)
+                        if os.path.isdir(item_path) and not item.startswith('.'):
+                            try:
+                                shutil.rmtree(item_path)
+                            except Exception as e:
+                                logger.warning(f"Could not remove directory {item_path}: {e}")
+                        elif os.path.isfile(item_path) and not item.startswith('.'):
+                            try:
+                                os.remove(item_path)
+                            except Exception as e:
+                                logger.warning(f"Could not remove file {item_path}: {e}")
                 except Exception as e:
-                    logger.warning(f"清理目录 {cleanup_dir} 时出错: {e}")
+                    logger.warning(f"Error cleaning directory {cleanup_dir}: {e}")
         
-        # 清理日志文件（保留最后10KB）
+        # Clean up log files (keep last 10KB)
         for log_file in log_files:
             if os.path.exists(log_file) and os.path.getsize(log_file) > 10240:
                 try:
                     with open(log_file, 'rb') as f:
-                        # 跳转到文件末尾前10KB
-                        f.seek(-10240, 2)  # 2表示文件末尾
+                        # Jump to 10KB before end of file
+                        f.seek(-10240, 2)  # 2 means from end of file
                         last_10kb = f.read()
                     
-                    # 重写日志文件，只保留最后10KB
+                    # Rewrite log file, keep only last 10KB
                     with open(log_file, 'wb') as f:
                         f.write(b"[...previous logs truncated...]\n")
                         f.write(last_10kb)
                     
-                    logger.info(f"截断了日志文件: {log_file}")
+                    logger.info(f"Truncated log file: {log_file}")
                 except Exception as e:
-                    logger.warning(f"无法截断日志文件 {log_file}: {e}")
-                
+                    logger.warning(f"Could not truncate log file {log_file}: {e}")
+        
+        # Clean up sourcedir cache
+        sourcedir_cache = "/opt/ml/code/.sourcedir.tar.gz"
+        if os.path.exists(sourcedir_cache):
+            try:
+                os.remove(sourcedir_cache)
+                logger.info("Removed sourcedir cache")
+            except Exception as e:
+                logger.warning(f"Could not remove sourcedir cache: {e}")
+        
+        # Try to trigger memory cleanup
+        import gc
+        gc.collect()
+        
         # 尝试删除 training_job_end.ts 文件
         debug_output_file = "/opt/ml/output/debug-output/training_job_end.ts"
         if os.path.exists(debug_output_file):
@@ -339,13 +350,9 @@ def cleanup_sagemaker_storage():
             except Exception as e:
                 logger.warning(f"无法删除 training_job_end.ts 文件: {e}")
         
-        # 尝试触发内存清理
-        import gc
-        gc.collect()
-        
-        logger.info("存储清理完成!")
+        logger.info("Storage cleanup completed!")
     except Exception as e:
-        logger.error(f"存储清理过程中出错: {e}")
+        logger.error(f"Error during storage cleanup: {e}")
 
 def get_args():
     """Parse command line arguments"""
@@ -691,20 +698,22 @@ def main():
     Main function - Train multiple models on a specified task
     """
     try:
-        # 禁用 SageMaker debugger 和 profiler
+        # Disable SageMaker debugger and profiler
         os.environ['SMDEBUG_DISABLED'] = 'true'
         os.environ['SM_DISABLE_DEBUGGER'] = 'true'
         os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
         os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
         os.environ['SMPROFILER_DISABLED'] = 'true'
+        os.environ['SAGEMAKER_DISABLE_SOURCEDIR'] = 'true'  # Disable sourcedir packaging
+        os.environ['SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS'] = 'true'
         os.environ['SAGEMAKER_DISABLE_BUILT_IN_PROFILER'] = 'true'
         os.environ['SAGEMAKER_DISABLE_DEFAULT_RULES'] = 'true'
         os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLED'] = 'true'
         
-        # 记录环境变量以进行调试
+        # Log environment variables for debugging
         if is_sagemaker:
-            logger.info("在 SageMaker 环境中运行")
-            logger.info("环境变量:")
+            logger.info("Running in SageMaker environment")
+            logger.info("Environment variables:")
             for key in sorted([k for k in os.environ.keys() if k.startswith(('SM_', 'SAGEMAKER_'))]):
                 logger.info(f"  {key}: {os.environ.get(key)}")
 
