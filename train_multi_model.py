@@ -129,12 +129,27 @@ def upload_to_s3(local_path, s3_path):
             file_key = os.path.join(s3_key_prefix, os.path.basename(local_path))
             logger.info(f"上传单个文件: {local_path} -> s3://{bucket_name}/{file_key}")
             
+            file_size = os.path.getsize(local_path)
+            logger.info(f"文件大小: {file_size / (1024*1024):.2f} MB")
+            
             # 尝试上传，并在失败时重试
             max_retries = 3
             for retry in range(max_retries):
                 try:
                     s3_client.upload_file(local_path, bucket_name, file_key)
                     logger.info(f"成功上传文件到 s3://{bucket_name}/{file_key}")
+                    
+                    # 验证文件是否成功上传
+                    try:
+                        result = s3_client.head_object(Bucket=bucket_name, Key=file_key)
+                        s3_file_size = result['ContentLength']
+                        if s3_file_size == file_size:
+                            logger.info(f"验证成功: 文件大小匹配 ({s3_file_size} bytes)")
+                        else:
+                            logger.warning(f"验证警告: S3中的文件大小 ({s3_file_size} bytes) 与本地不一致 ({file_size} bytes)")
+                    except Exception as e:
+                        logger.warning(f"无法验证上传的文件: {e}")
+                    
                     break
                 except Exception as e:
                     if retry < max_retries - 1:
@@ -148,6 +163,10 @@ def upload_to_s3(local_path, s3_path):
             total_files = sum([len(files) for _, _, files in os.walk(local_path)])
             logger.info(f"准备上传目录，共 {total_files} 个文件")
             
+            # 创建进度条字符
+            progress_chars = "■□"
+            progress_length = 30
+            
             # 遍历目录上传所有文件
             uploaded_files = 0
             failed_files = 0
@@ -160,15 +179,23 @@ def upload_to_s3(local_path, s3_path):
                     relative_path = os.path.relpath(local_file_path, local_path)
                     s3_key = os.path.join(s3_key_prefix, relative_path)
                     
+                    # 跳过临时文件
+                    if file.startswith('.') or file.endswith('.tmp') or file.endswith('.bak'):
+                        logger.info(f"跳过临时文件: {local_file_path}")
+                        continue
+                        
                     # 上传文件，带有重试逻辑
                     max_retries = 3
                     for retry in range(max_retries):
                         try:
                             s3_client.upload_file(local_file_path, bucket_name, s3_key)
                             uploaded_files += 1
-                            # 每上传10个文件或最后一个文件时，输出进度信息
-                            if uploaded_files % 10 == 0 or uploaded_files == total_files:
-                                logger.info(f"上传进度: {uploaded_files}/{total_files} 文件 ({uploaded_files/total_files*100:.1f}%)")
+                            
+                            # 每上传5个文件或最后一个文件时，输出进度信息
+                            if uploaded_files % 5 == 0 or uploaded_files + failed_files == total_files:
+                                progress = (uploaded_files + failed_files) / total_files
+                                progress_bar = progress_chars[0] * int(progress_length * progress) + progress_chars[1] * (progress_length - int(progress_length * progress))
+                                logger.info(f"上传进度: [{progress_bar}] {uploaded_files}/{total_files} 文件 ({progress*100:.1f}%)")
                             break
                         except Exception as e:
                             if retry < max_retries - 1:
@@ -185,6 +212,21 @@ def upload_to_s3(local_path, s3_path):
                     return False
             else:
                 logger.info(f"成功上传目录内容到 s3://{bucket_name}/{s3_key_prefix}，共 {uploaded_files} 个文件")
+                
+                # 验证上传结果
+                try:
+                    # 检查是否至少有一个对象存在
+                    response = s3_client.list_objects_v2(
+                        Bucket=bucket_name,
+                        Prefix=s3_key_prefix,
+                        MaxKeys=1
+                    )
+                    if 'Contents' in response and len(response['Contents']) > 0:
+                        logger.info(f"验证成功: S3目标路径 {s3_key_prefix} 中存在对象")
+                    else:
+                        logger.warning(f"验证警告: S3目标路径 {s3_key_prefix} 似乎为空")
+                except Exception as e:
+                    logger.warning(f"无法验证S3上传结果: {e}")
         
         return True
     except Exception as e:
@@ -202,6 +244,12 @@ def cleanup_sagemaker_storage():
     logger.info("Cleaning up unnecessary files to reduce storage usage...")
     
     try:
+        # Completely disable profiler and debugger
+        # Set environment variables to disable them
+        os.environ['SMDEBUG_DISABLED'] = 'true'
+        os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+        os.environ['SM_DISABLE_PROFILER'] = 'true'
+        
         # Delete unnecessary temporary files and logs
         dirs_to_clean = [
             "/tmp",                        # Temporary directory
@@ -248,29 +296,59 @@ def cleanup_sagemaker_storage():
                     
                     # Rewrite log file, keep only last 10KB
                     with open(log_file, 'wb') as f:
-                        f.write(b"[...previous logs truncated...]\n")
                         f.write(last_10kb)
-                    
-                    logger.info(f"Truncated log file: {log_file}")
+                        
+                    logger.info(f"Truncated log file {log_file} to last 10KB")
                 except Exception as e:
                     logger.warning(f"Could not truncate log file {log_file}: {e}")
+                    
+        # Ensure all model files and outputs are included in the model directory
+        model_dir = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
+        output_dir = os.environ.get('SM_OUTPUT_DATA_DIR', '/opt/ml/output/data')
         
-        # Clean up sourcedir cache
-        sourcedir_cache = "/opt/ml/code/.sourcedir.tar.gz"
-        if os.path.exists(sourcedir_cache):
+        # Make sure task results are in model directory
+        if args.output_dir and args.task_name and os.path.exists(os.path.join(args.output_dir, args.task_name)):
+            task_dir = os.path.join(args.output_dir, args.task_name)
+            model_task_dir = os.path.join(model_dir, args.task_name)
+            
+            # Create task directory in model_dir if it doesn't exist
+            os.makedirs(model_task_dir, exist_ok=True)
+            
+            # Copy all task results to model directory
+            logger.info(f"Copying task results from {task_dir} to {model_task_dir}")
             try:
-                os.remove(sourcedir_cache)
-                logger.info("Removed sourcedir cache")
+                # Use robocopy-like approach
+                for root, dirs, files in os.walk(task_dir):
+                    # Create corresponding directories in model_dir
+                    rel_dir = os.path.relpath(root, task_dir)
+                    target_dir = os.path.join(model_task_dir, rel_dir) if rel_dir != '.' else model_task_dir
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    # Copy files
+                    for file in files:
+                        src_file = os.path.join(root, file)
+                        dst_file = os.path.join(target_dir, file)
+                        try:
+                            shutil.copy2(src_file, dst_file)
+                        except Exception as e:
+                            logger.warning(f"Could not copy file {src_file} to {dst_file}: {e}")
+                
+                logger.info(f"Successfully copied all task results to model directory")
             except Exception as e:
-                logger.warning(f"Could not remove sourcedir cache: {e}")
+                logger.error(f"Error copying task results to model directory: {e}")
         
-        # Try to trigger memory cleanup
-        import gc
-        gc.collect()
+        # Also copy the multi_model_results.json file to the model directory root
+        results_json = os.path.join(args.output_dir, args.task_name, "multi_model_results.json")
+        if os.path.exists(results_json):
+            try:
+                shutil.copy2(results_json, os.path.join(model_dir, "multi_model_results.json"))
+                logger.info(f"Copied multi_model_results.json to model directory root")
+            except Exception as e:
+                logger.error(f"Error copying multi_model_results.json: {e}")
         
-        logger.info("Storage cleanup completed!")
+        logger.info("Cleanup completed")
     except Exception as e:
-        logger.error(f"Error during storage cleanup: {e}")
+        logger.error(f"Error during cleanup: {e}")
 
 def get_args():
     """Parse command line arguments"""
@@ -950,6 +1028,19 @@ def main():
                     upload_success = upload_to_s3(task_dir, s3_task_path)
                     if upload_success:
                         logger.info(f"结果成功上传到 {s3_task_path}")
+                        
+                        # 创建一个标记文件，表明已通过S3直接上传了结果文件，用于跳过model.tar.gz打包
+                        try:
+                            from datetime import datetime
+                            info_path = os.path.join('/opt/ml/model', 'direct_upload_info.txt')
+                            with open(info_path, 'w') as f:
+                                f.write(f"Results directly uploaded to S3: {s3_task_path}\n")
+                                f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                                f.write(f"Task: {args.task_name}\n")
+                                f.write(f"Models: {', '.join(successful_models)}\n")
+                            logger.info(f"Created upload info file: {info_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not create info file: {e}")
                     else:
                         logger.error(f"上传到 {s3_task_path} 失败!")
                 

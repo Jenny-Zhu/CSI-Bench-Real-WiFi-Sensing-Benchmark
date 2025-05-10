@@ -246,54 +246,40 @@ class SageMakerRunner:
             'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
             'use-root-data-path': "True",  # 默认总是使用根目录数据
             'direct-upload': "True",  # 强制直接上传到S3
-            'save-to-s3': self.s3_output_base  # 设置保存的S3输出路径
+            'save-to-s3': self.s3_output_base,  # 设置保存的S3输出路径
+            'use-direct-s3-upload': "True"  # 启用直接S3上传，避免model.tar.gz打包
         }
         
-        # Add few-shot parameters (if enabled)
-        if config.get('enable_few_shot', False) or config.get('fewshot_eval_shots', False):
-            hyperparameters['enable-few-shot'] = "True"
-            hyperparameters['k-shot'] = config.get('k_shot', 5)
-            hyperparameters['inner-lr'] = config.get('inner_lr', 0.01)
-            hyperparameters['num-inner-steps'] = config.get('num_inner_steps', 10)
-            
-            # Add few-shot support and query splits (if they exist)
-            for param in ['fewshot_support_split', 'fewshot_query_split']:
-                if param in config:
-                    # Replace underscores with dashes in parameter name
-                    fixed_param = param.replace('_', '-')
-                    hyperparameters[fixed_param] = config[param]
-        
-        # Add model-specific parameters (if they exist)
-        if 'model_params' in config:
-            for key, value in config['model_params'].items():
-                # Replace underscores with dashes in parameter name
-                fixed_key = key.replace('_', '-')
-                hyperparameters[fixed_key] = value
-                
-        # Print hyperparameters for debugging
+        # Logging parameters
         print(f"Setting up hyperparameters for estimator:")
-        for key, value in sorted(hyperparameters.items()):
+        for key, value in hyperparameters.items():
             print(f"  {key}: {value}")
-            
-        # Special focus on S3 output path
-        print(f"S3 output path for results: {self.s3_output_base}")
+        
+        # Extract instance configuration
+        instance_type = config.get('instance_type', 'ml.g4dn.xlarge')
+        instance_count = config.get('instance_count', 1)
+        max_run = config.get('max_run', 86400)  # Default to 24 hours
+        volume_size = config.get('volume_size', 100)  # Default to 100 GB
         
         # Create estimator
         estimator = PyTorch(
             entry_point='entry_script.py',
-            source_dir=CODE_DIR,
+            source_dir='.',
             role=self.role,
-            framework_version=config.get('framework_version', '1.12.1'),
-            py_version=config.get('py_version', 'py38'),
-            instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.xlarge'),
-            base_job_name=base_job_name,
+            instance_count=instance_count,
+            instance_type=instance_type,
+            volume_size=volume_size,
+            max_run=max_run,
+            py_version='py39',
+            framework_version='2.0.0',
             hyperparameters=hyperparameters,
-            max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
-            keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
-            output_path=self.s3_output_base,  # Explicitly set output path
+            output_path=f"s3://{self.session.default_bucket()}/wifi-sensing-outputs",
+            disable_profiler=True,
+            debugger_hook_config=False,
             environment={
-                'SAGEMAKER_S3_OUTPUT': self.s3_output_base  # Set environment variable for S3 output path
+                'SMDEBUG_DISABLED': 'true',
+                'SM_DISABLE_DEBUGGER': 'true',
+                'SM_DISABLE_PROFILER': 'true'
             }
         )
         
@@ -404,53 +390,57 @@ class SageMakerRunner:
         """
         Create SageMaker PyTorch Estimator for multi-task learning
         """
-        # Prepare hyperparameters - Use dashes instead of underscores for parameter names
+        # Prepare hyperparameters with dash-separated names
         hyperparameters = {
-            'pipeline': 'multitask',
-            'tasks': config.get('tasks'),
-            'model': config.get('model', 'transformer'),
+            'model_type': config.get('model_type', 'transformer'),
+            'tasks': ','.join(config.get('tasks', [])),
             'win-len': config.get('win_len', 500),
             'feature-size': config.get('feature_size', 232),
-            'batch-size': config.get('batch_size', 16),
+            'batch-size': config.get('batch_size', 32),
             'epochs': config.get('epochs', 100),
-            'test-splits': config.get('test_splits', 'all'),
-            'seed': config.get('seed', 42)
+            'seed': config.get('seed', 42),
+            'learning-rate': config.get('learning_rate', 0.001),
+            'weight-decay': config.get('weight_decay', 1e-5),
+            'patience': config.get('patience', 15),
+            'num-workers': config.get('num_workers', 4),
+            # Multitask-specific parameters
+            'shared-encoder': "True" if config.get('shared_encoder', True) else "False",
+            'shared-backbone': "True" if config.get('shared_backbone', True) else "False",
+            'aux-loss-weight': config.get('aux_loss_weight', 0.2),
+            'main-task': config.get('main_task', ''),
+            # Path configuration
+            'use-root-data-path': "True",  # Always use root data path in SageMaker
+            'direct-upload': "True",  # Force direct S3 upload
+            'save-to-s3': self.s3_output_base,  # Set S3 output path
+            'use-direct-s3-upload': "True"  # Enable direct S3 upload to avoid model.tar.gz packaging
         }
         
-        # Add few-shot parameters (if enabled)
-        if config.get('enable_few_shot', False) or config.get('fewshot_eval_shots', False):
-            hyperparameters['enable-few-shot'] = "True"
-            hyperparameters['k-shot'] = config.get('k_shot', 5)
-            hyperparameters['inner-lr'] = config.get('inner_lr', 0.01)
-            hyperparameters['num-inner-steps'] = config.get('num_inner_steps', 10)
-        
-        # Add model-specific parameters (if exists)
-        if 'model_params' in config:
-            for key, value in config['model_params'].items():
-                # Ensure parameter names use dashes, not underscores
-                fixed_key = key.replace('_', '-')
-                hyperparameters[fixed_key] = value
-        else:
-            # Add common parameters
-            for param in ['lr', 'emb_dim', 'dropout', 'patience']:
-                if param in config:
-                    # Convert parameter name to use dashes
-                    fixed_param = param.replace('_', '-')
-                    hyperparameters[fixed_param] = config[param]
+        # Extract instance configuration
+        instance_type = config.get('instance_type', 'ml.g4dn.xlarge')
+        instance_count = config.get('instance_count', 1)
+        max_run = config.get('max_run', 86400)  # Default to 24 hours
+        volume_size = config.get('volume_size', 100)  # Default to 100 GB
         
         # Create estimator
         estimator = PyTorch(
             entry_point='entry_script.py',
-            source_dir=CODE_DIR,
+            source_dir='.',
             role=self.role,
-            framework_version=config.get('framework_version', '1.12.1'),
-            py_version=config.get('py_version', 'py38'),
-            instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.2xlarge'),
-            base_job_name='wifi-sensing-multitask',
+            instance_count=instance_count,
+            instance_type=instance_type,
+            volume_size=volume_size,
+            max_run=max_run,
+            py_version='py39',
+            framework_version='2.0.0',
             hyperparameters=hyperparameters,
-            max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
-            keep_alive_period_in_seconds=config.get('keep_alive_period', 1200)  # Default keep instance active 20 minutes
+            output_path=f"s3://{self.session.default_bucket()}/wifi-sensing-outputs",
+            disable_profiler=True,
+            debugger_hook_config=False,
+            environment={
+                'SMDEBUG_DISABLED': 'true',
+                'SM_DISABLE_DEBUGGER': 'true',
+                'SM_DISABLE_PROFILER': 'true'
+            }
         )
         
         return estimator
