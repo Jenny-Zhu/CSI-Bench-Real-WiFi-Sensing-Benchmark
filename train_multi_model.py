@@ -69,7 +69,7 @@ try:
     sys.modules['horovod'] = None
     sys.modules['horovod.torch'] = None
     
-    # 设置所有已知的环境变量来禁用调试器
+    # Set all known environment variables to disable debugger
     os.environ['SMDEBUG_DISABLED'] = 'true'
     os.environ['SM_DISABLE_DEBUGGER'] = 'true'
     os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
@@ -79,14 +79,18 @@ try:
     os.environ['SM_SMDDP_DISABLE_PROFILING'] = 'true'
     os.environ['SAGEMAKER_DISABLE_PROFILER'] = 'true'
     
-    # 禁用源代码包装和其他功能
+    # Disable source code wrapping and other features
     os.environ['SAGEMAKER_DISABLE_SOURCEDIR'] = 'true'
     os.environ['SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS'] = 'true'
     os.environ['SAGEMAKER_DISABLE_BUILT_IN_PROFILER'] = 'true'
     os.environ['SAGEMAKER_DISABLE_DEFAULT_RULES'] = 'true'
     
-    # 针对性禁用文件生成
+    # Specifically disable file generation
     os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLED'] = 'true'
+    # Disable the creation of training_job_end.ts file
+    os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLE'] = 'true'
+    # Disable debug-output directory
+    os.environ['SAGEMAKER_DEBUG_OUTPUT_DISABLED'] = 'true'
     
     print("已完全禁用 SageMaker Debugger 和相关功能")
 except Exception as e:
@@ -168,6 +172,19 @@ def cleanup_sagemaker_storage():
     logger.info("Cleaning up unnecessary files to reduce storage usage...")
     
     try:
+        # First, ensure all debug-related environment variables are set
+        os.environ['SMDEBUG_DISABLED'] = 'true'
+        os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+        os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
+        os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
+        os.environ['SMPROFILER_DISABLED'] = 'true'
+        os.environ['SM_SMDEBUG_DISABLED'] = 'true'
+        os.environ['SM_SMDDP_DISABLE_PROFILING'] = 'true'
+        os.environ['SAGEMAKER_DISABLE_PROFILER'] = 'true'
+        os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLED'] = 'true'
+        os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLE'] = 'true'
+        os.environ['SAGEMAKER_DEBUG_OUTPUT_DISABLED'] = 'true'
+        
         # Delete unnecessary temporary files and logs
         dirs_to_clean = [
             "/tmp",                        # Temporary directory
@@ -177,11 +194,14 @@ def cleanup_sagemaker_storage():
             "/opt/ml/code",                # Source code directory
             "/opt/ml/code/.sourcedir.tar.gz", # Source code package
             "/opt/ml/model",               # Model directory (not needed)
+            "/opt/ml/output/intermediate", # Intermediate outputs
         ]
         
         # First check and delete specific problematic files
         problematic_files = [
-            "/opt/ml/output/debug-output/training_job_end.ts"  # This file causes issues with output structure
+            "/opt/ml/output/debug-output/training_job_end.ts",  # This file causes issues with output structure
+            "/opt/ml/output/data/debug-output/training_job_end.ts", # Alternative location
+            "/opt/ml/output/intermediate/training_job_end.ts",  # Another possible location
         ]
         
         for file_path in problematic_files:
@@ -223,12 +243,47 @@ def cleanup_sagemaker_storage():
         # Clean up any manifest files that might have been generated
         for root, _, files in os.walk("/opt/ml/output/data"):
             for file in files:
-                if file.endswith('_uploads.txt') or file == 'upload_manifest.txt':
+                if (file.endswith('_uploads.txt') or 
+                    file == 'upload_manifest.txt' or
+                    file == 'training_job_end.ts'):
                     try:
                         os.remove(os.path.join(root, file))
                         logger.info(f"Removed manifest file: {file}")
                     except Exception as e:
                         logger.warning(f"Could not remove manifest file {file}: {e}")
+        
+        # Clean up duplicate output directories in task folder
+        if os.path.exists("/opt/ml/output/data"):
+            for task_dir in os.listdir("/opt/ml/output/data"):
+                task_path = os.path.join("/opt/ml/output/data", task_dir)
+                if os.path.isdir(task_path):
+                    # Check for duplicated output subdirectories
+                    output_dir = os.path.join(task_path, "output")
+                    if os.path.exists(output_dir) and os.path.isdir(output_dir):
+                        nested_output = os.path.join(output_dir, "output")
+                        if os.path.exists(nested_output) and os.path.isdir(nested_output):
+                            logger.info(f"Found nested output directory: {nested_output}")
+                            
+                            # Move contents to proper location
+                            try:
+                                for item in os.listdir(nested_output):
+                                    src = os.path.join(nested_output, item)
+                                    dst = os.path.join(task_path, item)
+                                    if os.path.exists(dst):
+                                        if os.path.isdir(src):
+                                            shutil.rmtree(dst)
+                                        else:
+                                            os.remove(dst)
+                                    shutil.move(src, task_path)
+                                
+                                # Remove empty directories
+                                shutil.rmtree(nested_output, ignore_errors=True)
+                                if not os.listdir(output_dir):
+                                    shutil.rmtree(output_dir, ignore_errors=True)
+                                
+                                logger.info(f"Cleaned up nested output directories")
+                            except Exception as e:
+                                logger.warning(f"Error reorganizing nested output: {e}")
         
         logger.info("Storage cleanup completed!")
     except Exception as e:
@@ -423,13 +478,12 @@ def train_model(model_name, data, args, device):
     if model_name.lower() == 'mlp':
         model_kwargs = {
             **base_kwargs,
-            'in_channels': args.in_channels,
+            'win_len': args.win_len,
             'feature_size': args.feature_size
         }
     elif model_name.lower() == 'lstm':
         model_kwargs = {
             **base_kwargs,
-            'in_channels': args.in_channels,
             'feature_size': args.feature_size,
             'dropout': args.dropout
         }
@@ -928,12 +982,16 @@ def main():
                 bucket_name = parts[0]
                 
                 # Remove any timestamp or job ID from the path to avoid nested directories
-                # Example: s3://bucket/Benchmark_Log/TaskName-20240510-1213/ -> s3://bucket/Benchmark_Log/
+                # Examples to clean:
+                # - s3://bucket/Benchmark_Log/TaskName-20240510-1213/ -> s3://bucket/Benchmark_Log/
+                # - s3://bucket/Benchmark_Log/TestTask-20250510-1608/output/output/ -> s3://bucket/Benchmark_Log/
                 prefix_parts = []
                 for part in parts[1:]:
                     # Skip parts that look like timestamps or job IDs (contain numbers and dashes)
                     if not (any(c.isdigit() for c in part) and '-' in part):
-                        prefix_parts.append(part)
+                        # Also skip duplicated 'output' directories
+                        if part != 'output' or 'output' not in prefix_parts:
+                            prefix_parts.append(part)
                 
                 # Create clean base path
                 clean_prefix = '/'.join(prefix_parts)
@@ -961,17 +1019,37 @@ def main():
                             uploaded_count = 0
                             
                             # Walk and upload each file
-                            for root, _, files in os.walk(task_dir):
+                            for root, dirs, files in os.walk(task_dir):
+                                # Skip debug-output directories and similar
+                                if any(skip_dir in root for skip_dir in ['debug-output', 'profiler', 'tensors']):
+                                    continue
+                                
                                 for file in files:
                                     local_file_path = os.path.join(root, file)
                                     
-                                    # Skip any debug files
-                                    if 'debug-output' in local_file_path or 'training_job_end.ts' in local_file_path:
+                                    # Skip problematic files by name or path
+                                    if (file == 'training_job_end.ts' or 
+                                        'debug-output' in local_file_path or 
+                                        'profiler' in local_file_path or
+                                        file.endswith('_uploads.txt') or 
+                                        file == 'upload_manifest.txt'):
                                         continue
                                     
                                     # Calculate the relative path to maintain directory structure
                                     rel_path = os.path.relpath(local_file_path, task_dir)
-                                    s3_key = f"{clean_prefix}/{args.task_name}/{rel_path}"
+                                    
+                                    # Clean relative path - avoid duplicated directories
+                                    rel_parts = rel_path.split(os.sep)
+                                    clean_rel_parts = []
+                                    for part in rel_parts:
+                                        # Skip duplicate 'output' directories
+                                        if part != 'output' or 'output' not in clean_rel_parts:
+                                            clean_rel_parts.append(part)
+                                    
+                                    clean_rel_path = os.path.join(*clean_rel_parts) if clean_rel_parts else rel_path
+                                    
+                                    # Final S3 key
+                                    s3_key = f"{clean_prefix}/{args.task_name}/{clean_rel_path}"
                                     
                                     # Upload file
                                     s3_client.upload_file(local_file_path, bucket_name, s3_key)

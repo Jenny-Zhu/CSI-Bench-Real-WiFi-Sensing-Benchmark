@@ -312,7 +312,23 @@ class SageMakerRunner:
             keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
             output_path=self.s3_output_base,  # Explicitly set output path
             environment={
-                'SAGEMAKER_S3_OUTPUT': self.s3_output_base  # Set environment variable for S3 output path
+                'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
+                'SMDEBUG_DISABLED': 'true',
+                'SM_DISABLE_DEBUGGER': 'true',
+                'SMDATAPARALLEL_DISABLE_DEBUGGER': 'true',
+                'SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT': 'true',
+                'SMPROFILER_DISABLED': 'true',
+                'SM_SMDEBUG_DISABLED': 'true',
+                'SM_SMDDP_DISABLE_PROFILING': 'true',
+                'SAGEMAKER_DISABLE_PROFILER': 'true',
+                'SAGEMAKER_DISABLE_SOURCEDIR': 'true',
+                'SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS': 'true',
+                'SAGEMAKER_DISABLE_BUILT_IN_PROFILER': 'true',
+                'SAGEMAKER_DISABLE_DEFAULT_RULES': 'true',
+                'SAGEMAKER_TRAINING_JOB_END_DISABLED': 'true',
+                'SAGEMAKER_TRAINING_JOB_END_DISABLE': 'true',
+                'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
+                'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true'  # Custom flag for our code
             },
             disable_profiler=True,
             disable_model_download=True,  # 禁用model.tar.gz文件的生成
@@ -474,7 +490,28 @@ class SageMakerRunner:
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
             keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
             disable_model_download=True,  # 禁用model.tar.gz文件的生成
-            disable_output_compression=True  # 禁用output.tar.gz文件的生成
+            disable_output_compression=True,  # 禁用output.tar.gz文件的生成
+            output_path=self.s3_output_base,  # Explicitly set output path
+            environment={
+                'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
+                'SMDEBUG_DISABLED': 'true',
+                'SM_DISABLE_DEBUGGER': 'true',
+                'SMDATAPARALLEL_DISABLE_DEBUGGER': 'true',
+                'SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT': 'true',
+                'SMPROFILER_DISABLED': 'true',
+                'SM_SMDEBUG_DISABLED': 'true',
+                'SM_SMDDP_DISABLE_PROFILING': 'true',
+                'SAGEMAKER_DISABLE_PROFILER': 'true',
+                'SAGEMAKER_DISABLE_SOURCEDIR': 'true',
+                'SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS': 'true',
+                'SAGEMAKER_DISABLE_BUILT_IN_PROFILER': 'true',
+                'SAGEMAKER_DISABLE_DEFAULT_RULES': 'true',
+                'SAGEMAKER_TRAINING_JOB_END_DISABLED': 'true',
+                'SAGEMAKER_TRAINING_JOB_END_DISABLE': 'true',
+                'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
+                'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true'  # Custom flag for our code
+            },
+            disable_profiler=True
         )
         
         return estimator
