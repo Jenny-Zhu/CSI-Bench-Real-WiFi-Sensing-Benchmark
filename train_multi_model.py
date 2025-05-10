@@ -293,8 +293,7 @@ def get_args():
     parser.add_argument('--try_all_paths', action='store_true', default=True, help='Try all possible data paths')
     
     # Output parameters
-    parser.add_argument('--output_dir', type=str, default='/opt/ml/output/data', help='Output directory')
-    parser.add_argument('--save_dir', type=str, default='./saved_models', help='Model save directory')
+    parser.add_argument('--output_dir', type=str, default='./saved_models', help='Output directory')
     parser.add_argument('--save_to_s3', type=str, default=None, help='S3 path for saving results (s3://bucket/path)')
     
     # Model parameters
@@ -379,6 +378,11 @@ def get_args():
             args.save_to_s3 = v
             print(f"Setting S3 output path from environment variable: {v}")
     
+    # Set correct output directory in SageMaker environment
+    if is_sagemaker:
+        args.output_dir = '/opt/ml/output/data'
+        logger.info(f"Running in SageMaker environment, setting output_dir to {args.output_dir}")
+    
     # Create output directories if needed
     if is_sagemaker:
         os.makedirs(os.path.join(args.output_dir, args.task_name), exist_ok=True)
@@ -432,7 +436,7 @@ def train_model(model_name, data, args, device):
         'dropout': args.dropout
     }
     
-    # Model-specific parameters - Add specific parameters based on model type
+    # Model-specific parameters
     if model_name.lower() == 'transformer':
         model_kwargs['d_model'] = args.d_model
     
@@ -442,25 +446,17 @@ def train_model(model_name, data, args, device):
     
     logger.info(f"Model created: {model_name}")
     
-    # Set base output directory
-    model_base_dir = args.save_dir if not is_sagemaker else '/opt/ml/model'
-    
     # Create experiment ID from timestamp and model name
     import hashlib
     timestamp = int(time.time())
     experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{timestamp}'.encode()).hexdigest()[:8]}"
     
-    # Create consistent directory structure that matches local pipeline
-    # /base_dir/task_name/model_name/experiment_id/
+    # Create directory structure that matches local pipeline
+    # /output_dir/task_name/model_name/experiment_id/
     results_dir = os.path.join(args.output_dir, args.task_name, model_name, experiment_id)
-    checkpoint_dir = os.path.join(model_base_dir, args.task_name, model_name, experiment_id)
-    
-    # Ensure directories exist
     os.makedirs(results_dir, exist_ok=True)
-    os.makedirs(checkpoint_dir, exist_ok=True)
     
     logger.info(f"Results will be saved to: {results_dir}")
-    logger.info(f"Model checkpoints will be saved to: {checkpoint_dir}")
     
     # Create config
     config = {
@@ -468,7 +464,7 @@ def train_model(model_name, data, args, device):
         'task': args.task_name,
         'num_classes': num_classes,
         'batch_size': args.batch_size,
-        'learning_rate': args.learning_rate,
+        'learning_rate': args.lr,
         'weight_decay': args.weight_decay,
         'epochs': args.epochs,
         'warmup_epochs': args.warmup_epochs,
@@ -485,7 +481,7 @@ def train_model(model_name, data, args, device):
     
     # Create optimizer and criterion
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     
     # Create scheduler
     num_steps = len(train_loader) * args.epochs
@@ -526,23 +522,12 @@ def train_model(model_name, data, args, device):
     # Train the model with early stopping
     trained_model, training_results = trainer.train()
     
-    # Make sure the model is saved
-    torch.save(trained_model.state_dict(), os.path.join(checkpoint_dir, "final_model.pt"))
-    
-    # Save the best model separately for clarity
-    best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
-    if os.path.exists(os.path.join(results_dir, "best_model.pt")):
-        # Copy from results_dir to checkpoint_dir if it exists
-        import shutil
-        shutil.copy2(os.path.join(results_dir, "best_model.pt"), best_model_path)
-    
     # Track best epoch
     best_epoch = training_results.get('best_epoch', args.epochs)
     
-    # Extract history dataframe
+    # Save training history
     if 'training_dataframe' in training_results:
         history = training_results['training_dataframe']
-        # Save training history
         history_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_train_history.csv")
         history.to_csv(history_file, index=False)
     
@@ -554,13 +539,13 @@ def train_model(model_name, data, args, device):
         logger.info(f"Evaluating on {test_name}...")
         test_loss, test_accuracy = trainer.evaluate(test_loader)
         
-        # Use calculate_metrics to get f1_score if available
+        # Calculate metrics
         try:
             test_f1, _ = trainer.calculate_metrics(test_loader)
         except:
-            test_f1 = 0.0  # Default if not available
+            test_f1 = 0.0
             
-        # Store metrics consistently with local pipeline
+        # Store metrics
         overall_metrics[test_name] = {
             'loss': test_loss,
             'accuracy': test_accuracy,
@@ -569,7 +554,7 @@ def train_model(model_name, data, args, device):
         
         logger.info(f"{test_name} Loss: {test_loss:.4f}, Accuracy: {test_accuracy:.4f}, F1 Score: {test_f1:.4f}")
     
-    # Save test results to match local pipeline format
+    # Save test results
     results_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_results.json")
     
     # Make sure results are JSON serializable
@@ -593,7 +578,7 @@ def train_model(model_name, data, args, device):
     with open(results_file, 'w') as f:
         json.dump(serializable_metrics, f, indent=4)
     
-    # Save summary that includes training history, best epoch (match local pipeline format)
+    # Save summary
     try:
         summary = {
             'best_epoch': best_epoch,
@@ -610,7 +595,7 @@ def train_model(model_name, data, args, device):
             if 'val_loss_history' in training_results and best_idx < len(training_results['val_loss_history']):
                 summary['best_val_loss'] = training_results['val_loss_history'][best_idx]
         
-        # Add test results to summary (match local pipeline format)
+        # Add test results to summary
         for split_name, metrics in serializable_metrics.items():
             summary[f'{split_name}_accuracy'] = metrics['accuracy']
             summary[f'{split_name}_f1_score'] = metrics['f1_score']
@@ -621,7 +606,7 @@ def train_model(model_name, data, args, device):
     except Exception as e:
         logger.error(f"Error saving summary: {e}")
     
-    # Save overall test accuracy for consistency with previous code
+    # Save overall test accuracy
     if len(serializable_metrics) > 0:
         all_test_accuracies = [metrics.get('accuracy', 0) for metrics in serializable_metrics.values()]
         overall_metrics['test_accuracy'] = sum(all_test_accuracies) / len(all_test_accuracies)
@@ -643,6 +628,13 @@ def main():
     6. Uploading results to S3 if running in SageMaker
     """
     try:
+        # Disable SageMaker debugger and profiler
+        os.environ['SMDEBUG_DISABLED'] = 'true'
+        os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+        os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
+        os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
+        os.environ['SMPROFILER_DISABLED'] = 'true'
+        
         # Log environment variables for debugging
         if is_sagemaker:
             logger.info("Running in SageMaker environment")
