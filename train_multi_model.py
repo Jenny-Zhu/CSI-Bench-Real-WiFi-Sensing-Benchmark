@@ -152,198 +152,6 @@ MODEL_TYPES = {
 # Task trainer class (extracted from scripts/train_supervised.py)
 from engine.supervised.task_trainer import TaskTrainer
 
-def upload_to_s3(local_path, s3_path):
-    """
-    Upload a local file or directory to S3
-    
-    Args:
-        local_path: Path to the local file or directory
-        s3_path: S3 path, format: 's3://bucket-name/path/to/destination'
-    
-    Returns:
-        bool: Whether the upload was successful
-    """
-    if not s3_client:
-        logger.warning("S3 client not initialized, skipping upload")
-        return False
-    
-    if not s3_path.startswith('s3://'):
-        logger.error(f"Invalid S3 path: {s3_path}")
-        return False
-    
-    try:
-        # Parse S3 path
-        s3_parts = s3_path.replace('s3://', '').split('/', 1)
-        if len(s3_parts) != 2:
-            logger.error(f"Invalid S3 path format: {s3_path}")
-            return False
-        
-        bucket_name = s3_parts[0]
-        s3_key_prefix = s3_parts[1]
-        if not s3_key_prefix.endswith('/'):
-            s3_key_prefix += '/'
-            
-        # Check if S3 bucket exists and is accessible
-        try:
-            s3_client.head_bucket(Bucket=bucket_name)
-            logger.info(f"Successfully connected to S3 bucket: {bucket_name}")
-        except Exception as e:
-            logger.error(f"Cannot access S3 bucket {bucket_name}: {e}")
-            return False
-        
-        logger.info(f"Uploading {local_path} to S3 bucket {bucket_name}/{s3_key_prefix}")
-        
-        # Check if it's a file or directory
-        if os.path.isfile(local_path):
-            # Upload single file
-            file_key = os.path.join(s3_key_prefix, os.path.basename(local_path))
-            logger.info(f"Uploading single file: {local_path} -> s3://{bucket_name}/{file_key}")
-            
-            # Try to upload, with retries on failure
-            max_retries = 5  # Increased from 3 to 5
-            for retry in range(max_retries):
-                try:
-                    # Add metadata for tracking
-                    s3_client.upload_file(
-                        local_path, 
-                        bucket_name, 
-                        file_key,
-                        ExtraArgs={
-                            'Metadata': {
-                                'source': 'train_multi_model',
-                                'timestamp': str(int(time.time()))
-                            }
-                        }
-                    )
-                    
-                    # Verify upload by checking if file exists in S3
-                    try:
-                        s3_client.head_object(Bucket=bucket_name, Key=file_key)
-                        logger.info(f"Successfully uploaded and verified file: s3://{bucket_name}/{file_key}")
-                        break
-                    except Exception as ve:
-                        if retry < max_retries - 1:
-                            logger.warning(f"Upload verification failed, retrying ({retry+1}/{max_retries}): {ve}")
-                        else:
-                            raise ve
-                except Exception as e:
-                    if retry < max_retries - 1:
-                        logger.warning(f"File upload failed, retrying ({retry+1}/{max_retries}): {e}")
-                        time.sleep(2 * (retry + 1))  # Exponential backoff
-                    else:
-                        logger.error(f"File upload failed after maximum retries: {e}")
-                        return False
-        else:
-            # Upload entire directory
-            total_files = sum([len(files) for _, _, files in os.walk(local_path)])
-            logger.info(f"Preparing to upload directory with {total_files} files")
-            
-            # Track successful and failed uploads
-            successful_uploads = []
-            failed_uploads = []
-            
-            # Walk directory and upload all files
-            for root, _, files in os.walk(local_path):
-                for file in files:
-                    local_file_path = os.path.join(root, file)
-                    
-                    # Calculate relative path to maintain directory structure
-                    relative_path = os.path.relpath(local_file_path, local_path)
-                    s3_key = os.path.join(s3_key_prefix, relative_path)
-                    
-                    # Upload file with retry logic
-                    max_retries = 5
-                    upload_successful = False
-                    
-                    for retry in range(max_retries):
-                        try:
-                            # Add metadata for tracking
-                            s3_client.upload_file(
-                                local_file_path, 
-                                bucket_name, 
-                                s3_key,
-                                ExtraArgs={
-                                    'Metadata': {
-                                        'source': 'train_multi_model',
-                                        'timestamp': str(int(time.time()))
-                                    }
-                                }
-                            )
-                            
-                            # Verify upload
-                            try:
-                                s3_client.head_object(Bucket=bucket_name, Key=s3_key)
-                                successful_uploads.append(relative_path)
-                                upload_successful = True
-                                
-                                # Report progress at reasonable intervals
-                                if len(successful_uploads) % 10 == 0 or len(successful_uploads) == 1:
-                                    logger.info(f"Upload progress: {len(successful_uploads)}/{total_files} files ({len(successful_uploads)/total_files*100:.1f}%)")
-                                
-                                break
-                            except Exception as ve:
-                                if retry < max_retries - 1:
-                                    logger.warning(f"Upload verification failed for {s3_key}, retrying ({retry+1}/{max_retries}): {ve}")
-                                else:
-                                    raise ve
-                        except Exception as e:
-                            if retry < max_retries - 1:
-                                logger.warning(f"File upload failed for {local_file_path}, retrying ({retry+1}/{max_retries}): {e}")
-                                time.sleep(2 * (retry + 1))  # Exponential backoff
-                            else:
-                                logger.error(f"File upload failed for {local_file_path} after maximum retries: {e}")
-                                failed_uploads.append(relative_path)
-                    
-                    if not upload_successful:
-                        failed_uploads.append(relative_path)
-            
-            # Generate and upload manifest of successful uploads
-            try:
-                if successful_uploads:
-                    manifest_content = "\n".join(successful_uploads)
-                    manifest_path = os.path.join(os.path.dirname(local_path), "successful_uploads.txt")
-                    with open(manifest_path, 'w') as f:
-                        f.write(manifest_content)
-                    
-                    manifest_key = os.path.join(s3_key_prefix, "successful_uploads.txt")
-                    s3_client.upload_file(manifest_path, bucket_name, manifest_key)
-                    logger.info(f"Uploaded manifest of successful uploads to s3://{bucket_name}/{manifest_key}")
-            except Exception as e:
-                logger.warning(f"Failed to upload success manifest: {e}")
-            
-            # Generate and upload list of failed uploads if any
-            try:
-                if failed_uploads:
-                    failures_content = "\n".join(failed_uploads)
-                    failures_path = os.path.join(os.path.dirname(local_path), "failed_uploads.txt")
-                    with open(failures_path, 'w') as f:
-                        f.write(failures_content)
-                    
-                    failures_key = os.path.join(s3_key_prefix, "failed_uploads.txt")
-                    s3_client.upload_file(failures_path, bucket_name, failures_key)
-                    logger.info(f"Uploaded list of failed uploads to s3://{bucket_name}/{failures_key}")
-            except Exception as e:
-                logger.warning(f"Failed to upload failures list: {e}")
-            
-            # Report upload statistics
-            logger.info(f"Upload summary: {len(successful_uploads)} successful, {len(failed_uploads)} failed out of {total_files} files")
-            
-            # Consider the upload failed if more than half of the files failed
-            if len(failed_uploads) > total_files / 2:
-                logger.error(f"Too many files failed to upload ({len(failed_uploads)}/{total_files}), upload considered unsuccessful")
-                return False
-            elif failed_uploads:
-                logger.warning(f"Some files failed to upload, but most succeeded ({len(successful_uploads)}/{total_files})")
-            else:
-                logger.info(f"All {total_files} files uploaded successfully")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error during S3 upload: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return False
-
 def cleanup_sagemaker_storage():
     """
     Clean up unnecessary files in SageMaker environment to reduce storage usage
@@ -360,58 +168,41 @@ def cleanup_sagemaker_storage():
             "/tmp",                        # Temporary directory
             "/opt/ml/output/profiler",     # Profiler output
             "/opt/ml/output/tensors",      # Debugger tensors
-            "/opt/ml/output/debug-output", # Debug output
-            "/opt/ml/code",                # 源代码目录
-            "/opt/ml/code/.sourcedir.tar.gz", # 源代码打包
-            "/opt/ml/model",               # 模型目录（不需要）
+            "/opt/ml/output/debug-output", # Debug output directory (contains training_job_end.ts)
+            "/opt/ml/code",                # Source code directory
+            "/opt/ml/code/.sourcedir.tar.gz", # Source code package
+            "/opt/ml/model",               # Model directory (not needed)
         ]
         
-        # Only keep the smallest log files
-        log_files = [
-            "/opt/ml/output/data/logs/algo-1-stdout.log",
-            "/opt/ml/output/data/logs/algo-1-stderr.log"
+        # First check and delete specific problematic files
+        problematic_files = [
+            "/opt/ml/output/debug-output/training_job_end.ts"  # This file causes issues with output structure
         ]
         
-        # Clean up temporary directories (but don't delete all)
+        for file_path in problematic_files:
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Removed problematic file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Could not remove file {file_path}: {e}")
+        
+        # Clean up temporary directories
         for cleanup_dir in dirs_to_clean:
             if os.path.exists(cleanup_dir):
                 logger.info(f"Cleaning directory: {cleanup_dir}")
-                # Read-only access to directory content, don't delete recursively
                 try:
+                    # Only delete contents, not the directory itself
                     for item in os.listdir(cleanup_dir):
                         item_path = os.path.join(cleanup_dir, item)
-                        if os.path.isdir(item_path) and not item.startswith('.'):
-                            try:
-                                shutil.rmtree(item_path)
-                            except Exception as e:
-                                logger.warning(f"Could not remove directory {item_path}: {e}")
-                        elif os.path.isfile(item_path) and not item.startswith('.'):
-                            try:
-                                os.remove(item_path)
-                            except Exception as e:
-                                logger.warning(f"Could not remove file {item_path}: {e}")
+                        if os.path.isdir(item_path):
+                            shutil.rmtree(item_path, ignore_errors=True)
+                        elif os.path.isfile(item_path):
+                            os.remove(item_path)
                 except Exception as e:
                     logger.warning(f"Error cleaning directory {cleanup_dir}: {e}")
         
-        # Clean up log files (keep last 10KB)
-        for log_file in log_files:
-            if os.path.exists(log_file) and os.path.getsize(log_file) > 10240:
-                try:
-                    with open(log_file, 'rb') as f:
-                        # Jump to 10KB before end of file
-                        f.seek(-10240, 2)  # 2 means from end of file
-                        last_10kb = f.read()
-                    
-                    # Rewrite log file, keep only last 10KB
-                    with open(log_file, 'wb') as f:
-                        f.write(b"[...previous logs truncated...]\n")
-                        f.write(last_10kb)
-                    
-                    logger.info(f"Truncated log file: {log_file}")
-                except Exception as e:
-                    logger.warning(f"Could not truncate log file {log_file}: {e}")
-        
-        # Clean up sourcedir cache
+        # Clean up sourcedir cache specifically
         sourcedir_cache = "/opt/ml/code/.sourcedir.tar.gz"
         if os.path.exists(sourcedir_cache):
             try:
@@ -420,22 +211,25 @@ def cleanup_sagemaker_storage():
             except Exception as e:
                 logger.warning(f"Could not remove sourcedir cache: {e}")
         
-        # Try to trigger memory cleanup
+        # Force garbage collection to free memory
         import gc
         gc.collect()
         
-        # 尝试删除 training_job_end.ts 文件
-        debug_output_file = "/opt/ml/output/debug-output/training_job_end.ts"
-        if os.path.exists(debug_output_file):
-            try:
-                os.remove(debug_output_file)
-                logger.info("删除了 training_job_end.ts 文件")
-            except Exception as e:
-                logger.warning(f"无法删除 training_job_end.ts 文件: {e}")
+        # Clean up any manifest files that might have been generated
+        for root, _, files in os.walk("/opt/ml/output/data"):
+            for file in files:
+                if file.endswith('_uploads.txt') or file == 'upload_manifest.txt':
+                    try:
+                        os.remove(os.path.join(root, file))
+                        logger.info(f"Removed manifest file: {file}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove manifest file {file}: {e}")
         
         logger.info("Storage cleanup completed!")
     except Exception as e:
         logger.error(f"Error during storage cleanup: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 def get_args():
     """Parse command line arguments"""
@@ -1020,110 +814,88 @@ def main():
         if is_sagemaker and args.save_to_s3:
             logger.info(f"Uploading results to S3: {args.save_to_s3}")
             
-            # Ensure we use the complete output directory path
-            output_dir = args.output_dir  # /opt/ml/output/data
-            logger.info(f"Directory structure to upload:")
+            # Only upload the specific task directory to maintain clean structure
+            task_dir = os.path.join(args.output_dir, args.task_name)
             
-            # List contents of output directory
-            if os.path.exists(output_dir):
-                total_files = 0
-                file_sizes = 0
+            if os.path.exists(task_dir):
+                # Construct S3 destination path without job timestamp
+                s3_base_path = args.save_to_s3.rstrip('/')
                 
-                # Log directory structure for debugging
-                for root, dirs, files in os.walk(output_dir):
-                    rel_path = os.path.relpath(root, output_dir)
-                    if rel_path == '.':
-                        logger.info(f"Root directory: {output_dir}")
-                    else:
-                        logger.info(f"  Directory: {rel_path}/")
-                    
-                    # Skip logging too many files
-                    if len(files) > 0:
-                        logger.info(f"    Files ({len(files)} files):")
-                        
-                    for name in files[:10]:  # Only show first 10 files in each directory
-                        total_files += 1
-                        file_path = os.path.join(root, name)
-                        file_sizes += os.path.getsize(file_path)
-                        rel_path = os.path.relpath(file_path, output_dir)
-                        logger.info(f"      - {rel_path} ({os.path.getsize(file_path)/1024:.1f} KB)")
-                    
-                    if len(files) > 10:
-                        logger.info(f"      ... and {len(files) - 10} more files")
+                # Extract the bucket name and prefix without job timestamp
+                parts = s3_base_path.replace('s3://', '').split('/')
+                bucket_name = parts[0]
                 
-                logger.info(f"Total: {total_files} files, {file_sizes/1024/1024:.2f} MB")
+                # Remove any timestamp or job ID from the path to avoid nested directories
+                # Example: s3://bucket/Benchmark_Log/TaskName-20240510-1213/ -> s3://bucket/Benchmark_Log/
+                prefix_parts = []
+                for part in parts[1:]:
+                    # Skip parts that look like timestamps or job IDs (contain numbers and dashes)
+                    if not (any(c.isdigit() for c in part) and '-' in part):
+                        prefix_parts.append(part)
                 
-                # Construct S3 destination path
-                s3_output_path = args.save_to_s3.rstrip('/')
-                logger.info(f"Uploading entire output directory: {output_dir} -> {s3_output_path}")
+                # Create clean base path
+                clean_prefix = '/'.join(prefix_parts)
                 
-                # Upload directory - retry on failure
+                # Final S3 path: s3://bucket/Benchmark_Log/task_name/
+                task_s3_path = f"s3://{bucket_name}/{clean_prefix}/{args.task_name}"
+                
+                logger.info(f"Uploading results to clean S3 path: {task_s3_path}")
+                
+                # Upload the task directory directly to avoid nested output folders
                 try:
-                    # First, create a manifest file listing all generated files
-                    manifest_file = os.path.join(output_dir, "upload_manifest.txt")
-                    with open(manifest_file, 'w') as f:
-                        for root, _, files in os.walk(output_dir):
-                            for file in files:
-                                if file != "upload_manifest.txt":  # Skip the manifest itself
-                                    rel_path = os.path.relpath(os.path.join(root, file), output_dir)
-                                    f.write(f"{rel_path}\n")
-                
-                    logger.info(f"Created upload manifest at {manifest_file}")
+                    # Simple upload with retries
+                    upload_success = False
+                    max_retries = 3
                     
-                    # Upload each task directory separately to maintain structure
-                    task_dir = os.path.join(output_dir, args.task_name)
-                    if os.path.exists(task_dir):
-                        task_s3_path = f"{s3_output_path}/{args.task_name}"
-                        logger.info(f"Uploading task directory: {task_dir} -> {task_s3_path}")
-                        
-                        # Upload with verification
-                        upload_success = upload_to_s3(task_dir, task_s3_path)
-                        
-                        if not upload_success:
-                            logger.warning("First upload attempt failed. Retrying once...")
-                            time.sleep(5)  # Brief delay before retry
-                            upload_success = upload_to_s3(task_dir, task_s3_path)
-                        
-                        if upload_success:
-                            logger.info(f"Successfully uploaded task results to {task_s3_path}")
-                        else:
-                            logger.error(f"Failed to upload task results to {task_s3_path} after retry")
-                    else:
-                        logger.error(f"Task directory {task_dir} does not exist. Cannot upload task results.")
-                    
-                    # Also upload the summary file
-                    summary_file = os.path.join(output_dir, args.task_name, "multi_model_results.json")
-                    if os.path.exists(summary_file):
-                        summary_s3_key = f"{args.task_name}/multi_model_results.json"
-                        summary_s3_path = f"{s3_output_path}/{summary_s3_key}"
-                        
-                        # Extract bucket and key
-                        bucket_name = s3_output_path.replace('s3://', '').split('/')[0]
-                        s3_key = f"{'/'.join(s3_output_path.replace('s3://', '').split('/')[1:])}/{summary_s3_key}"
-                        
+                    for retry in range(max_retries):
                         try:
-                            s3_client.upload_file(summary_file, bucket_name, s3_key)
-                            logger.info(f"Uploaded summary file to {summary_s3_path}")
-                        except Exception as e:
-                            logger.error(f"Failed to upload summary file: {e}")
-                    
-                    # Upload manifest file
-                    try:
-                        manifest_s3_key = "upload_manifest.txt"
-                        bucket_name = s3_output_path.replace('s3://', '').split('/')[0]
-                        s3_key = f"{'/'.join(s3_output_path.replace('s3://', '').split('/')[1:])}/{manifest_s3_key}"
+                            logger.info(f"Uploading task directory (attempt {retry+1}/{max_retries}): {task_dir} -> {task_s3_path}")
+                            
+                            # Count files for progress reporting
+                            total_files = sum([len(files) for _, _, files in os.walk(task_dir)])
+                            logger.info(f"Found {total_files} files to upload")
+                            
+                            # Track successful uploads
+                            uploaded_count = 0
+                            
+                            # Walk and upload each file
+                            for root, _, files in os.walk(task_dir):
+                                for file in files:
+                                    local_file_path = os.path.join(root, file)
+                                    
+                                    # Skip any debug files
+                                    if 'debug-output' in local_file_path or 'training_job_end.ts' in local_file_path:
+                                        continue
+                                    
+                                    # Calculate the relative path to maintain directory structure
+                                    rel_path = os.path.relpath(local_file_path, task_dir)
+                                    s3_key = f"{clean_prefix}/{args.task_name}/{rel_path}"
+                                    
+                                    # Upload file
+                                    s3_client.upload_file(local_file_path, bucket_name, s3_key)
+                                    uploaded_count += 1
+                                    
+                                    # Log progress periodically
+                                    if uploaded_count % 10 == 0 or uploaded_count == total_files:
+                                        logger.info(f"Upload progress: {uploaded_count}/{total_files} files ({uploaded_count/total_files*100:.1f}%)")
                         
-                        s3_client.upload_file(manifest_file, bucket_name, s3_key)
-                        logger.info(f"Uploaded manifest file to {s3_output_path}/{manifest_s3_key}")
-                    except Exception as e:
-                        logger.error(f"Failed to upload manifest file: {e}")
+                            logger.info(f"Successfully uploaded {uploaded_count} files to {task_s3_path}")
+                            upload_success = True
+                            break
+                        except Exception as e:
+                            logger.warning(f"Upload attempt {retry+1} failed: {e}")
+                            if retry < max_retries - 1:
+                                logger.info(f"Retrying in 5 seconds...")
+                                time.sleep(5)
                     
+                    if not upload_success:
+                        logger.error(f"Failed to upload results after {max_retries} attempts")
                 except Exception as e:
-                    logger.error(f"Error during upload process: {e}")
+                    logger.error(f"Error during upload: {e}")
                     import traceback
                     logger.error(traceback.format_exc())
             else:
-                logger.error(f"Output directory {output_dir} does not exist. Cannot upload results.")
+                logger.error(f"Task directory {task_dir} does not exist. Cannot upload results.")
         
         # Clean up SageMaker storage
         if is_sagemaker:

@@ -478,56 +478,7 @@ The extended testing generates comprehensive reports for all test splits, includ
 
 This provides deeper insights into model robustness and potential areas for improvement in real-world deployment scenarios.
 
-## SageMaker Integration Updates
-
-The SageMaker integration has been improved with the following enhancements:
-
-### Parameter Handling Improvements
-
-1. **Consistent Parameter Naming**: 
-   - Parameters like `task_name` and `task` are now handled consistently across all scripts
-   - Parameter names with hyphens (e.g., `--param-name`) are automatically converted to underscore format (`--param_name`)
-
-2. **Enhanced Parameter Validation**:
-   - Required parameters (`task_name`, `models`, `win_len`, `feature_size`) are validated before execution
-   - Detailed error messages help identify missing parameters
-
-3. **Improved SageMaker Environment Variables Support**:
-   - SageMaker hyperparameters (`SM_HP_*`) are automatically detected and parsed
-   - Path variables are correctly set based on SageMaker environment
-
-4. **Default Value Alignment**:
-   - Default values are now consistent between local and SageMaker environments
-   - All model-specific defaults have been aligned to prevent inconsistencies
-
-### Using the SageMaker Pipeline
-
-To run training on SageMaker, use the `sagemaker_runner.py` script:
-
-```bash
-python sagemaker_runner.py --config configs/sagemaker_default_config.json
-```
-
-Or customize with specific parameters:
-
-```bash
-python sagemaker_runner.py --task MotionSourceRecognition --models transformer,vit --batch_size 32
-```
-
-When using SageMaker, ensure your data is organized correctly in the S3 bucket as described in the SageMaker Configuration section.
-
-### Troubleshooting SageMaker Jobs
-
-If you encounter issues with parameter passing:
-
-1. Check the CloudWatch logs for detailed parameter handling information
-2. Verify parameter names are consistent (use `task_name` instead of `task`)
-3. Ensure required parameters are provided
-4. Consider using the test environment mode with `--test-env` flag to verify setup
-
-For more details on SageMaker usage, see the SageMaker Integration section below.
-
-# SageMaker Pipeline Enhancements
+## SageMaker Pipeline Enhancements
 
 The SageMaker pipeline has been enhanced to ensure consistent results with the local pipeline. All training outputs, including visualizations, metrics, and model weights, are now properly saved and uploaded to S3.
 
@@ -544,15 +495,40 @@ The SageMaker pipeline has been enhanced to ensure consistent results with the l
    - Stores classification reports with detailed metrics
    - Preserves consistent file naming and formats with local pipeline
 
-3. **Reliable S3 Upload**
-   - Improved upload verification with retry mechanism
-   - Generates upload manifests for tracking successful and failed uploads
-   - Better error handling and detailed logging
-   - Maintains directory structure on S3 for easy navigation
+3. **Optimized S3 Upload**
+   - Streamlined upload process to eliminate redundant directories
+   - Removed timestamp and job ID from paths to prevent nested results
+   - Skips debug files and other unnecessary outputs
+   - Directly uploads task directory for cleaner S3 organization
+   - Eliminates manifest files and other temporary artifacts
+
+## S3 Path Cleanup
+
+The updated pipeline addresses several issues with the previous S3 upload process:
+
+1. **Fixed Path Structure**: No more redundant nested paths like `TaskName-timestamp/output/output/TaskName/`
+2. **Debug File Removal**: Debug files like `debug-output/training_job_end.ts` are now automatically deleted
+3. **No Manifest Files**: Removed upload manifest files that cluttered the S3 bucket
+
+The optimized S3 path structure is now:
+
+```
+s3://your-bucket/Benchmark_Log/
+└── task_name/
+    ├── model_name/
+    │   ├── best_performance.json
+    │   └── experiment_id/
+    │       ├── model_task_config.json
+    │       ├── model_task_learning_curves.png
+    │       ├── model_task_accuracy_curves.png
+    │       ├── model_task_test_id_confusion.png
+    │       └── ...
+    └── multi_model_results.json
+```
 
 ## Configuration Options
 
-Several new parameters are available to customize the SageMaker pipeline behavior:
+Several parameters are available to customize the SageMaker pipeline behavior:
 
 ```bash
 # Basic options
@@ -563,50 +539,9 @@ Several new parameters are available to customize the SageMaker pipeline behavio
 --save_model              # Save model weights
 
 # Advanced options
---verify_uploads          # Verify S3 uploads (enabled by default in SageMaker)
---max_retries 5           # Maximum upload retry attempts
+--max_retries 3           # Maximum upload retry attempts
 --plot_dpi 150            # DPI for saved plots
 --plot_format png         # File format for plots (png, jpg, pdf, svg)
 ```
 
 When running in a SageMaker environment, these visualization options are automatically enabled.
-
-## Using the Enhanced SageMaker Pipeline
-
-To run a training job with the enhanced pipeline:
-
-```python
-# Using the SageMaker runner
-from sagemaker_runner import SageMakerRunner
-
-runner = SageMakerRunner(config)
-runner.run_batch_by_task(
-    tasks=['activity', 'location'],
-    models=['transformer', 'resnet18']
-)
-```
-
-## Output Structure
-
-The results will be organized in the following structure on S3:
-
-```
-s3://your-bucket/output-prefix/
-├── task_name/
-│   ├── model_name/
-│   │   ├── best_performance.json
-│   │   └── experiment_id/
-│   │       ├── model_task_config.json
-│   │       ├── model_task_learning_curves.png
-│   │       ├── model_task_accuracy_curves.png
-│   │       ├── model_task_test_id_confusion.png
-│   │       ├── model_task_test_ood_confusion.png
-│   │       ├── model_task_results.json
-│   │       ├── model_task_summary.json
-│   │       ├── model_task_train_history.csv
-│   │       └── classification_report_*.csv
-│   └── multi_model_results.json
-└── upload_manifest.txt
-```
-
-This structure matches the local pipeline output, making it easy to analyze results regardless of where the training was performed.
