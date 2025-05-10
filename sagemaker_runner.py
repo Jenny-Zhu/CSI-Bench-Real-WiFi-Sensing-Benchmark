@@ -294,7 +294,10 @@ class SageMakerRunner:
             output_path=self.s3_output_base,  # Explicitly set output path
             environment={
                 'SAGEMAKER_S3_OUTPUT': self.s3_output_base  # Set environment variable for S3 output path
-            }
+            },
+            disable_profiler=True,
+            disable_model_download=True,  # 禁用model.tar.gz文件的生成
+            disable_output_compression=True  # 禁用output.tar.gz文件的生成
         )
         
         return estimator
@@ -450,7 +453,9 @@ class SageMakerRunner:
             base_job_name='wifi-sensing-multitask',
             hyperparameters=hyperparameters,
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
-            keep_alive_period_in_seconds=config.get('keep_alive_period', 1200)  # Default keep instance active 20 minutes
+            keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
+            disable_model_download=True,  # 禁用model.tar.gz文件的生成
+            disable_output_compression=True  # 禁用output.tar.gz文件的生成
         )
         
         return estimator
