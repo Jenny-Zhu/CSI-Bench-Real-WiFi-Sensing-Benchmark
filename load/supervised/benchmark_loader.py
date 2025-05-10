@@ -18,7 +18,8 @@ def load_benchmark_supervised(
     train_split="train_id",
     val_split="val_id",
     test_splits=None,
-    use_root_as_task_dir=False
+    use_root_as_task_dir=False,
+    debug=False
 ):
     """
     Load benchmark dataset for supervised learning.
@@ -39,6 +40,7 @@ def load_benchmark_supervised(
         val_split: Name of validation split.
         test_splits: List of test split names.
         use_root_as_task_dir: Whether to directly use dataset_root as the task directory.
+        debug: Whether to enable debug mode.
         
     Returns:
         Dictionary with data loaders and number of classes.
@@ -202,23 +204,30 @@ def load_benchmark_supervised(
             save_path=mapping_path
         )
     
-    # Load datasets
+    # Create datasets
     datasets = {}
     for split_name in all_splits:
-        dataset = BenchmarkCSIDataset(
-            dataset_root=dataset_root,
-            task_name=task_name,
-            split_name=split_name,
-            transform=transform,
-            target_transform=target_transform,
-            file_format=file_format,
-            data_column=data_column,
-            label_column=label_column,
-            data_key=data_key,
-            label_mapper=label_mapper,
-            task_dir=task_dir  # Pass the found task_dir to the dataset
-        )
-        datasets[split_name] = dataset
+        try:
+            print(f"Using provided task directory: {task_dir}")
+            dataset = BenchmarkCSIDataset(
+                dataset_root=dataset_root,
+                task_name=task_name,
+                split_name=split_name,
+                transform=transform,
+                target_transform=target_transform,
+                file_format=file_format,
+                data_column=data_column,
+                label_column=label_column,
+                data_key=data_key,
+                label_mapper=label_mapper,
+                task_dir=task_dir,  # Pass the found task_dir to the dataset
+                debug=debug
+            )
+            datasets[split_name] = dataset
+            print(f"Loaded {len(dataset)} samples for {task_name} - {split_name}")
+        except Exception as e:
+            print(f"Error loading split '{split_name}': {str(e)}")
+            datasets[split_name] = None
     
     # Create data loaders
     loaders = {}

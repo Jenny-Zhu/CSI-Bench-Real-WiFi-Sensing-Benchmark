@@ -837,7 +837,8 @@ def main():
             data_key=args.data_key,
             file_format=args.file_format,
             num_workers=args.num_workers,
-            use_root_as_task_dir=args.use_root_data_path
+            use_root_as_task_dir=args.use_root_data_path,
+            debug=False  # Disable debug print messages
         )
         
         # Check if data loaded successfully

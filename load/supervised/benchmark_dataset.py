@@ -27,15 +27,18 @@ class BenchmarkCSIDataset(Dataset):
                  label_column="label",   # Column in metadata for label
                  data_key="CSI_amps",   # Key in h5 file for data
                  label_mapper=None,     # Optional label mapper for converting string labels to indices
-                 task_dir=None):        # Optional task directory path (to avoid searching again)
+                 task_dir=None,        # Optional task directory path (to avoid searching again)
+                 debug=False):         # Flag to enable/disable debug print statements
         self.dataset_root = dataset_root
         self.task_name = task_name
+        self.split_name = split_name
         self.transform = transform
         self.target_transform = target_transform
         self.file_format = file_format.lower()
         self.data_column = data_column
         self.label_column = label_column
         self.data_key = data_key
+        self.debug = debug
         
         # Use provided task_dir if available
         if task_dir is not None and os.path.isdir(task_dir):
@@ -293,7 +296,8 @@ class BenchmarkCSIDataset(Dataset):
             # Check alternatives
             for desc, alt_path in alt_paths:
                 if os.path.exists(alt_path):
-                    print(f"Found file using alternative path ({desc}): {alt_path}")
+                    if self.debug:
+                        print(f"Found file using alternative path ({desc}): {alt_path}")
                     filepath = alt_path
                     break
             
@@ -405,7 +409,7 @@ class BenchmarkCSIDataset(Dataset):
         return self.split_metadata[self.label_column].unique().tolist()
 
 # Add a helper function to load multiple datasets
-def load_benchmark_datasets(dataset_root, task_name, splits=None, **kwargs):
+def load_benchmark_datasets(dataset_root, task_name, splits=None, debug=False, **kwargs):
     """
     Load all splits of benchmark datasets based on parameters.
     Convenience wrapper around BenchmarkCSIDataset.
@@ -414,6 +418,7 @@ def load_benchmark_datasets(dataset_root, task_name, splits=None, **kwargs):
         dataset_root: Root directory of all benchmarks
         task_name: Name of task to load
         splits: List of split names or None for default splits (train_id, val_id, test_id)
+        debug: Whether to print debug messages
         **kwargs: Additional arguments for BenchmarkCSIDataset
         
     Returns:
@@ -479,6 +484,7 @@ def load_benchmark_datasets(dataset_root, task_name, splits=None, **kwargs):
                 task_name=task_name,
                 split_name=split_name,
                 task_dir=task_dir,  # Pass the found task_dir
+                debug=debug,
                 **kwargs
             )
             datasets[split_name] = dataset
