@@ -245,6 +245,7 @@ class SageMakerRunner:
             'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # 添加自适应路径选项
             'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
             'use-root-data-path': "True",  # 默认总是使用根目录数据
+            'direct-upload': "True",  # 强制直接上传到S3
             'save-to-s3': self.s3_output_base  # 设置保存的S3输出路径
         }
         
@@ -283,7 +284,7 @@ class SageMakerRunner:
             source_dir=CODE_DIR,
             role=self.role,
             framework_version=config.get('framework_version', '1.12.1'),
-            py_version=config.get('py_version', 'py310'),  # 更新为 py310 以解决 py39 不支持的问题
+            py_version=config.get('py_version', 'py38'),
             instance_count=config.get('instance_count', 1),
             instance_type=config.get('instance_type', 'ml.g4dn.xlarge'),
             base_job_name=base_job_name,
@@ -292,15 +293,8 @@ class SageMakerRunner:
             keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
             output_path=self.s3_output_base,  # Explicitly set output path
             environment={
-                'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
-                'SMDEBUG_DISABLED': 'true',                  # 显式禁用调试器
-                'SM_DISABLE_DEBUGGER': 'true',               # 禁用 SageMaker 调试器
-                'PYTHONIOENCODING': 'utf-8'                  # 确保编码一致性
-            },
-            # 完全禁用 debugger 和 profiler
-            debugger_hook_config=False,
-            profiler_config=None,
-            disable_profiler=True
+                'SAGEMAKER_S3_OUTPUT': self.s3_output_base  # Set environment variable for S3 output path
+            }
         )
         
         return estimator

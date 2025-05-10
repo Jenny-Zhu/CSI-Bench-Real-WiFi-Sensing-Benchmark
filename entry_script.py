@@ -20,13 +20,6 @@ print("\n==========================================")
 print("Starting custom entry script entry_script.py")
 print("==========================================\n")
 
-# 设置环境变量，确保在任何导入前禁用Debugger和Profiler
-os.environ['SMDEBUG_DISABLED'] = 'true'
-os.environ['SM_DISABLE_DEBUGGER'] = 'true'
-os.environ['SM_DISABLE_PROFILER'] = 'true'
-os.environ['DISABLE_PROFILER'] = 'true'
-os.environ['PYTHONIOENCODING'] = 'utf-8'
-
 # Set memory optimization options
 print("Configuring memory optimization settings...")
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -49,26 +42,8 @@ sys.modules['horovod.torch.elastic'] = None
 
 print("Disabling SMDebug...")
 sys.modules['smdebug'] = None
-sys.modules['smdebug.pytorch'] = None
-sys.modules['smdebug.core'] = None
-sys.modules['smdebug.profiler'] = None
-sys.modules['smdebug.profiler.profiler'] = None
-sys.modules['smdebug.tensorflow'] = None
-
-# Disable all profiler modules
-for module_name in list(sys.modules.keys()):
-    if 'profiler' in module_name or 'debugger' in module_name:
-        sys.modules[module_name] = None
-
-# 禁用来自目录路径的自动导入
-disable_paths = [
-    '/opt/ml/output/profiler',
-    '/opt/ml/output/tensors'
-]
-for path in disable_paths:
-    if path in sys.path:
-        sys.path.remove(path)
-        print(f"Removed {path} from Python path")
+os.environ['SMDEBUG_DISABLED'] = 'true'
+os.environ['SM_DISABLE_DEBUGGER'] = 'true'
 
 # Set up typing_extensions support to resolve issues with typing.Literal imports
 print("Setting up typing_extensions support...")
