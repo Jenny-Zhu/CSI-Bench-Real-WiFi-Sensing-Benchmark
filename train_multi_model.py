@@ -618,14 +618,6 @@ def train_model(model_name, data, args, device):
 def main():
     """
     Main function - Train multiple models on a specified task
-    
-    This function handles:
-    1. Parsing command line arguments
-    2. Loading data for the specified task
-    3. Training multiple model architectures
-    4. Evaluating models on test splits
-    5. Saving results and models
-    6. Uploading results to S3 if running in SageMaker
     """
     try:
         # Disable SageMaker debugger and profiler
@@ -634,6 +626,7 @@ def main():
         os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
         os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
         os.environ['SMPROFILER_DISABLED'] = 'true'
+        os.environ['SAGEMAKER_DISABLE_SOURCEDIR'] = 'true'  # Disable sourcedir packaging
         
         # Log environment variables for debugging
         if is_sagemaker:
@@ -784,8 +777,8 @@ def main():
                 
                 logger.info(f"Total: {total_files} files, {file_sizes/1024/1024:.2f} MB")
                 
-                # Construct S3 target path
-                s3_task_path = f"{args.save_to_s3.rstrip('/')}/{args.task_name}"
+                # Construct S3 target path - use the exact S3 path from environment
+                s3_task_path = args.save_to_s3.rstrip('/')
                 logger.info(f"Uploading directory: {task_dir} -> {s3_task_path}")
                 
                 # Upload directory - retry once if failed
