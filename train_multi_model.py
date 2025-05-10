@@ -405,16 +405,17 @@ def train_model(model_name, data, args, device):
     # Common model parameters
     model_kwargs = {
         'num_classes': num_classes,
-        'in_channels': args.in_channels,
         'win_len': args.win_len,
         'feature_size': args.feature_size,
         'emb_dim': args.emb_dim,
         'dropout': args.dropout
     }
     
-    # Model-specific parameters
+    # Add model-specific parameters
     if model_name.lower() == 'transformer':
         model_kwargs['d_model'] = args.d_model
+    elif model_name.lower() in ['mlp', 'lstm', 'resnet18', 'vit']:
+        model_kwargs['in_channels'] = args.in_channels
     
     # Create model instance
     model = ModelClass(**model_kwargs)

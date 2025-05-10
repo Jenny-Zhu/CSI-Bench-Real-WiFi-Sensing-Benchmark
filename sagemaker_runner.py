@@ -151,13 +151,16 @@ class SageMakerRunner:
         
         # Set defaults if not provided
         tasks_to_run = tasks or self.config.get('available_tasks')
-        models_to_run = models or self.config.get('available_models')
+        # Always use all available models from config by default
+        models_to_run = self.config.get('available_models')
         
         # Convert to lists if strings are provided
         if isinstance(tasks_to_run, str):
             tasks_to_run = [tasks_to_run]
         if isinstance(models_to_run, str):
             models_to_run = [models_to_run]
+        
+        print(f"Will train all available models for each task: {models_to_run}")
         
         # Prepare configuration
         base_config = dict(self.config)
@@ -224,13 +227,22 @@ class SageMakerRunner:
         
         return jobs
     
-    def _create_estimator(self, config, base_job_name, models):
+    def _create_estimator(self, config, base_job_name, models=None):
         """
         Create SageMaker PyTorch Estimator from given configuration
         """
+        # Always use all available models from config
+        all_models = config.get('available_models', [])
+        if all_models:
+            print(f"Using all available models: {all_models}")
+        else:
+            print("Warning: No models defined in 'available_models' config")
+            all_models = ['mlp', 'lstm', 'resnet18', 'transformer']
+            print(f"Using default models: {all_models}")
+            
         # Prepare hyperparameters - Use dashes instead of underscores for parameter names
         hyperparameters = {
-            'models': ','.join(models),
+            'models': ','.join(all_models),
             'task_name': config.get('task_name', config.get('task')),  # Keep 'task_name' as is - this is critical
             'win-len': config.get('win_len', 500),  # Match default value from train_supervised.py
             'feature-size': config.get('feature_size', 232),
@@ -246,7 +258,11 @@ class SageMakerRunner:
             'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
             'use-root-data-path': "True",  # 默认总是使用根目录数据
             'direct-upload': "True",  # 强制直接上传到S3
-            'save-to-s3': self.s3_output_base  # 设置保存的S3输出路径
+            'save-to-s3': self.s3_output_base,  # 设置保存的S3输出路径
+            'd-model': config.get('d_model', 64),  # Transformer model dimension
+            'emb-dim': config.get('emb_dim', 64),  # Embedding dimension
+            'dropout': config.get('dropout', 0.1),  # Dropout rate
+            'in-channels': config.get('in_channels', 1)  # Input channels
         }
         
         # Add few-shot parameters (if enabled)
@@ -520,9 +536,8 @@ def run_from_config(config_path=None):
     # Create SageMaker runner
     runner = SageMakerRunner(config)
     
-    # Get tasks and models from configuration
+    # Get tasks and pipeline from configuration
     tasks = config.get('task')
-    models = config.get('model')
     pipeline = config.get('pipeline', 'supervised')
     
     # Run corresponding task based on pipeline type in configuration
@@ -539,21 +554,15 @@ def run_from_config(config_path=None):
                 tasks = config.get('available_tasks', [])[:2]
         
         # Run multi-task learning
-        result = runner.run_multitask(tasks=tasks, model_type=models)
+        model_type = config.get('model', 'transformer')
+        result = runner.run_multitask(tasks=tasks, model_type=model_type)
     else:
         # For supervised learning, can run single task or multiple tasks
         if tasks and not isinstance(tasks, list):
             tasks = [tasks]
         
-        # If model is specified, ensure it's in list format
-        if models and not isinstance(models, list):
-            if ',' in models:
-                models = models.split(',')
-            else:
-                models = [models]
-        
-        # Run batch processing tasks
-        result = runner.run_batch_by_task(tasks=tasks, models=models)
+        # Run batch processing tasks always using all available models from config
+        result = runner.run_batch_by_task(tasks=tasks)
     
     return result
 
@@ -565,10 +574,30 @@ def main():
     parser.add_argument('--config', type=str, default=None,
                         help='JSON configuration file path')
     
+    # Task parameter - this can still be useful to override the config
+    parser.add_argument('--task', '--tasks', type=str, default=None,
+                        help='Task(s) to run, comma-separated')
+    
     args = parser.parse_args()
     
-    # Run normal job from configuration file
-    run_from_config(args.config)
+    # If task is specified on command line, override config
+    if args.task:
+        # Create configuration
+        config = load_config(args.config)
+        
+        # Override task in config
+        tasks = [t.strip() for t in args.task.split(',')]
+        if len(tasks) == 1:
+            config['task'] = tasks[0]
+        else:
+            config['tasks'] = ','.join(tasks)
+        
+        # Create SageMaker runner and run batch
+        runner = SageMakerRunner(config)
+        runner.run_batch_by_task(tasks=tasks)
+    else:
+        # Run from configuration file
+        run_from_config(args.config)
 
 if __name__ == "__main__":
     main()
