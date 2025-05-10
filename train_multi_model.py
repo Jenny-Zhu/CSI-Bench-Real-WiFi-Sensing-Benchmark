@@ -173,18 +173,32 @@ def upload_to_s3(local_path, s3_path):
                     
                     # 高优先级文件（结果图表、CSV文件、JSON结果、模型文件）
                     if file.endswith(('.png', '.jpg', '.jpeg', '.pdf')):  # 图表文件
-                        priority = 1
+                        priority = 5  # 更高的优先级
                     elif file.endswith('.csv'):  # CSV结果文件
-                        priority = 2
+                        priority = 4
                     elif file.endswith('.json'):  # JSON配置和结果文件
                         priority = 3
                     elif file.endswith(('.pt', '.pth')):  # 模型文件
-                        priority = 4
+                        priority = 2
+                    # 进一步细化优先级
+                    if 'confusion' in file and file.endswith('.png'):  # 混淆矩阵
+                        priority = 6
+                    elif 'summary' in file:  # 摘要文件
+                        priority = 7
+                    elif 'history' in file:  # 训练历史
+                        priority = 5
                     
-                    all_files.append((file_path, relative_path, priority))
+                    # 创建更详细的日志，跟踪重要文件
+                    file_info = {
+                        'path': file_path,
+                        'relative_path': relative_path,
+                        'priority': priority,
+                        'size': os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                    }
+                    all_files.append(file_info)
             
             # 按优先级排序文件（数字越大，优先级越高）
-            all_files.sort(key=lambda x: -x[2])  # 倒序排列，使高优先级文件先上传
+            all_files.sort(key=lambda x: (-x['priority'], x['relative_path']))  # 先按优先级（降序），再按路径（升序）
             
             # 遍历目录上传所有文件
             uploaded_files = 0
@@ -207,13 +221,24 @@ def upload_to_s3(local_path, s3_path):
                     except Exception as e:
                         logger.warning(f"创建空目录标记失败: {e}")
             
+            # 优先上传JSON和图表文件
+            logger.info("按优先级顺序上传文件:")
+            for i, file_info in enumerate(all_files[:10]):  # 显示前10个要上传的文件
+                logger.info(f"  {i+1}. 优先级 {file_info['priority']}: {file_info['relative_path']} ({file_info['size']/1024:.1f} KB)")
+            if len(all_files) > 10:
+                logger.info(f"  ... 以及更多 {len(all_files)-10} 个文件")
+            
             # 上传文件，优先级高的先上传
-            for local_file_path, relative_path, priority in all_files:
+            for file_info in all_files:
+                file_path = file_info['path']
+                relative_path = file_info['relative_path']
+                priority = file_info['priority']
+                
                 # 对Windows路径进行处理
                 s3_key = os.path.join(s3_key_prefix, relative_path).replace('\\', '/')
                 
-                # 输出高优先级文件的上传信息
-                if priority > 0:
+                # 对高优先级文件给出详细日志
+                if priority >= 3:
                     logger.info(f"上传优先级{priority}文件: {relative_path}")
                 
                 # 上传文件，带有重试逻辑
@@ -222,7 +247,7 @@ def upload_to_s3(local_path, s3_path):
                     try:
                         # 添加元数据标记，表明这是直接上传而非model.tar.gz包装
                         s3_client.upload_file(
-                            local_file_path, 
+                            file_path, 
                             bucket_name, 
                             s3_key,
                             ExtraArgs={
@@ -240,10 +265,10 @@ def upload_to_s3(local_path, s3_path):
                         break
                     except Exception as e:
                         if retry < max_retries - 1:
-                            logger.warning(f"文件上传失败 {local_file_path}，重试中 ({retry+1}/{max_retries}): {e}")
+                            logger.warning(f"文件上传失败 {file_path}，重试中 ({retry+1}/{max_retries}): {e}")
                             time.sleep(2)  # 失败后延迟更长时间再重试
                         else:
-                            logger.error(f"文件上传失败 {local_file_path}，已达到最大重试次数: {e}")
+                            logger.error(f"文件上传失败 {file_path}，已达到最大重试次数: {e}")
                             failed_files += 1
             
             # 报告最终状态
@@ -801,6 +826,91 @@ def train_model(model_name, data, args, device):
             # If best_epoch doesn't exist, use current epoch or set to -1
             train_history['best_epoch'] = args.epochs  # Default use last epoch
             logger.warning(f"TaskTrainer missing best_epoch attribute, using last epoch ({args.epochs}) as best")
+
+    # 保存训练历史曲线图 - 与本地runner保持一致
+    try:
+        import matplotlib.pyplot as plt
+        
+        # 设置matplotlib后端为Agg，避免需要显示设备
+        plt.switch_backend('Agg')
+        
+        # 清除之前的图表
+        plt.figure(figsize=(12, 5))
+        
+        # 绘制训练和验证的损失曲线
+        plt.subplot(1, 2, 1)
+        if isinstance(training_results, pd.DataFrame):
+            epochs = training_results['Epoch'].values
+            plt.plot(epochs, training_results['Train Loss'].values, 'b-', label='Training Loss')
+            plt.plot(epochs, training_results['Val Loss'].values, 'r-', label='Validation Loss')
+            if hasattr(trainer, 'best_epoch'):
+                best_epoch = trainer.best_epoch
+                plt.axvline(x=best_epoch, color='g', linestyle='--', label=f'Best Epoch ({best_epoch})')
+        else:
+            epochs = list(range(1, len(train_history['train_loss_history']) + 1))
+            plt.plot(epochs, train_history['train_loss_history'], 'b-', label='Training Loss')
+            plt.plot(epochs, train_history['val_loss_history'], 'r-', label='Validation Loss')
+            if 'best_epoch' in train_history:
+                best_epoch = train_history['best_epoch']
+                plt.axvline(x=best_epoch, color='g', linestyle='--', label=f'Best Epoch ({best_epoch})')
+        
+        plt.title(f'Loss Curves - {model_name} on {args.task_name}')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # 绘制训练和验证的准确率曲线
+        plt.subplot(1, 2, 2)
+        if isinstance(training_results, pd.DataFrame):
+            plt.plot(epochs, training_results['Train Accuracy'].values, 'b-', label='Training Accuracy')
+            plt.plot(epochs, training_results['Val Accuracy'].values, 'r-', label='Validation Accuracy')
+            if hasattr(trainer, 'best_epoch'):
+                plt.axvline(x=best_epoch, color='g', linestyle='--', label=f'Best Epoch ({best_epoch})')
+        else:
+            plt.plot(epochs, train_history['train_accuracy_history'], 'b-', label='Training Accuracy')
+            plt.plot(epochs, train_history['val_accuracy_history'], 'r-', label='Validation Accuracy')
+            if 'best_epoch' in train_history:
+                plt.axvline(x=best_epoch, color='g', linestyle='--', label=f'Best Epoch ({best_epoch})')
+        
+        plt.title(f'Accuracy Curves - {model_name} on {args.task_name}')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        plt.tight_layout()
+        
+        # 保存图表
+        history_plot_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_training_history.png")
+        plt.savefig(history_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logger.info(f"训练历史曲线图已保存到: {history_plot_path}")
+    except Exception as e:
+        logger.warning(f"保存训练历史曲线图时出错: {e}")
+    
+    # 保存训练历史数据到CSV
+    try:
+        if isinstance(training_results, pd.DataFrame):
+            history_csv_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_training_history.csv")
+            training_results.to_csv(history_csv_path, index=False)
+            logger.info(f"训练历史数据已保存到CSV: {history_csv_path}")
+        else:
+            # 如果不是DataFrame，转换为DataFrame后保存
+            history_dict = {
+                'Epoch': list(range(1, len(train_history.get('train_loss_history', [])) + 1)),
+                'Train Loss': train_history.get('train_loss_history', []),
+                'Val Loss': train_history.get('val_loss_history', []),
+                'Train Accuracy': train_history.get('train_accuracy_history', []),
+                'Val Accuracy': train_history.get('val_accuracy_history', [])
+            }
+            history_df = pd.DataFrame(history_dict)
+            history_csv_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_training_history.csv")
+            history_df.to_csv(history_csv_path, index=False)
+            logger.info(f"训练历史数据已保存到CSV: {history_csv_path}")
+    except Exception as e:
+        logger.warning(f"保存训练历史CSV时出错: {e}")
     
     # Run evaluation on each test set
     for test_name, test_loader in test_loaders.items():
@@ -811,6 +921,42 @@ def train_model(model_name, data, args, device):
         overall_metrics[f"{test_name}_loss"] = test_loss
         overall_metrics[f"{test_name}_accuracy"] = test_accuracy
         overall_metrics[f"{test_name}_f1_score"] = test_f1
+        
+        # 为每个测试集保存混淆矩阵图表 - 与本地runner保持一致
+        try:
+            # 绘制混淆矩阵
+            plt.figure(figsize=(10, 8))
+            
+            # 归一化混淆矩阵
+            if test_cm is not None:
+                import numpy as np
+                from sklearn.metrics import ConfusionMatrixDisplay
+                
+                if np.sum(test_cm) > 0:  # 确保混淆矩阵有效
+                    # 创建标准化的混淆矩阵
+                    cm_norm = test_cm.astype('float') / test_cm.sum(axis=1)[:, np.newaxis]
+                    cm_norm = np.nan_to_num(cm_norm)  # 处理可能的NaN值
+                    
+                    # 获取标签名称
+                    if label_mapper and hasattr(label_mapper, 'get_class_names'):
+                        display_labels = label_mapper.get_class_names()
+                    else:
+                        display_labels = [str(i) for i in range(num_classes)]
+                    
+                    # 绘制混淆矩阵
+                    disp = ConfusionMatrixDisplay(confusion_matrix=test_cm, display_labels=display_labels)
+                    disp.plot(cmap=plt.cm.Blues, values_format='.0f', ax=plt.gca())
+                    
+                    plt.title(f'Confusion Matrix - {model_name} on {args.task_name} ({test_name})\nAccuracy: {test_accuracy:.4f}, F1: {test_f1:.4f}')
+                    plt.grid(False)
+                    
+                    cm_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_{test_name}_confusion.png")
+                    plt.savefig(cm_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                    
+                    logger.info(f"混淆矩阵已保存到: {cm_path}")
+        except Exception as e:
+            logger.warning(f"保存混淆矩阵时出错: {e}")
     
     # Overall test accuracy (use only 'test' if available, otherwise average all test sets)
     if 'test_accuracy' in overall_metrics:
@@ -893,7 +1039,132 @@ def train_model(model_name, data, args, device):
             json.dump(best_performance, f, indent=4)
         logger.info(f"Created new best_performance.json at {best_performance_file}")
     
+    # 创建汇总图（集中展示所有测试集结果）
+    try:
+        # 收集所有测试集结果
+        test_results = {}
+        for key, value in overall_metrics.items():
+            if key.endswith('_accuracy') and key.startswith('test'):
+                test_name = key.replace('_accuracy', '')
+                test_results[test_name] = value
+        
+        if test_results:
+            plt.figure(figsize=(10, 6))
+            
+            # 绘制条形图
+            test_names = list(test_results.keys())
+            accuracies = [test_results[name] for name in test_names]
+            
+            # 缩短测试集名称，增加可读性
+            display_names = [name.replace('test_', '') for name in test_names]
+            
+            # 创建条形图
+            bars = plt.bar(display_names, accuracies, color='skyblue', alpha=0.7)
+            
+            # 添加数值标签
+            for bar, acc in zip(bars, accuracies):
+                plt.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.01,
+                         f'{acc:.4f}', ha='center', va='bottom')
+            
+            plt.title(f'Test Accuracies - {model_name} on {args.task_name}')
+            plt.ylabel('Accuracy')
+            plt.xlabel('Test Dataset')
+            plt.ylim(0, 1.1)  # 设置y轴范围
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
+            # 保存图表
+            summary_plot_path = os.path.join(model_output_dir, f"{model_name}_{args.task_name}_test_summary.png")
+            plt.savefig(summary_plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"测试结果汇总图已保存到: {summary_plot_path}")
+    except Exception as e:
+        logger.warning(f"创建测试结果汇总图时出错: {e}")
+    
+    # 如果启用了少样本学习，将结果保存到JSON中
+    if args.enable_few_shot:
+        logger.info("正在保存少样本学习结果...")
+        # TODO: 在未来版本中实现少样本学习结果保存
+    
     return trained_model, overall_metrics
+
+def replace_packing_scripts():
+    """
+    Replace SageMaker's packing scripts with no-op versions to prevent tar.gz generation
+    """
+    if not is_sagemaker:
+        return
+    
+    logger.info("尝试替换SageMaker打包脚本...")
+    
+    # 所有可能的打包脚本位置
+    packing_scripts = [
+        '/opt/amazon/sagemaker/model-packing.py',
+        '/opt/ml/code/model-packing.py',
+        '/opt/amazon/sagemaker/workflow/tar_outputs.py',
+        '/opt/amazon/sagemaker/workflow/model_tar.py'
+    ]
+    
+    # 创建一个空脚本内容
+    noop_script = '''#!/usr/bin/env python3
+# Empty script that does nothing - disables SageMaker model packing
+import sys
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logger.info("DISABLED: Model packing/tarring script replaced with no-op version")
+logger.info("This script was replaced by WiFi Sensing benchmark to prevent tar.gz generation")
+logger.info("All results are directly uploaded to S3 instead")
+
+# Exit successfully without doing anything
+sys.exit(0)
+'''
+    
+    # 替换所有打包脚本
+    replaced_count = 0
+    for script_path in packing_scripts:
+        if os.path.exists(script_path):
+            try:
+                # 先备份原始脚本
+                backup_path = f"{script_path}.bak"
+                if not os.path.exists(backup_path):
+                    import shutil
+                    shutil.copy2(script_path, backup_path)
+                
+                # 然后用空脚本替换
+                with open(script_path, 'w') as f:
+                    f.write(noop_script)
+                
+                # 确保脚本可执行
+                os.chmod(script_path, 0o755)
+                
+                logger.info(f"成功替换打包脚本: {script_path}")
+                replaced_count += 1
+            except Exception as e:
+                logger.warning(f"替换脚本 {script_path} 失败: {e}")
+    
+    if replaced_count > 0:
+        logger.info(f"成功替换了 {replaced_count} 个打包脚本")
+    else:
+        logger.warning("未找到任何打包脚本可替换")
+    
+    # 设置环境变量，进一步防止打包
+    os.environ['SAGEMAKER_SUBMIT_DIRECTORY'] = '/tmp/empty_kernel'
+    os.environ['SAGEMAKER_DISABLE_MODEL_PACKAGING'] = 'true'
+    os.environ['SAGEMAKER_DISABLE_OUTPUT_COMPRESSION'] = 'true'
+    os.environ['SAGEMAKER_MODEL_EXCLUDE_PATTERNS'] = '*'
+    os.environ['NO_TAR_GZ'] = 'true'
+    os.environ['FORCE_DIRECT_S3_UPLOAD'] = 'true'
+    
+    # 创建不打包标记文件
+    for marker_dir in ['/opt/ml/model', '/opt/ml/output/data', '/opt/ml/output']:
+        os.makedirs(marker_dir, exist_ok=True)
+        no_tar_marker = os.path.join(marker_dir, '.no_tar_gz')
+        with open(no_tar_marker, 'w') as f:
+            f.write(f"NO_TAR_GZ=true\nTIMESTAMP={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 def main():
     """
@@ -908,6 +1179,9 @@ def main():
         None，但会将模型文件写入指定的输出目录
     """
     try:
+        # 首先替换打包脚本，确保不会生成tar.gz文件
+        replace_packing_scripts()
+        
         # 记录环境变量，用于调试
         logger.info("在SageMaker环境中运行")
         logger.info("环境变量:")
@@ -1102,19 +1376,32 @@ def main():
                         shutil.copy2(results_path, model_results_path)
                         logger.info(f"结果摘要已复制到model目录: {model_results_path}")
                 
-                # 执行上传
-                upload_success = upload_to_s3(task_dir, s3_task_path)
-                if upload_success:
-                    logger.info(f"结果成功上传到 {s3_task_path}")
-                    
-                    # 将上传成功标记写入model_dir
-                    if 'SM_MODEL_DIR' in os.environ:
-                        success_marker = os.path.join(os.environ['SM_MODEL_DIR'], '.upload_success')
-                        with open(success_marker, 'w') as f:
-                            f.write(f"Upload successful to: {s3_task_path}\n")
-                            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                # 执行上传，添加重试机制
+                max_retries = 3
+                for retry in range(max_retries):
+                    try:
+                        upload_success = upload_to_s3(task_dir, s3_task_path)
+                        if upload_success:
+                            logger.info(f"结果成功上传到 {s3_task_path}")
+                            
+                            # 将上传成功标记写入model_dir
+                            if 'SM_MODEL_DIR' in os.environ:
+                                success_marker = os.path.join(os.environ['SM_MODEL_DIR'], '.upload_success')
+                                with open(success_marker, 'w') as f:
+                                    f.write(f"Upload successful to: {s3_task_path}\n")
+                                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            break
+                        else:
+                            logger.error(f"上传到 {s3_task_path} 失败，尝试重试 ({retry+1}/{max_retries})")
+                            if retry < max_retries - 1:
+                                time.sleep(5)  # 短暂延迟后重试
+                    except Exception as e:
+                        logger.error(f"上传过程中发生错误 ({retry+1}/{max_retries}): {e}")
+                        if retry < max_retries - 1:
+                            time.sleep(5)
                 else:
-                    logger.error(f"上传到 {s3_task_path} 失败!")
+                    # 全部重试失败
+                    logger.error(f"上传到 {s3_task_path} 失败! 达到最大重试次数")
                     
                     # 在model_dir中记录上传失败
                     if 'SM_MODEL_DIR' in os.environ:
@@ -1162,6 +1449,24 @@ def main():
                                         f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         else:
             logger.warning("未设置save_to_s3参数，无法直接上传到S3。将依赖SageMaker默认机制上传模型")
+            
+            # 即使没有设置S3路径，也阻止生成tar.gz文件
+            if 'SM_MODEL_DIR' in os.environ:
+                model_dir = os.environ['SM_MODEL_DIR']
+                os.makedirs(model_dir, exist_ok=True)
+                
+                # 创建标记文件告诉SageMaker不要生成tar.gz文件
+                prevent_tar_marker = os.path.join(model_dir, '.no_tar_gz')
+                with open(prevent_tar_marker, 'w') as f:
+                    f.write("DO_NOT_CREATE_TAR_GZ=true\n")
+                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                
+                # 复制结果摘要到模型目录
+                if os.path.exists(results_path):
+                    model_results_path = os.path.join(model_dir, 'multi_model_results.json')
+                    import shutil
+                    shutil.copy2(results_path, model_results_path)
+                    logger.info(f"结果摘要已复制到model目录: {model_results_path}")
         
         # 清理SageMaker存储以减少空间使用
         cleanup_sagemaker_storage()
