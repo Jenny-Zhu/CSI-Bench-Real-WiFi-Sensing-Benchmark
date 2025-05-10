@@ -26,15 +26,12 @@
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
     "MotionSourceRecognition",
-    "HumanMotion",
-    "HumanNonhuman",
-    "NTUHumanID",
-    "NTUHAR",
-    "HumanID",
-    "Widar",
-    "ThreeClass",
-    "DetectionandClassification",
-    "Detection"
+    "HumanIdentification",
+    "HumanActivityRecognition",
+    "ProximityRecognition",
+    "FallDetection",
+    "BreathingDetection",
+    "Localization"
   ],
   "available_pipelines": ["supervised", "meta", "multitask", "fewshot"],
   "evaluate_fewshot": false,
