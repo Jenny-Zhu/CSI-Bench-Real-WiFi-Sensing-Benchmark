@@ -308,8 +308,8 @@ class SageMakerRunner:
                 'DISABLE_OUTPUT_COMPRESSION': 'true',
                 'DISABLE_MODEL_PACKAGING': 'true',
                 'DISABLE_FILE_UPLOADING': 'false',
-                'CHECKPOINT_S3_URI': config.get('checkpoint_s3_uri', None),
-                'CHECKPOINT_LOCAL_PATH': config.get('checkpoint_local_path', None)
+                'CHECKPOINT_S3_URI': str(config.get('checkpoint_s3_uri', '')),
+                'CHECKPOINT_LOCAL_PATH': str(config.get('checkpoint_local_path', ''))
             },
             # 完全禁用 debugger 和 profiler
             debugger_hook_config=False,
