@@ -303,7 +303,13 @@ class SageMakerRunner:
                 'SAGEMAKER_DISABLE_OUTPUT_COMPRESSION': 'true', # 禁用输出压缩
                 'SAGEMAKER_MODEL_EXCLUDE_PATTERNS': '*',     # 排除所有文件不包含在model.tar.gz中
                 'FORCE_DIRECT_S3_UPLOAD': 'true',           # 强制直接上传到S3
-                'NO_TAR_GZ': 'true'                         # 自定义标志以禁用tar.gz
+                'NO_TAR_GZ': 'true',                         # 自定义标志以禁用tar.gz
+                # 新增参数：直接禁用模型和输出包装
+                'DISABLE_OUTPUT_COMPRESSION': 'true',
+                'DISABLE_MODEL_PACKAGING': 'true',
+                'DISABLE_FILE_UPLOADING': 'false',
+                'CHECKPOINT_S3_URI': config.get('checkpoint_s3_uri', None),
+                'CHECKPOINT_LOCAL_PATH': config.get('checkpoint_local_path', None)
             },
             # 完全禁用 debugger 和 profiler
             debugger_hook_config=False,
@@ -316,7 +322,10 @@ class SageMakerRunner:
             code_location=None,      # 不保存源代码
             # 确保不打包模型
             dependencies=None,
-            output_kms_key=None
+            output_kms_key=None,
+            # 新增：明确禁用模型打包和输出压缩的PyTorch估算器参数
+            disable_model_download=True,  # 防止下载模型到本地，然后再上传
+            disable_output_compression=True  # 禁用输出压缩
         )
         
         return estimator
