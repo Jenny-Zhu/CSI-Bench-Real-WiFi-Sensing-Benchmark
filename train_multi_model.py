@@ -5,6 +5,54 @@ Multi-Model Training Script - Train multiple model architectures in one training
 
 This script can be run in a SageMaker environment to train and evaluate multiple model architectures
 on the same task.
+
+SageMaker Training Job Parameters Guide:
+-----------------------------------------
+当通过SageMaker启动训练任务时，可以使用以下参数禁用调试器和源代码打包：
+1. 主要参数：
+   - disable_profiler=True  # 禁用SageMaker性能分析器
+   - debugger_hook_config=False  # 禁用SageMaker调试钩子
+   - source_dir=None  # 不使用源代码目录，而是直接上传脚本
+
+2. 环境变量设置 (在 environment 参数中):
+   - SMDEBUG_DISABLED: 'true'
+   - SM_DISABLE_DEBUGGER: 'true'
+   - SAGEMAKER_DISABLE_PROFILER: 'true'
+   - SMPROFILER_DISABLED: 'true'
+   - SAGEMAKER_DISABLE_SOURCEDIR: 'true'
+
+3. 使用禁用调试器的SageMaker示例代码：
+```python
+import sagemaker
+from sagemaker.pytorch import PyTorch
+
+sagemaker_session = sagemaker.Session()
+
+estimator = PyTorch(
+    entry_point='train_multi_model.py',
+    role=role,
+    framework_version='2.0.0',
+    py_version='py310',
+    instance_count=1,
+    instance_type='ml.g4dn.xlarge',
+    disable_profiler=True,  # 禁用性能分析器
+    debugger_hook_config=False,  # 禁用调试钩子
+    source_dir=None,  # 不打包源代码目录
+    environment={
+        'SMDEBUG_DISABLED': 'true',
+        'SM_DISABLE_DEBUGGER': 'true',
+        'SAGEMAKER_DISABLE_PROFILER': 'true',
+        'SMPROFILER_DISABLED': 'true',
+        'SAGEMAKER_DISABLE_SOURCEDIR': 'true',
+    },
+    hyperparameters={
+        'task_name': 'TestTask',
+        'epochs': 10,
+    }
+)
+
+estimator.fit()
+```
 """
 
 # Import os module to ensure it's available for use in subsequent code
@@ -14,18 +62,35 @@ import sys
 # Disable SMDebug and Horovod to avoid PyTorch version conflicts
 try:
     sys.modules['smdebug'] = None
-    os.environ['SMDEBUG_DISABLED'] = 'true'
-    os.environ['SM_DISABLE_DEBUGGER'] = 'true'
-    os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
-    os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
+    sys.modules['smddp'] = None
+    sys.modules['smprofiler'] = None
     
     # Also disable Horovod
     sys.modules['horovod'] = None
     sys.modules['horovod.torch'] = None
     
-    print("Disabled SMDebug and Horovod to avoid conflicts")
+    # 设置所有已知的环境变量来禁用调试器
+    os.environ['SMDEBUG_DISABLED'] = 'true'
+    os.environ['SM_DISABLE_DEBUGGER'] = 'true'
+    os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER'] = 'true'
+    os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
+    os.environ['SMPROFILER_DISABLED'] = 'true'
+    os.environ['SM_SMDEBUG_DISABLED'] = 'true'
+    os.environ['SM_SMDDP_DISABLE_PROFILING'] = 'true'
+    os.environ['SAGEMAKER_DISABLE_PROFILER'] = 'true'
+    
+    # 禁用源代码包装和其他功能
+    os.environ['SAGEMAKER_DISABLE_SOURCEDIR'] = 'true'
+    os.environ['SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS'] = 'true'
+    os.environ['SAGEMAKER_DISABLE_BUILT_IN_PROFILER'] = 'true'
+    os.environ['SAGEMAKER_DISABLE_DEFAULT_RULES'] = 'true'
+    
+    # 针对性禁用文件生成
+    os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLED'] = 'true'
+    
+    print("已完全禁用 SageMaker Debugger 和相关功能")
 except Exception as e:
-    print(f"Warning when disabling modules: {e}")
+    print(f"警告：禁用模块时出错: {e}")
 
 import argparse
 import json
@@ -37,6 +102,8 @@ import torch.nn as nn
 from tqdm import tqdm
 import logging
 import math
+import pandas as pd
+import shutil
 
 # Detect if running in SageMaker environment
 is_sagemaker = 'SM_MODEL_DIR' in os.environ
@@ -211,6 +278,9 @@ def cleanup_sagemaker_storage():
             "/opt/ml/output/profiler",     # Profiler output
             "/opt/ml/output/tensors",      # Debugger tensors
             "/opt/ml/output/debug-output", # Debug output
+            "/opt/ml/code",                # 源代码目录
+            "/opt/ml/code/.sourcedir.tar.gz", # 源代码打包
+            "/opt/ml/model",               # 模型目录（不需要）
         ]
         
         # Only keep the smallest log files
@@ -220,7 +290,6 @@ def cleanup_sagemaker_storage():
         ]
         
         # Clean up temporary directories (but don't delete all)
-        import shutil
         for cleanup_dir in dirs_to_clean:
             if os.path.exists(cleanup_dir):
                 logger.info(f"Cleaning directory: {cleanup_dir}")
@@ -271,6 +340,15 @@ def cleanup_sagemaker_storage():
         # Try to trigger memory cleanup
         import gc
         gc.collect()
+        
+        # 尝试删除 training_job_end.ts 文件
+        debug_output_file = "/opt/ml/output/debug-output/training_job_end.ts"
+        if os.path.exists(debug_output_file):
+            try:
+                os.remove(debug_output_file)
+                logger.info("删除了 training_job_end.ts 文件")
+            except Exception as e:
+                logger.warning(f"无法删除 training_job_end.ts 文件: {e}")
         
         logger.info("Storage cleanup completed!")
     except Exception as e:
@@ -627,6 +705,10 @@ def main():
         os.environ['SMDATAPARALLEL_DISABLE_DEBUGGER_OUTPUT'] = 'true'
         os.environ['SMPROFILER_DISABLED'] = 'true'
         os.environ['SAGEMAKER_DISABLE_SOURCEDIR'] = 'true'  # Disable sourcedir packaging
+        os.environ['SAGEMAKER_CONTAINERS_IGNORE_SRC_REQUIREMENTS'] = 'true'
+        os.environ['SAGEMAKER_DISABLE_BUILT_IN_PROFILER'] = 'true'
+        os.environ['SAGEMAKER_DISABLE_DEFAULT_RULES'] = 'true'
+        os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLED'] = 'true'
         
         # Log environment variables for debugging
         if is_sagemaker:
@@ -754,49 +836,50 @@ def main():
         
         # Upload results to S3 if running in SageMaker
         if is_sagemaker and args.save_to_s3:
-            logger.info(f"Uploading results to S3: {args.save_to_s3}")
+            logger.info(f"上传结果到 S3: {args.save_to_s3}")
             
-            # Print directory structure for debugging
-            task_dir = os.path.join(args.output_dir, args.task_name)
-            logger.info(f"Directory structure to upload:")
+            # 确保使用完整的输出目录路径
+            output_dir = args.output_dir  # /opt/ml/output/data
+            logger.info(f"要上传的目录结构:")
             
-            # List contents of task directory
-            if os.path.exists(task_dir):
+            # 列出输出目录的内容
+            if os.path.exists(output_dir):
                 total_files = 0
                 file_sizes = 0
                 
-                for root, dirs, files in os.walk(task_dir):
+                for root, dirs, files in os.walk(output_dir):
                     for name in files:
                         total_files += 1
                         file_path = os.path.join(root, name)
                         file_sizes += os.path.getsize(file_path)
-                        # Only log key files to avoid excessive logging
-                        if name.endswith(('.json', '.csv', '.png')) and total_files < 50:
-                            rel_path = os.path.relpath(file_path, task_dir)
+                        # 只记录关键文件以避免过多日志
+                        if total_files < 50:
+                            rel_path = os.path.relpath(file_path, output_dir)
                             logger.info(f"  - {rel_path} ({os.path.getsize(file_path)/1024:.1f} KB)")
                 
-                logger.info(f"Total: {total_files} files, {file_sizes/1024/1024:.2f} MB")
+                logger.info(f"总计: {total_files} 个文件, {file_sizes/1024/1024:.2f} MB")
                 
-                # Construct S3 target path - use the exact S3 path from environment
-                s3_task_path = args.save_to_s3.rstrip('/')
-                logger.info(f"Uploading directory: {task_dir} -> {s3_task_path}")
+                # 构造 S3 目标路径 - 使用环境中的精确 S3 路径
+                s3_output_path = args.save_to_s3.rstrip('/')
+                logger.info(f"上传整个输出目录: {output_dir} -> {s3_output_path}")
                 
-                # Upload directory - retry once if failed
+                # 上传目录 - 失败时重试一次
                 try:
-                    upload_success = upload_to_s3(task_dir, s3_task_path)
+                    # 直接上传整个output目录，不只是task子目录
+                    upload_success = upload_to_s3(output_dir, s3_output_path)
                     if not upload_success:
-                        logger.warning("First upload attempt failed. Retrying once...")
-                        time.sleep(5)  # Short delay before retry
-                        upload_success = upload_to_s3(task_dir, s3_task_path)
+                        logger.warning("第一次上传尝试失败。重试一次...")
+                        time.sleep(5)  # 重试前短暂延迟
+                        upload_success = upload_to_s3(output_dir, s3_output_path)
                     
                     if upload_success:
-                        logger.info(f"Successfully uploaded results to {s3_task_path}")
+                        logger.info(f"成功上传结果到 {s3_output_path}")
                     else:
-                        logger.error(f"Failed to upload results to {s3_task_path} after retry")
+                        logger.error(f"重试后仍然无法上传结果到 {s3_output_path}")
                 except Exception as e:
-                    logger.error(f"Error during upload: {e}")
+                    logger.error(f"上传过程中出错: {e}")
             else:
-                logger.error(f"Task directory {task_dir} does not exist. Cannot upload results.")
+                logger.error(f"输出目录 {output_dir} 不存在。无法上传结果。")
         
         # Clean up SageMaker storage
         if is_sagemaker:
