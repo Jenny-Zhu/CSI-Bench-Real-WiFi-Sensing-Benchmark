@@ -161,38 +161,13 @@ def upload_to_s3(local_path, s3_path):
             total_files = sum([len(files) for _, _, files in os.walk(local_path)])
             logger.info(f"准备上传目录，共 {total_files} 个文件")
             
-            # 首先收集所有文件并按优先级排序
-            all_files = []
-            for root, dirs, files in os.walk(local_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    relative_path = os.path.relpath(file_path, local_path)
-                    
-                    # 判断文件的优先级
-                    priority = 0  # 默认优先级
-                    
-                    # 高优先级文件（结果图表、CSV文件、JSON结果、模型文件）
-                    if file.endswith(('.png', '.jpg', '.jpeg', '.pdf')):  # 图表文件
-                        priority = 1
-                    elif file.endswith('.csv'):  # CSV结果文件
-                        priority = 2
-                    elif file.endswith('.json'):  # JSON配置和结果文件
-                        priority = 3
-                    elif file.endswith(('.pt', '.pth')):  # 模型文件
-                        priority = 4
-                    
-                    all_files.append((file_path, relative_path, priority))
-            
-            # 按优先级排序文件（数字越大，优先级越高）
-            all_files.sort(key=lambda x: -x[2])  # 倒序排列，使高优先级文件先上传
-            
             # 遍历目录上传所有文件
             uploaded_files = 0
             failed_files = 0
             
-            # 确保空目录也被创建
-            for root, dirs, _ in os.walk(local_path):
-                if not os.listdir(root):  # 空目录
+            for root, dirs, files in os.walk(local_path):
+                # 确保空目录也被创建
+                if not files and not dirs:
                     # 创建一个空目录标记文件
                     relative_path = os.path.relpath(root, local_path)
                     s3_key = os.path.join(s3_key_prefix, relative_path, '.directory_marker')
@@ -206,50 +181,50 @@ def upload_to_s3(local_path, s3_path):
                         logger.debug(f"创建空目录标记: s3://{bucket_name}/{s3_key}")
                     except Exception as e:
                         logger.warning(f"创建空目录标记失败: {e}")
-            
-            # 上传文件，优先级高的先上传
-            for local_file_path, relative_path, priority in all_files:
-                # 对Windows路径进行处理
-                s3_key = os.path.join(s3_key_prefix, relative_path).replace('\\', '/')
                 
-                # 输出高优先级文件的上传信息
-                if priority > 0:
-                    logger.info(f"上传优先级{priority}文件: {relative_path}")
-                
-                # 上传文件，带有重试逻辑
-                max_retries = 3
-                for retry in range(max_retries):
-                    try:
-                        # 添加元数据标记，表明这是直接上传而非model.tar.gz包装
-                        s3_client.upload_file(
-                            local_file_path, 
-                            bucket_name, 
-                            s3_key,
-                            ExtraArgs={
-                                'Metadata': {
-                                    'upload-method': 'direct',
-                                    'original-path': relative_path,
-                                    'priority': str(priority)
+                for file in files:
+                    local_file_path = os.path.join(root, file)
+                    
+                    # 计算相对路径
+                    relative_path = os.path.relpath(local_file_path, local_path)
+                    s3_key = os.path.join(s3_key_prefix, relative_path)
+                    
+                    # 对Windows路径进行处理
+                    s3_key = s3_key.replace('\\', '/')
+                    
+                    # 上传文件，带有重试逻辑
+                    max_retries = 3
+                    for retry in range(max_retries):
+                        try:
+                            # 添加元数据标记，表明这是直接上传而非model.tar.gz包装
+                            s3_client.upload_file(
+                                local_file_path, 
+                                bucket_name, 
+                                s3_key,
+                                ExtraArgs={
+                                    'Metadata': {
+                                        'upload-method': 'direct',
+                                        'original-path': relative_path
+                                    }
                                 }
-                            }
-                        )
-                        uploaded_files += 1
-                        # 每上传10个文件或最后一个文件时，输出进度信息
-                        if uploaded_files % 10 == 0 or uploaded_files == len(all_files):
-                            logger.info(f"上传进度: {uploaded_files}/{len(all_files)} 文件 ({uploaded_files/len(all_files)*100:.1f}%)")
-                        break
-                    except Exception as e:
-                        if retry < max_retries - 1:
-                            logger.warning(f"文件上传失败 {local_file_path}，重试中 ({retry+1}/{max_retries}): {e}")
-                            time.sleep(2)  # 失败后延迟更长时间再重试
-                        else:
-                            logger.error(f"文件上传失败 {local_file_path}，已达到最大重试次数: {e}")
-                            failed_files += 1
+                            )
+                            uploaded_files += 1
+                            # 每上传10个文件或最后一个文件时，输出进度信息
+                            if uploaded_files % 10 == 0 or uploaded_files == total_files:
+                                logger.info(f"上传进度: {uploaded_files}/{total_files} 文件 ({uploaded_files/total_files*100:.1f}%)")
+                            break
+                        except Exception as e:
+                            if retry < max_retries - 1:
+                                logger.warning(f"文件上传失败 {local_file_path}，重试中 ({retry+1}/{max_retries}): {e}")
+                                time.sleep(2)  # 失败后延迟更长时间再重试
+                            else:
+                                logger.error(f"文件上传失败 {local_file_path}，已达到最大重试次数: {e}")
+                                failed_files += 1
             
             # 报告最终状态
             if failed_files > 0:
-                logger.warning(f"目录上传完成，但有 {failed_files}/{len(all_files)} 个文件上传失败")
-                if failed_files > len(all_files) / 2:  # 如果超过一半文件失败，返回失败
+                logger.warning(f"目录上传完成，但有 {failed_files}/{total_files} 个文件上传失败")
+                if failed_files > total_files / 2:  # 如果超过一半文件失败，返回失败
                     return False
             else:
                 logger.info(f"成功上传目录内容到 s3://{bucket_name}/{s3_key_prefix}，共 {uploaded_files} 个文件")
@@ -290,32 +265,7 @@ def cleanup_sagemaker_storage():
             "/opt/ml/output/profiler",     # 分析器输出
             "/opt/ml/output/tensors",      # 调试器张量
             "/opt/ml/output/data/logs",    # 保留但清理大型日志文件
-            "/opt/ml/model.tar.gz",        # 直接删除model.tar.gz文件
-            "/opt/ml/output.tar.gz",       # 直接删除output.tar.gz文件
-            "/opt/ml/output/data/model.tar.gz",  # 其他可能的位置
-            "/opt/ml/output/model.tar.gz"        # 其他可能的位置
         ]
-        
-        # 尝试在所有可能的位置创建.nomerge和.notarfile文件
-        no_tar_markers = [
-            "/opt/ml/model/.nomerge",
-            "/opt/ml/model/.notarfile",
-            "/opt/ml/output/.nomerge",
-            "/opt/ml/output/.notarfile",
-            "/opt/ml/output/data/.nomerge",
-            "/opt/ml/output/data/.notarfile"
-        ]
-        
-        # 创建标记文件
-        for marker in no_tar_markers:
-            try:
-                # 确保目录存在
-                os.makedirs(os.path.dirname(marker), exist_ok=True)
-                with open(marker, 'w') as f:
-                    f.write(f"NO_TAR_GZ=true\nTIMESTAMP={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                logger.info(f"创建无打包标记文件: {marker}")
-            except Exception as e:
-                logger.warning(f"创建标记文件失败: {e}")
         
         # 检查是否存在model.tar.gz构建相关文件
         model_dir = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
@@ -328,45 +278,11 @@ def cleanup_sagemaker_storage():
                 logger.info(f"已创建直接上传标记文件: {direct_upload_marker}")
             except Exception as e:
                 logger.warning(f"创建直接上传标记文件失败: {e}")
-            
-            # 创建一个特殊的空文件告诉SageMaker不要打包这个目录
-            no_archive_marker = os.path.join(model_dir, '.no_archive')
-            try:
-                with open(no_archive_marker, 'w') as f:
-                    f.write(f"DO_NOT_ARCHIVE=true\nTIMESTAMP={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                logger.info(f"已创建不打包标记文件: {no_archive_marker}")
-            except Exception as e:
-                logger.warning(f"创建不打包标记文件失败: {e}")
-        
-        # 尝试替换SageMaker的打包脚本
-        packaging_script = '/opt/amazon/sagemaker/model-packing.py'
-        if os.path.exists(packaging_script):
-            try:
-                # 创建一个不执行任何操作的空脚本替换原始打包脚本
-                with open(packaging_script, 'w') as f:
-                    f.write('#!/usr/bin/env python3\n')
-                    f.write('# Empty script that does nothing - disables model packing\n')
-                    f.write('import sys\nimport os\n')
-                    f.write('print("Model packing disabled by user script")\n')
-                    f.write('sys.exit(0)\n')
-                os.chmod(packaging_script, 0o755)  # 确保脚本可执行
-                logger.info(f"已替换打包脚本: {packaging_script}")
-            except Exception as e:
-                logger.warning(f"替换打包脚本失败: {e}")
         
         # 清理临时目录（但不要全部删除）
         import shutil
         for cleanup_dir in dirs_to_clean:
             if os.path.exists(cleanup_dir):
-                # 如果是文件，直接删除
-                if os.path.isfile(cleanup_dir):
-                    try:
-                        os.remove(cleanup_dir)
-                        logger.info(f"已删除文件: {cleanup_dir}")
-                    except Exception as e:
-                        logger.warning(f"无法删除文件 {cleanup_dir}: {e}")
-                    continue
-                
                 logger.info(f"清理目录: {cleanup_dir}")
                 # 只读取目录内容，不要递归删除
                 try:
@@ -403,47 +319,25 @@ def cleanup_sagemaker_storage():
                 except Exception as e:
                     logger.warning(f"清理目录 {cleanup_dir} 时出错: {e}")
         
-        # 禁用model.tar.gz的生成 - 在所有可能的路径创建标记文件
-        for model_path in ['/opt/ml/model', '/opt/ml/output/data', '/opt/ml/output']:
-            if os.path.exists(model_path):
-                os.makedirs(model_path, exist_ok=True)
-                no_tar_marker = os.path.join(model_path, '.no_tar_gz')
-                empty_file_marker = os.path.join(model_path, '.empty')
-                not_compressible_marker = os.path.join(model_path, '.not_compressible')
+        # 禁用model.tar.gz的生成 - 在导出路径创建一个标记文件
+        if 'SM_MODEL_DIR' in os.environ:
+            model_dir = os.environ['SM_MODEL_DIR']
+            no_tar_marker = os.path.join(model_dir, '.no_tar_gz')
+            try:
+                with open(no_tar_marker, 'w') as f:
+                    f.write("direct_s3_upload=True\n")
+                    f.write(f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                logger.info(f"已创建禁用tar.gz标记文件: {no_tar_marker}")
                 
-                try:
-                    # 创建多个标记文件，增加成功机会
-                    for marker_file in [no_tar_marker, empty_file_marker, not_compressible_marker]:
-                        with open(marker_file, 'w') as f:
-                            f.write("direct_s3_upload=True\n")
-                            f.write(f"timestamp={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                            f.write("DO_NOT_ARCHIVE=true\n")
-                    logger.info(f"已创建禁用tar.gz标记文件: {no_tar_marker}")
-                    
-                    # 创建README文件解释数据已上传到S3
-                    readme_path = os.path.join(model_path, 'README.txt')
-                    with open(readme_path, 'w') as f:
-                        f.write("Model and data files have been directly uploaded to S3.\n")
-                        f.write("This directory contains only marker files to prevent model.tar.gz creation.\n")
-                        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    logger.info(f"已创建README文件: {readme_path}")
-                except Exception as e:
-                    logger.warning(f"创建标记文件失败: {e}")
-        
-        # 创建临时内核目录
-        kernel_dir = '/tmp/empty_kernel'
-        os.makedirs(kernel_dir, exist_ok=True)
-        
-        # 尝试设置环境变量以阻止创建tar.gz
-        os.environ['SAGEMAKER_SUBMIT_DIRECTORY'] = kernel_dir
-        os.environ['SAGEMAKER_PROGRAM'] = 'empty.py'
-        os.environ['SAGEMAKER_REGION'] = 'none'
-        os.environ['SAGEMAKER_DISABLE_MODEL_PACKAGING'] = 'true'
-        os.environ['SAGEMAKER_DISABLE_OUTPUT_COMPRESSION'] = 'true'
-        os.environ['SAGEMAKER_MODEL_EXCLUDE_PATTERNS'] = '*'
-        os.environ['NO_TAR_GZ'] = 'true'
-        
-        logger.info("已设置环境变量以阻止创建tar.gz文件")
+                # 创建README文件解释数据已上传到S3
+                readme_path = os.path.join(model_dir, 'README.txt')
+                with open(readme_path, 'w') as f:
+                    f.write("Model and data files have been directly uploaded to S3.\n")
+                    f.write("This directory contains only marker files to prevent model.tar.gz creation.\n")
+                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                logger.info(f"已创建README文件: {readme_path}")
+            except Exception as e:
+                logger.warning(f"创建标记文件失败: {e}")
         
         # 清理日志文件（保留最后10KB）
         log_files = [
