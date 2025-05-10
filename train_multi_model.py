@@ -183,82 +183,165 @@ def upload_to_s3(local_path, s3_path):
         if not s3_key_prefix.endswith('/'):
             s3_key_prefix += '/'
             
-        # 检查S3存储桶是否存在并且可访问
+        # Check if S3 bucket exists and is accessible
         try:
             s3_client.head_bucket(Bucket=bucket_name)
-            logger.info(f"成功连接到S3存储桶: {bucket_name}")
+            logger.info(f"Successfully connected to S3 bucket: {bucket_name}")
         except Exception as e:
-            logger.error(f"无法访问S3存储桶 {bucket_name}: {e}")
+            logger.error(f"Cannot access S3 bucket {bucket_name}: {e}")
             return False
         
-        logger.info(f"正在上传 {local_path} 到 S3 存储桶 {bucket_name}/{s3_key_prefix}")
+        logger.info(f"Uploading {local_path} to S3 bucket {bucket_name}/{s3_key_prefix}")
         
-        # 检查是文件还是目录
+        # Check if it's a file or directory
         if os.path.isfile(local_path):
-            # 上传单个文件
+            # Upload single file
             file_key = os.path.join(s3_key_prefix, os.path.basename(local_path))
-            logger.info(f"上传单个文件: {local_path} -> s3://{bucket_name}/{file_key}")
+            logger.info(f"Uploading single file: {local_path} -> s3://{bucket_name}/{file_key}")
             
-            # 尝试上传，并在失败时重试
-            max_retries = 3
+            # Try to upload, with retries on failure
+            max_retries = 5  # Increased from 3 to 5
             for retry in range(max_retries):
                 try:
-                    s3_client.upload_file(local_path, bucket_name, file_key)
-                    logger.info(f"成功上传文件到 s3://{bucket_name}/{file_key}")
-                    break
+                    # Add metadata for tracking
+                    s3_client.upload_file(
+                        local_path, 
+                        bucket_name, 
+                        file_key,
+                        ExtraArgs={
+                            'Metadata': {
+                                'source': 'train_multi_model',
+                                'timestamp': str(int(time.time()))
+                            }
+                        }
+                    )
+                    
+                    # Verify upload by checking if file exists in S3
+                    try:
+                        s3_client.head_object(Bucket=bucket_name, Key=file_key)
+                        logger.info(f"Successfully uploaded and verified file: s3://{bucket_name}/{file_key}")
+                        break
+                    except Exception as ve:
+                        if retry < max_retries - 1:
+                            logger.warning(f"Upload verification failed, retrying ({retry+1}/{max_retries}): {ve}")
+                        else:
+                            raise ve
                 except Exception as e:
                     if retry < max_retries - 1:
-                        logger.warning(f"文件上传失败，重试中 ({retry+1}/{max_retries}): {e}")
-                        time.sleep(1)  # 短暂延迟后重试
+                        logger.warning(f"File upload failed, retrying ({retry+1}/{max_retries}): {e}")
+                        time.sleep(2 * (retry + 1))  # Exponential backoff
                     else:
-                        logger.error(f"文件上传失败，已达到最大重试次数: {e}")
+                        logger.error(f"File upload failed after maximum retries: {e}")
                         return False
         else:
-            # 上传整个目录
+            # Upload entire directory
             total_files = sum([len(files) for _, _, files in os.walk(local_path)])
-            logger.info(f"准备上传目录，共 {total_files} 个文件")
+            logger.info(f"Preparing to upload directory with {total_files} files")
             
-            # 遍历目录上传所有文件
-            uploaded_files = 0
-            failed_files = 0
+            # Track successful and failed uploads
+            successful_uploads = []
+            failed_uploads = []
             
+            # Walk directory and upload all files
             for root, _, files in os.walk(local_path):
                 for file in files:
                     local_file_path = os.path.join(root, file)
                     
-                    # 计算相对路径
+                    # Calculate relative path to maintain directory structure
                     relative_path = os.path.relpath(local_file_path, local_path)
                     s3_key = os.path.join(s3_key_prefix, relative_path)
                     
-                    # 上传文件，带有重试逻辑
-                    max_retries = 3
+                    # Upload file with retry logic
+                    max_retries = 5
+                    upload_successful = False
+                    
                     for retry in range(max_retries):
                         try:
-                            s3_client.upload_file(local_file_path, bucket_name, s3_key)
-                            uploaded_files += 1
-                            # 每上传10个文件或最后一个文件时，输出进度信息
-                            if uploaded_files % 10 == 0 or uploaded_files == total_files:
-                                logger.info(f"上传进度: {uploaded_files}/{total_files} 文件 ({uploaded_files/total_files*100:.1f}%)")
-                            break
+                            # Add metadata for tracking
+                            s3_client.upload_file(
+                                local_file_path, 
+                                bucket_name, 
+                                s3_key,
+                                ExtraArgs={
+                                    'Metadata': {
+                                        'source': 'train_multi_model',
+                                        'timestamp': str(int(time.time()))
+                                    }
+                                }
+                            )
+                            
+                            # Verify upload
+                            try:
+                                s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+                                successful_uploads.append(relative_path)
+                                upload_successful = True
+                                
+                                # Report progress at reasonable intervals
+                                if len(successful_uploads) % 10 == 0 or len(successful_uploads) == 1:
+                                    logger.info(f"Upload progress: {len(successful_uploads)}/{total_files} files ({len(successful_uploads)/total_files*100:.1f}%)")
+                                
+                                break
+                            except Exception as ve:
+                                if retry < max_retries - 1:
+                                    logger.warning(f"Upload verification failed for {s3_key}, retrying ({retry+1}/{max_retries}): {ve}")
+                                else:
+                                    raise ve
                         except Exception as e:
                             if retry < max_retries - 1:
-                                logger.warning(f"文件上传失败 {local_file_path}，重试中 ({retry+1}/{max_retries}): {e}")
-                                time.sleep(1)  # 短暂延迟后重试
+                                logger.warning(f"File upload failed for {local_file_path}, retrying ({retry+1}/{max_retries}): {e}")
+                                time.sleep(2 * (retry + 1))  # Exponential backoff
                             else:
-                                logger.error(f"文件上传失败 {local_file_path}，已达到最大重试次数: {e}")
-                                failed_files += 1
+                                logger.error(f"File upload failed for {local_file_path} after maximum retries: {e}")
+                                failed_uploads.append(relative_path)
+                    
+                    if not upload_successful:
+                        failed_uploads.append(relative_path)
             
-            # 报告最终状态
-            if failed_files > 0:
-                logger.warning(f"目录上传完成，但有 {failed_files}/{total_files} 个文件上传失败")
-                if failed_files > total_files / 2:  # 如果超过一半文件失败，返回失败
-                    return False
+            # Generate and upload manifest of successful uploads
+            try:
+                if successful_uploads:
+                    manifest_content = "\n".join(successful_uploads)
+                    manifest_path = os.path.join(os.path.dirname(local_path), "successful_uploads.txt")
+                    with open(manifest_path, 'w') as f:
+                        f.write(manifest_content)
+                    
+                    manifest_key = os.path.join(s3_key_prefix, "successful_uploads.txt")
+                    s3_client.upload_file(manifest_path, bucket_name, manifest_key)
+                    logger.info(f"Uploaded manifest of successful uploads to s3://{bucket_name}/{manifest_key}")
+            except Exception as e:
+                logger.warning(f"Failed to upload success manifest: {e}")
+            
+            # Generate and upload list of failed uploads if any
+            try:
+                if failed_uploads:
+                    failures_content = "\n".join(failed_uploads)
+                    failures_path = os.path.join(os.path.dirname(local_path), "failed_uploads.txt")
+                    with open(failures_path, 'w') as f:
+                        f.write(failures_content)
+                    
+                    failures_key = os.path.join(s3_key_prefix, "failed_uploads.txt")
+                    s3_client.upload_file(failures_path, bucket_name, failures_key)
+                    logger.info(f"Uploaded list of failed uploads to s3://{bucket_name}/{failures_key}")
+            except Exception as e:
+                logger.warning(f"Failed to upload failures list: {e}")
+            
+            # Report upload statistics
+            logger.info(f"Upload summary: {len(successful_uploads)} successful, {len(failed_uploads)} failed out of {total_files} files")
+            
+            # Consider the upload failed if more than half of the files failed
+            if len(failed_uploads) > total_files / 2:
+                logger.error(f"Too many files failed to upload ({len(failed_uploads)}/{total_files}), upload considered unsuccessful")
+                return False
+            elif failed_uploads:
+                logger.warning(f"Some files failed to upload, but most succeeded ({len(successful_uploads)}/{total_files})")
             else:
-                logger.info(f"成功上传目录内容到 s3://{bucket_name}/{s3_key_prefix}，共 {uploaded_files} 个文件")
+                logger.info(f"All {total_files} files uploaded successfully")
         
         return True
     except Exception as e:
-        logger.error(f"S3上传过程中发生错误: {e}")
+        logger.error(f"Error during S3 upload: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 def cleanup_sagemaker_storage():
@@ -396,6 +479,19 @@ def get_args():
     # Test parameters
     parser.add_argument('--test_splits', type=str, default='test_id,test_ood,test_cross_env', help='Test splits, comma separated')
     
+    # Visualization parameters
+    parser.add_argument('--save_plots', action='store_true', help='Save visualizations and plots')
+    parser.add_argument('--save_confusion_matrix', action='store_true', help='Save confusion matrices')
+    parser.add_argument('--save_learning_curves', action='store_true', help='Save learning curves')
+    parser.add_argument('--save_predictions', action='store_true', help='Save model predictions')
+    parser.add_argument('--save_model', action='store_true', help='Save trained model weights')
+    parser.add_argument('--plot_dpi', type=int, default=150, help='DPI for saved plots')
+    parser.add_argument('--plot_format', type=str, default='png', choices=['png', 'jpg', 'pdf', 'svg'], help='File format for plots')
+    
+    # S3 upload parameters
+    parser.add_argument('--verify_uploads', action='store_true', help='Verify S3 uploads')
+    parser.add_argument('--max_retries', type=int, default=5, help='Maximum retry attempts for S3 uploads')
+    
     # Experiment parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     
@@ -460,6 +556,14 @@ def get_args():
     if is_sagemaker:
         args.output_dir = '/opt/ml/output/data'
         logger.info(f"Running in SageMaker environment, setting output_dir to {args.output_dir}")
+        
+        # In SageMaker, enable all visualization options by default
+        args.save_plots = True
+        args.save_confusion_matrix = True
+        args.save_learning_curves = True
+        args.save_model = True
+        args.save_predictions = True
+        args.verify_uploads = True
     
     # Create output directories if needed
     if is_sagemaker:
@@ -608,6 +712,7 @@ def train_model(model_name, data, args, device):
         history = training_results['training_dataframe']
         history_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_train_history.csv")
         history.to_csv(history_file, index=False)
+        logger.info(f"Saved training history to {history_file}")
     
     # Store overall metrics
     overall_metrics = {}
@@ -619,8 +724,18 @@ def train_model(model_name, data, args, device):
         
         # Calculate metrics
         try:
-            test_f1, _ = trainer.calculate_metrics(test_loader)
-        except:
+            test_f1, classification_report = trainer.calculate_metrics(test_loader)
+            
+            # Save classification report
+            report_file = os.path.join(results_dir, f"classification_report_{test_name}.csv")
+            classification_report.to_csv(report_file)
+            logger.info(f"Saved classification report for {test_name} to {report_file}")
+            
+            # Generate and save confusion matrix
+            confusion_matrix = trainer.plot_confusion_matrix(test_loader, save_path=os.path.join(results_dir, f"{model_name}_{args.task_name}_{test_name}_confusion.png"))
+            
+        except Exception as e:
+            logger.error(f"Error calculating additional metrics for {test_name}: {e}")
             test_f1 = 0.0
             
         # Store metrics
@@ -631,6 +746,40 @@ def train_model(model_name, data, args, device):
         }
         
         logger.info(f"{test_name} Loss: {test_loss:.4f}, Accuracy: {test_accuracy:.4f}, F1 Score: {test_f1:.4f}")
+    
+    # Generate and save learning curves
+    try:
+        if 'train_loss_history' in training_results and 'val_loss_history' in training_results:
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(10, 5))
+            plt.plot(range(1, len(training_results['train_loss_history'])+1), training_results['train_loss_history'], label='Train Loss')
+            plt.plot(range(1, len(training_results['val_loss_history'])+1), training_results['val_loss_history'], label='Val Loss')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.title(f'{model_name} on {args.task_name} - Loss Curves')
+            plt.legend()
+            plt.grid(True)
+            learning_curve_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_learning_curves.png")
+            plt.savefig(learning_curve_file)
+            plt.close()
+            logger.info(f"Saved learning curves to {learning_curve_file}")
+            
+            # Accuracy curves
+            if 'train_accuracy_history' in training_results and 'val_accuracy_history' in training_results:
+                plt.figure(figsize=(10, 5))
+                plt.plot(range(1, len(training_results['train_accuracy_history'])+1), training_results['train_accuracy_history'], label='Train Accuracy')
+                plt.plot(range(1, len(training_results['val_accuracy_history'])+1), training_results['val_accuracy_history'], label='Val Accuracy')
+                plt.xlabel('Epoch')
+                plt.ylabel('Accuracy')
+                plt.title(f'{model_name} on {args.task_name} - Accuracy Curves')
+                plt.legend()
+                plt.grid(True)
+                accuracy_curve_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_accuracy_curves.png")
+                plt.savefig(accuracy_curve_file)
+                plt.close()
+                logger.info(f"Saved accuracy curves to {accuracy_curve_file}")
+    except Exception as e:
+        logger.error(f"Error generating learning curves: {e}")
     
     # Save test results
     results_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_results.json")
@@ -681,6 +830,39 @@ def train_model(model_name, data, args, device):
         summary_file = os.path.join(results_dir, f"{model_name}_{args.task_name}_summary.json")
         with open(summary_file, 'w') as f:
             json.dump(summary, f, indent=4)
+            
+        # Update best performance tracking
+        model_dir = os.path.dirname(results_dir)
+        best_performance_file = os.path.join(model_dir, "best_performance.json")
+        
+        # Check if there's an existing best performance file
+        best_performance = {}
+        if os.path.exists(best_performance_file):
+            try:
+                with open(best_performance_file, 'r') as f:
+                    best_performance = json.load(f)
+            except:
+                pass
+        
+        # Calculate average test accuracy to determine if this is the best run
+        avg_test_accuracy = sum([metrics['accuracy'] for metrics in serializable_metrics.values()]) / len(serializable_metrics)
+        
+        # Update best performance if this run is better
+        if not best_performance or avg_test_accuracy > best_performance.get('avg_test_accuracy', 0):
+            best_performance = {
+                'experiment_id': experiment_id,
+                'avg_test_accuracy': avg_test_accuracy,
+                'best_epoch': best_epoch,
+                'timestamp': time.time(),
+                'test_metrics': serializable_metrics,
+                'experiment_path': results_dir
+            }
+            
+            with open(best_performance_file, 'w') as f:
+                json.dump(best_performance, f, indent=4)
+                
+            logger.info(f"Updated best performance record for {model_name} on {args.task_name}")
+            
     except Exception as e:
         logger.error(f"Error saving summary: {e}")
     
@@ -836,50 +1018,112 @@ def main():
         
         # Upload results to S3 if running in SageMaker
         if is_sagemaker and args.save_to_s3:
-            logger.info(f"上传结果到 S3: {args.save_to_s3}")
+            logger.info(f"Uploading results to S3: {args.save_to_s3}")
             
-            # 确保使用完整的输出目录路径
+            # Ensure we use the complete output directory path
             output_dir = args.output_dir  # /opt/ml/output/data
-            logger.info(f"要上传的目录结构:")
+            logger.info(f"Directory structure to upload:")
             
-            # 列出输出目录的内容
+            # List contents of output directory
             if os.path.exists(output_dir):
                 total_files = 0
                 file_sizes = 0
                 
+                # Log directory structure for debugging
                 for root, dirs, files in os.walk(output_dir):
-                    for name in files:
+                    rel_path = os.path.relpath(root, output_dir)
+                    if rel_path == '.':
+                        logger.info(f"Root directory: {output_dir}")
+                    else:
+                        logger.info(f"  Directory: {rel_path}/")
+                    
+                    # Skip logging too many files
+                    if len(files) > 0:
+                        logger.info(f"    Files ({len(files)} files):")
+                        
+                    for name in files[:10]:  # Only show first 10 files in each directory
                         total_files += 1
                         file_path = os.path.join(root, name)
                         file_sizes += os.path.getsize(file_path)
-                        # 只记录关键文件以避免过多日志
-                        if total_files < 50:
-                            rel_path = os.path.relpath(file_path, output_dir)
-                            logger.info(f"  - {rel_path} ({os.path.getsize(file_path)/1024:.1f} KB)")
-                
-                logger.info(f"总计: {total_files} 个文件, {file_sizes/1024/1024:.2f} MB")
-                
-                # 构造 S3 目标路径 - 使用环境中的精确 S3 路径
-                s3_output_path = args.save_to_s3.rstrip('/')
-                logger.info(f"上传整个输出目录: {output_dir} -> {s3_output_path}")
-                
-                # 上传目录 - 失败时重试一次
-                try:
-                    # 直接上传整个output目录，不只是task子目录
-                    upload_success = upload_to_s3(output_dir, s3_output_path)
-                    if not upload_success:
-                        logger.warning("第一次上传尝试失败。重试一次...")
-                        time.sleep(5)  # 重试前短暂延迟
-                        upload_success = upload_to_s3(output_dir, s3_output_path)
+                        rel_path = os.path.relpath(file_path, output_dir)
+                        logger.info(f"      - {rel_path} ({os.path.getsize(file_path)/1024:.1f} KB)")
                     
-                    if upload_success:
-                        logger.info(f"成功上传结果到 {s3_output_path}")
+                    if len(files) > 10:
+                        logger.info(f"      ... and {len(files) - 10} more files")
+                
+                logger.info(f"Total: {total_files} files, {file_sizes/1024/1024:.2f} MB")
+                
+                # Construct S3 destination path
+                s3_output_path = args.save_to_s3.rstrip('/')
+                logger.info(f"Uploading entire output directory: {output_dir} -> {s3_output_path}")
+                
+                # Upload directory - retry on failure
+                try:
+                    # First, create a manifest file listing all generated files
+                    manifest_file = os.path.join(output_dir, "upload_manifest.txt")
+                    with open(manifest_file, 'w') as f:
+                        for root, _, files in os.walk(output_dir):
+                            for file in files:
+                                if file != "upload_manifest.txt":  # Skip the manifest itself
+                                    rel_path = os.path.relpath(os.path.join(root, file), output_dir)
+                                    f.write(f"{rel_path}\n")
+                
+                    logger.info(f"Created upload manifest at {manifest_file}")
+                    
+                    # Upload each task directory separately to maintain structure
+                    task_dir = os.path.join(output_dir, args.task_name)
+                    if os.path.exists(task_dir):
+                        task_s3_path = f"{s3_output_path}/{args.task_name}"
+                        logger.info(f"Uploading task directory: {task_dir} -> {task_s3_path}")
+                        
+                        # Upload with verification
+                        upload_success = upload_to_s3(task_dir, task_s3_path)
+                        
+                        if not upload_success:
+                            logger.warning("First upload attempt failed. Retrying once...")
+                            time.sleep(5)  # Brief delay before retry
+                            upload_success = upload_to_s3(task_dir, task_s3_path)
+                        
+                        if upload_success:
+                            logger.info(f"Successfully uploaded task results to {task_s3_path}")
+                        else:
+                            logger.error(f"Failed to upload task results to {task_s3_path} after retry")
                     else:
-                        logger.error(f"重试后仍然无法上传结果到 {s3_output_path}")
+                        logger.error(f"Task directory {task_dir} does not exist. Cannot upload task results.")
+                    
+                    # Also upload the summary file
+                    summary_file = os.path.join(output_dir, args.task_name, "multi_model_results.json")
+                    if os.path.exists(summary_file):
+                        summary_s3_key = f"{args.task_name}/multi_model_results.json"
+                        summary_s3_path = f"{s3_output_path}/{summary_s3_key}"
+                        
+                        # Extract bucket and key
+                        bucket_name = s3_output_path.replace('s3://', '').split('/')[0]
+                        s3_key = f"{'/'.join(s3_output_path.replace('s3://', '').split('/')[1:])}/{summary_s3_key}"
+                        
+                        try:
+                            s3_client.upload_file(summary_file, bucket_name, s3_key)
+                            logger.info(f"Uploaded summary file to {summary_s3_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to upload summary file: {e}")
+                    
+                    # Upload manifest file
+                    try:
+                        manifest_s3_key = "upload_manifest.txt"
+                        bucket_name = s3_output_path.replace('s3://', '').split('/')[0]
+                        s3_key = f"{'/'.join(s3_output_path.replace('s3://', '').split('/')[1:])}/{manifest_s3_key}"
+                        
+                        s3_client.upload_file(manifest_file, bucket_name, s3_key)
+                        logger.info(f"Uploaded manifest file to {s3_output_path}/{manifest_s3_key}")
+                    except Exception as e:
+                        logger.error(f"Failed to upload manifest file: {e}")
+                    
                 except Exception as e:
-                    logger.error(f"上传过程中出错: {e}")
+                    logger.error(f"Error during upload process: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
             else:
-                logger.error(f"输出目录 {output_dir} 不存在。无法上传结果。")
+                logger.error(f"Output directory {output_dir} does not exist. Cannot upload results.")
         
         # Clean up SageMaker storage
         if is_sagemaker:

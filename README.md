@@ -526,3 +526,87 @@ If you encounter issues with parameter passing:
 4. Consider using the test environment mode with `--test-env` flag to verify setup
 
 For more details on SageMaker usage, see the SageMaker Integration section below.
+
+# SageMaker Pipeline Enhancements
+
+The SageMaker pipeline has been enhanced to ensure consistent results with the local pipeline. All training outputs, including visualizations, metrics, and model weights, are now properly saved and uploaded to S3.
+
+## Key Improvements
+
+1. **Complete Result Directory Structure**
+   - Maintains the same directory structure as local pipeline: `/task_name/model_name/experiment_id/`
+   - Saves best performance tracking for each model in `best_performance.json`
+   - Creates proper experiment IDs for each combination of parameters
+
+2. **Enhanced Visualizations**
+   - Generates and saves learning curves (accuracy and loss)
+   - Creates confusion matrices for each test split
+   - Stores classification reports with detailed metrics
+   - Preserves consistent file naming and formats with local pipeline
+
+3. **Reliable S3 Upload**
+   - Improved upload verification with retry mechanism
+   - Generates upload manifests for tracking successful and failed uploads
+   - Better error handling and detailed logging
+   - Maintains directory structure on S3 for easy navigation
+
+## Configuration Options
+
+Several new parameters are available to customize the SageMaker pipeline behavior:
+
+```bash
+# Basic options
+--save_plots              # Save visualizations (enabled by default in SageMaker)
+--save_confusion_matrix   # Save confusion matrices 
+--save_learning_curves    # Save learning curves
+--save_predictions        # Save model predictions
+--save_model              # Save model weights
+
+# Advanced options
+--verify_uploads          # Verify S3 uploads (enabled by default in SageMaker)
+--max_retries 5           # Maximum upload retry attempts
+--plot_dpi 150            # DPI for saved plots
+--plot_format png         # File format for plots (png, jpg, pdf, svg)
+```
+
+When running in a SageMaker environment, these visualization options are automatically enabled.
+
+## Using the Enhanced SageMaker Pipeline
+
+To run a training job with the enhanced pipeline:
+
+```python
+# Using the SageMaker runner
+from sagemaker_runner import SageMakerRunner
+
+runner = SageMakerRunner(config)
+runner.run_batch_by_task(
+    tasks=['activity', 'location'],
+    models=['transformer', 'resnet18']
+)
+```
+
+## Output Structure
+
+The results will be organized in the following structure on S3:
+
+```
+s3://your-bucket/output-prefix/
+├── task_name/
+│   ├── model_name/
+│   │   ├── best_performance.json
+│   │   └── experiment_id/
+│   │       ├── model_task_config.json
+│   │       ├── model_task_learning_curves.png
+│   │       ├── model_task_accuracy_curves.png
+│   │       ├── model_task_test_id_confusion.png
+│   │       ├── model_task_test_ood_confusion.png
+│   │       ├── model_task_results.json
+│   │       ├── model_task_summary.json
+│   │       ├── model_task_train_history.csv
+│   │       └── classification_report_*.csv
+│   └── multi_model_results.json
+└── upload_manifest.txt
+```
+
+This structure matches the local pipeline output, making it easy to analyze results regardless of where the training was performed.
