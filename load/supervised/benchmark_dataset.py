@@ -285,27 +285,13 @@ class BenchmarkCSIDataset(Dataset):
                         alt_paths.append(("Using path segments", alt4))
                         break
             
-            # Alternative 5: 处理以 "./" 开头的路径 - 去掉 "./" 前缀，直接在 task_dir 下查找
-            if original_filepath.startswith('./'):
-                clean_path = original_filepath[2:]  # 去掉 "./" 前缀
-                alt5 = os.path.join(self.task_dir, clean_path)
-                alt_paths.append(("Removing ./ prefix", alt5))
-                
-                # 同时也尝试直接连接到数据根目录下
-                alt6 = os.path.join(self.dataset_root, clean_path)
-                alt_paths.append(("Removing ./ prefix with dataset root", alt6))
-                
-                # 在 tasks/task_name 下也尝试
-                alt7 = os.path.join(self.dataset_root, 'tasks', self.task_name, clean_path)
-                alt_paths.append(("Removing ./ prefix with task path", alt7))
-            
             # Try with data_dir from environment variable if set
             if os.environ.get('WIFI_DATA_DIR'):
-                alt8 = os.path.join(os.environ.get('WIFI_DATA_DIR'), original_filepath)
-                alt_paths.append(("Using WIFI_DATA_DIR", alt8))
+                alt5 = os.path.join(os.environ.get('WIFI_DATA_DIR'), original_filepath)
+                alt_paths.append(("Using WIFI_DATA_DIR", alt5))
                 
-                alt9 = os.path.join(os.environ.get('WIFI_DATA_DIR'), self.task_name, os.path.basename(original_filepath))
-                alt_paths.append(("Using WIFI_DATA_DIR with task and filename", alt9))
+                alt6 = os.path.join(os.environ.get('WIFI_DATA_DIR'), self.task_name, os.path.basename(original_filepath))
+                alt_paths.append(("Using WIFI_DATA_DIR with task and filename", alt6))
             
             # Check alternatives
             for desc, alt_path in alt_paths:
