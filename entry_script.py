@@ -140,10 +140,19 @@ for param in critical_params:
     # Check if parameter exists in environment variables
     if dash_env_var in os.environ:
         print(f"✓ {param} found as {dash_env_var}: {os.environ[dash_env_var]}")
+        # 特别检查 batch-size/batch_size
+        if param == 'batch_size':
+            print(f"   IMPORTANT: batch_size value from {dash_env_var}: {os.environ[dash_env_var]}")
     elif underscore_env_var in os.environ:
         print(f"✓ {param} found as {underscore_env_var}: {os.environ[underscore_env_var]}")
+        # 特别检查 batch-size/batch_size
+        if param == 'batch_size':
+            print(f"   IMPORTANT: batch_size value from {underscore_env_var}: {os.environ[underscore_env_var]}")
     else:
         print(f"✗ {param} NOT FOUND in environment variables")
+        # 特别强调 batch_size 缺失
+        if param == 'batch_size':
+            print(f"   WARNING: batch_size parameter not found! Will use default value (32)!")
 print("==================================\n")
 
 # Try importing torch to verify it loads correctly without Horovod conflicts

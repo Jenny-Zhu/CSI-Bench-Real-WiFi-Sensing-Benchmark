@@ -346,7 +346,7 @@ def get_args():
     parser.add_argument('--win_len', type=int, default=500, help='Window length')
     parser.add_argument('--feature_size', type=int, default=232, help='Feature size')
     parser.add_argument('--in_channels', type=int, default=1, help='Input channels')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--batch_size', '--batch-size', type=int, default=32, help='Batch size')  # 同时支持两种形式
     parser.add_argument('--epochs', type=int, default=100, help='Training epochs')
     parser.add_argument('--lr', '--learning_rate', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay')
@@ -923,6 +923,7 @@ def main():
         
         # Load data
         logger.info(f"Loading data from {dataset_root}, task name: {args.task_name}")
+        logger.info(f"Using batch size: {args.batch_size}")
         data = load_benchmark_supervised(
             dataset_root=dataset_root,
             task_name=args.task_name,
@@ -941,6 +942,13 @@ def main():
         
         logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
         logger.info(f"Available data loaders: {list(data['loaders'].keys())}")
+        
+        # 验证数据加载器的批处理大小
+        if 'train' in data['loaders']:
+            batch_size_used = next(iter(data['loaders']['train']))[0].shape[0]
+            logger.info(f"Actual batch size used in train loader: {batch_size_used}")
+            if batch_size_used != args.batch_size:
+                logger.warning(f"WARNING: Actual batch size {batch_size_used} differs from requested batch size {args.batch_size}")
         
         # Track model results
         successful_models = []

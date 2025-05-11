@@ -316,6 +316,21 @@ class SageMakerRunner:
             'patch-size': config.get('patch_size', 4)  # TimesFormer1D patch size
         }
         
+        # 检查并记录批处理大小参数
+        orig_batch_size = config.get('batch_size', 32)
+        print(f"Original batch_size from config: {orig_batch_size}")
+        print(f"Passed batch-size parameter: {hyperparameters['batch-size']}")
+        
+        # 确保批处理大小被正确传递
+        if orig_batch_size != hyperparameters['batch-size']:
+            print(f"WARNING: Original batch_size {orig_batch_size} differs from passed batch-size {hyperparameters['batch-size']}")
+            # 强制使用配置文件中的批处理大小
+            hyperparameters['batch-size'] = orig_batch_size
+            print(f"Updated batch-size to match config: {hyperparameters['batch-size']}")
+        
+        # 作为冗余措施，也添加下划线版本的批处理大小参数
+        hyperparameters['batch_size'] = orig_batch_size
+        
         # Add few-shot parameters (if enabled)
         if config.get('enable_few_shot', False) or config.get('fewshot_eval_shots', False):
             hyperparameters['enable-few-shot'] = "True"
