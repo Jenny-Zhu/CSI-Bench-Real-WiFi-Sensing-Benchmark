@@ -550,15 +550,28 @@ class TaskTrainer(BaseTrainer):
         all_preds = np.array(all_preds)
         all_targets = np.array(all_targets)
         
+        # Validate data before calculating metrics
+        if len(all_preds) == 0 or len(all_targets) == 0:
+            print(f"Warning: Empty prediction or target arrays, skipping F1 calculation")
+            return 0.0, pd.DataFrame()
+            
+        if len(all_preds) != len(all_targets):
+            print(f"Warning: Prediction and target array lengths don't match: {len(all_preds)} vs {len(all_targets)}")
+            return 0.0, pd.DataFrame()
+            
+        # Print some debug information
+        print(f"Predictions shape: {all_preds.shape}, unique values: {np.unique(all_preds)}")
+        print(f"Targets shape: {all_targets.shape}, unique values: {np.unique(all_targets)}")
+        
         # Calculate weighted F1 score
         from sklearn.metrics import f1_score, classification_report
-        weighted_f1 = f1_score(all_targets, all_preds, average='weighted')
+        weighted_f1 = f1_score(all_targets, all_preds, average='weighted', zero_division=0)
         
         # Calculate per-class F1 scores
-        per_class_f1 = f1_score(all_targets, all_preds, average=None)
+        per_class_f1 = f1_score(all_targets, all_preds, average=None, zero_division=0)
         
         # Get detailed classification report
-        report = classification_report(all_targets, all_preds, output_dict=True)
+        report = classification_report(all_targets, all_preds, output_dict=True, zero_division=0)
         
         # Save the report to a CSV file if epoch is None (final evaluation)
         if epoch is None and hasattr(self, 'save_path'):
@@ -573,8 +586,10 @@ class TaskTrainer(BaseTrainer):
             report_path = os.path.join(self.save_path, f'classification_report_{split_name}.csv')
             report_df.to_csv(report_path)
             print(f"Classification report saved to {report_path}")
+            
+            return weighted_f1, report_df
         
-        return weighted_f1, per_class_f1
+        return weighted_f1, pd.DataFrame(report).transpose()
 
     def training_loop(self, base_lr=1e-3, weight_decay=0.0, clip_grad=None):
         

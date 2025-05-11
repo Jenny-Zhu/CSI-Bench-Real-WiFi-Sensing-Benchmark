@@ -675,17 +675,26 @@ def train_model(model_name, data, args, device):
             test_f1, classification_report = trainer.calculate_metrics(test_loader)
             
             # Save classification report
-            report_file = os.path.join(results_dir, f"classification_report_{test_name}.csv")
-            classification_report.to_csv(report_file)
-            logger.info(f"Saved classification report for {test_name} to {report_file}")
+            if isinstance(classification_report, pd.DataFrame):
+                report_file = os.path.join(results_dir, f"classification_report_{test_name}.csv")
+                classification_report.to_csv(report_file)
+                logger.info(f"Saved classification report for {test_name} to {report_file}")
+            else:
+                logger.warning(f"Classification report for {test_name} is not a DataFrame, but type: {type(classification_report)}")
             
             # Generate and save confusion matrix
-            confusion_matrix = trainer.plot_confusion_matrix(test_loader, save_path=os.path.join(results_dir, f"{model_name}_{args.task_name}_{test_name}_confusion.png"))
+            try:
+                confusion_matrix = trainer.plot_confusion_matrix(test_loader, save_path=os.path.join(results_dir, f"{model_name}_{args.task_name}_{test_name}_confusion.png"))
+            except Exception as e:
+                logger.error(f"Error generating confusion matrix for {test_name}: {e}")
             
         except Exception as e:
             logger.error(f"Error calculating additional metrics for {test_name}: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(traceback.format_exc())  # 打印完整堆栈跟踪
             test_f1 = 0.0
-            
+        
         # Store metrics
         overall_metrics[test_name] = {
             'loss': test_loss,
