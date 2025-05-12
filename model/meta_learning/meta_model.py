@@ -178,13 +178,6 @@ class CSIMetaModel(BaseMetaModel):
         super().__init__(model_type='vit', **kwargs)
 
 
-class ACFMetaModel(BaseMetaModel):
-    """Specialized meta-learning model for ACF data"""
-
-    def __init__(self, **kwargs):
-        super().__init__(model_type='vit', **kwargs)
-
-
 # Legacy models for backward compatibility
 
 class CSI2DCNN(nn.Module):

@@ -9,7 +9,7 @@ class OWDataloader(Dataset):
     """
     Dataset class for OpenWiFi data loading.
     
-    Handles both CSI and ACF data formats, with options for different preprocessing
+    Handles CSI data format, with options for different preprocessing
     and augmentation strategies.
     """
     def __init__(self, data_dir, transform=None, label_keywords=None, is_inference=False):
@@ -123,8 +123,6 @@ class OWDataloader(Dataset):
             # Assuming 'csi' is the dataset name
             if 'csi' in f:
                 data = f['csi'][:]
-            elif 'acf' in f:
-                data = f['acf'][:]
             else:
                 raise ValueError(f"No recognized dataset in {file_path}")
                 
