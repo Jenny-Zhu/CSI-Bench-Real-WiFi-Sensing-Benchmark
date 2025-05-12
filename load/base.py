@@ -7,20 +7,18 @@ from enum import Enum
 
 class DataType(Enum):
     CSI = 'csi'
-    ACF = 'acf'
 
 class TaskType(Enum):
     PRETRAINING = 'pretraining'
     SUPERVISED = 'supervised'
-    META_LEARNING = 'meta_learning'
 
 def get_data_loader(task_type, data_type, **kwargs):
     """
     Factory function to get the appropriate data loader based on task and data type.
     
     Args:
-        task_type (str or TaskType): Type of task - 'pretraining', 'supervised', or 'meta_learning'
-        data_type (str or DataType): Type of data - 'csi' or 'acf'
+        task_type (str or TaskType): Type of task - 'pretraining' or 'supervised'
+        data_type (str or DataType): Type of data - 'csi'
         **kwargs: Additional parameters to pass to the loader function
         
     Returns:
@@ -36,24 +34,11 @@ def get_data_loader(task_type, data_type, **kwargs):
         if data_type == DataType.CSI:
             from .pretraining.data_loader import load_csi_data_unsupervised
             return load_csi_data_unsupervised(**kwargs)
-        elif data_type == DataType.ACF:
-            from .pretraining.data_loader import load_acf_data_unsupervised
-            return load_acf_data_unsupervised(**kwargs)
     
     elif task_type == TaskType.SUPERVISED:
         if data_type == DataType.CSI:
             from .supervised.data_loader import load_data_supervised
             return load_data_supervised(**kwargs)
-        elif data_type == DataType.ACF:
-            from .supervised.data_loader import load_acf_supervised
-            return load_acf_supervised(**kwargs)
-    
-    elif task_type == TaskType.META_LEARNING:
-        if data_type == DataType.CSI:
-            from .meta_learning.data_loader import load_csi_data_benchmark
-            return load_csi_data_benchmark(**kwargs)
-        elif data_type == DataType.ACF:
-            raise NotImplementedError("ACF meta-learning data loader not implemented yet")
     
     raise ValueError(f"Unsupported combination of task_type={task_type} and data_type={data_type}")
 
@@ -62,8 +47,8 @@ def get_model_loader(task_type, data_type, **kwargs):
     Factory function to get the appropriate model loader based on task and data type.
     
     Args:
-        task_type (str or TaskType): Type of task - 'pretraining', 'supervised', or 'meta_learning'
-        data_type (str or DataType): Type of data - 'csi' or 'acf'
+        task_type (str or TaskType): Type of task - 'pretraining' or 'supervised'
+        data_type (str or DataType): Type of data - 'csi'
         **kwargs: Additional parameters to pass to the loader function
         
     Returns:
@@ -88,9 +73,6 @@ def get_model_loader(task_type, data_type, **kwargs):
             else:
                 from .pretraining.model_loader import load_model_unsupervised
                 return load_model_unsupervised(**kwargs)
-        elif data_type == DataType.ACF:
-            from .pretraining.model_loader import load_model_unsupervised_joint
-            return load_model_unsupervised_joint(**kwargs)
     
     elif task_type == TaskType.SUPERVISED:
         # Check if we're loading a pretrained model or a model from scratch
@@ -100,13 +82,6 @@ def get_model_loader(task_type, data_type, **kwargs):
         else:
             from .supervised.model_loader import load_model_scratch
             return load_model_scratch(**kwargs)
-    
-    elif task_type == TaskType.META_LEARNING:
-        if data_type == DataType.CSI:
-            from .meta_learning.model_loader import load_csi_model_benchmark
-            return load_csi_model_benchmark(**kwargs)
-        elif data_type == DataType.ACF:
-            raise NotImplementedError("ACF meta-learning model loader not implemented yet")
     
     raise ValueError(f"Unsupported combination of task_type={task_type} and data_type={data_type}")
 
