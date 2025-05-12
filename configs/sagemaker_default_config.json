@@ -20,7 +20,7 @@
   "base_job_name": "wifi-sensing",
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
-    "HumanActivityRecognition"
+    "ProximityRecognition"
   ],
   "fewshot": {
     "enabled": false,
