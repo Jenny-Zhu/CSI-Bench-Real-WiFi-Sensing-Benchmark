@@ -106,6 +106,11 @@ print("Preparing to run training script...")
 script_dir = os.path.dirname(os.path.abspath(__file__))
 default_script = os.path.join(script_dir, 'train_multi_model.py')
 script_to_run = os.environ.get('SAGEMAKER_PROGRAM', default_script)
+
+# Set environment variable for compatibility with SageMaker
+if 'SAGEMAKER_PROGRAM' not in os.environ:
+    os.environ['SAGEMAKER_PROGRAM'] = default_script
+
 print(f"Script to execute: {script_to_run}")
 
 # Check if script exists

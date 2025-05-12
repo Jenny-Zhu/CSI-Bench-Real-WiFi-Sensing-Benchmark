@@ -362,7 +362,7 @@ class SageMakerRunner:
         
         # Create estimator
         estimator = PyTorch(
-            entry_point='entry_script.py',
+            entry_point='scripts/entry_script.py',
             source_dir=CODE_DIR,
             role=self.role,
             framework_version=config.get('framework_version', '1.12.1'),
@@ -395,7 +395,8 @@ class SageMakerRunner:
                 'SAGEMAKER_TRAINING_JOB_END_DISABLED': 'true',
                 'SAGEMAKER_TRAINING_JOB_END_DISABLE': 'true',
                 'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
-                'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true'  # Custom flag for our code
+                'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true',  # Custom flag for our code
+                'SAGEMAKER_PROGRAM': 'scripts/train_multi_model.py'  # Explicitly set the script to run
             },
             disable_model_download=True,  # 禁用model.tar.gz文件的生成
             disable_output_compression=True  # 禁用output.tar.gz文件的生成
@@ -545,7 +546,7 @@ class SageMakerRunner:
         
         # Create estimator
         estimator = PyTorch(
-            entry_point='entry_script.py',
+            entry_point='scripts/entry_script.py',
             source_dir=CODE_DIR,
             role=self.role,
             framework_version=config.get('framework_version', '1.12.1'),
@@ -580,7 +581,8 @@ class SageMakerRunner:
                 'SAGEMAKER_TRAINING_JOB_END_DISABLED': 'true',
                 'SAGEMAKER_TRAINING_JOB_END_DISABLE': 'true',
                 'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
-                'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true'  # Custom flag for our code
+                'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true',  # Custom flag for our code
+                'SAGEMAKER_PROGRAM': 'scripts/train_multi_model.py'  # Explicitly set the script to run
             }
         )
         
