@@ -103,7 +103,9 @@ print("Preparing to run training script...")
 
 # Check script to execute
 # Check SAGEMAKER_PROGRAM environment variable
-script_to_run = os.environ.get('SAGEMAKER_PROGRAM', 'train_multi_model.py')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+default_script = os.path.join(script_dir, 'train_multi_model.py')
+script_to_run = os.environ.get('SAGEMAKER_PROGRAM', default_script)
 print(f"Script to execute: {script_to_run}")
 
 # Check if script exists

@@ -30,7 +30,7 @@ from sagemaker.inputs import TrainingInput
 import boto3
 
 # Default path settings
-CODE_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory containing the code
+CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Root directory (one level up from scripts)
 CONFIG_DIR = os.path.join(CODE_DIR, "configs")
 DEFAULT_CONFIG_PATH = os.path.join(CONFIG_DIR, "sagemaker_default_config.json")
 
