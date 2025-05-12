@@ -1,6 +1,0 @@
-{"learning_rate": 0.001,
-  "weight_decay": 1e-5,
-  "in_channels": 1,
-  "results_subdir": "resnet18_msr"
-} 
-
