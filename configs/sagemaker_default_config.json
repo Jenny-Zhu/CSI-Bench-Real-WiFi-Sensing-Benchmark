@@ -5,7 +5,7 @@
   "model": "transformer",
   "win_len": 500,
   "feature_size": 232,
-  "seed": 11,
+  "seed": 42,
   "batch_size": 256,
   "epochs": 2,
   "learning_rate": 1e-4,
