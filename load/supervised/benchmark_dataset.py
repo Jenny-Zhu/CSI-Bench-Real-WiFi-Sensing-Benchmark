@@ -265,7 +265,13 @@ class BenchmarkCSIDataset(Dataset):
                     filepath = os.path.join(self.dataset_root, filepath)
                 # Case 2: Path is just 'TaskName/...' or contains TaskName directory
                 elif filepath.startswith(f"{self.task_name}/") or filepath.startswith(f"{self.task_name}\\"):
-                    filepath = os.path.join(self.dataset_root, filepath)
+                    # In this case, we might need to omit the task name in the path
+                    # Extract the path parts after the task name
+                    path_parts = filepath.replace('\\', '/').split('/')
+                    if path_parts[0] == self.task_name:
+                        filepath = os.path.join(self.dataset_root, *path_parts[1:])
+                    else:
+                        filepath = os.path.join(self.dataset_root, filepath)
                 # Case 3: Path is relative to dataset root
                 else:
                     filepath = os.path.join(self.dataset_root, filepath)
@@ -329,9 +335,33 @@ class BenchmarkCSIDataset(Dataset):
                 error_msg = f"File not found: {filepath}\n"
                 error_msg += f"Original path from CSV: {original_filepath}\n"
                 error_msg += f"Dataset root: {self.dataset_root}\n"
+                error_msg += f"Task directory: {self.task_dir}\n"
+                error_msg += f"Using root as task dir: {using_root_as_task_dir}\n"
                 error_msg += "Tried alternative paths:\n"
                 for desc, alt_path in alt_paths:
                     error_msg += f"  - {desc}: {alt_path}\n"
+                
+                # Additional debug info about directory structure
+                error_msg += "\nDirectory structure at dataset root:\n"
+                try:
+                    for item in os.listdir(self.dataset_root):
+                        item_path = os.path.join(self.dataset_root, item)
+                        if os.path.isdir(item_path):
+                            error_msg += f"  Directory: {item}/\n"
+                            # List first few items in subdirectory
+                            try:
+                                sub_items = os.listdir(item_path)[:5]  # First 5 items
+                                for sub_item in sub_items:
+                                    error_msg += f"    - {sub_item}\n"
+                                if len(os.listdir(item_path)) > 5:
+                                    error_msg += f"    - ... ({len(os.listdir(item_path))-5} more items)\n"
+                            except Exception as e:
+                                error_msg += f"    - Error listing contents: {e}\n"
+                        else:
+                            error_msg += f"  File: {item}\n"
+                except Exception as e:
+                    error_msg += f"  Error listing directory: {e}\n"
+                
                 raise FileNotFoundError(error_msg)
         
         # Load data based on file format
