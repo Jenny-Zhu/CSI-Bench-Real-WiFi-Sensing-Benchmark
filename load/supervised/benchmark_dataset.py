@@ -318,18 +318,26 @@ class BenchmarkCSIDataset(Dataset):
             mat_dict = loadmat(filepath)
             csi_data = self._extract_csi_from_mat(mat_dict)
         elif self.file_format == "h5":
-            with h5py.File(filepath, 'r') as f:
-                # Use the data_key (default is 'CSI_amps') instead of hardcoded 'csi'
-                if self.data_key in f:
-                    csi_data = np.array(f[self.data_key])
-                else:
-                    # Fallback to checking other common keys
-                    if 'csi' in f:
-                        csi_data = np.array(f['csi'])
-                    elif 'CSI' in f:
-                        csi_data = np.array(f['CSI'])
+
+            try:
+                with h5py.File(filepath, 'r') as f:
+                    if len(f.keys()) == 0:
+                        raise KeyError(f"Empty H5 file: {filepath}")
+                    # Use the data_key (default is 'CSI_amps') instead of hardcoded 'csi'
+                    if self.data_key in f:
+                        csi_data = np.array(f[self.data_key])
                     else:
-                        raise KeyError(f"Could not find data in H5 file. Available keys: {list(f.keys())}")
+                        # Fallback to checking other common keys
+                        if 'csi' in f:
+                            csi_data = np.array(f['csi'])
+                        elif 'CSI' in f:
+                            csi_data = np.array(f['CSI'])
+                        else:
+                            raise KeyError(f"Could not find data in H5 file. Available keys: {list(f.keys())}")
+
+            except (OSError, KeyError) as e:
+                print(f"Skipping file {filepath} due to error: {e}")
+                return None  # 或 raise StopIteration
         else:
             raise ValueError(f"Unsupported file format: {self.file_format}")
         
