@@ -225,13 +225,13 @@ class SageMakerRunner:
             task_config = dict(base_config)
             task_config['task'] = task
             
-            # 为任务添加use_root_data_path参数
-            # 支持以下几种路径查找策略:
-            # 1. 直接指定use_root_data_path = True/False
-            # 2. 针对不同任务使用不同路径策略 (root_data_tasks配置项)
-            # 3. 首次任务尝试不同路径，后续任务使用成功的路径
+            # Add use_root_data_path parameter for the task
+            # Supports the following path lookup strategies:
+            # 1. Directly specify use_root_data_path = True/False
+            # 2. Use different path strategies for different tasks (root_data_tasks config item)
+            # 3. Try different paths for first task, then use successful path for subsequent tasks
             
-            # 首先检查这个任务是否在root_data_tasks列表中
+            # First check if this task is in the root_data_tasks list
             root_data_tasks = task_config.get('root_data_tasks', [])
             if isinstance(root_data_tasks, str):
                 root_data_tasks = [t.strip() for t in root_data_tasks.split(',')]
@@ -302,11 +302,11 @@ class SageMakerRunner:
             'weight-decay': config.get('weight_decay', 1e-5),  # Add default weight decay
             'warmup-epochs': config.get('warmup_epochs', 5),  # Add default warmup period
             'patience': config.get('patience', 15),  # Add default patience value
-            'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # 添加自适应路径选项
-            'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # 添加尝试所有路径选项
-            'use-root-data-path': "True",  # 默认总是使用根目录数据
-            'direct-upload': "True",  # 强制直接上传到S3
-            'save-to-s3': self.s3_output_base,  # 设置保存的S3输出路径
+            'adaptive-path': "True" if config.get('adaptive_path', False) else "False",  # Add adaptive path option
+            'try-all-paths': "True" if config.get('try_all_paths', False) else "False",  # Add try all paths option
+            'use-root-data-path': "True",  # Always use root directory data by default
+            'direct-upload': "True",  # Force direct upload to S3
+            'save-to-s3': self.s3_output_base,  # Set S3 output path for saving
             'd-model': config.get('d_model', 64),  # Transformer model dimension
             'emb-dim': config.get('emb_dim', 64),  # Embedding dimension
             'dropout': config.get('dropout', 0.1),  # Dropout rate
@@ -316,19 +316,19 @@ class SageMakerRunner:
             'patch-size': config.get('patch_size', 4)  # TimesFormer1D patch size
         }
         
-        # 检查并记录批处理大小参数
+        # Check and log batch size parameter
         orig_batch_size = config.get('batch_size', 32)
         print(f"Original batch_size from config: {orig_batch_size}")
         print(f"Passed batch-size parameter: {hyperparameters['batch-size']}")
         
-        # 确保批处理大小被正确传递
+        # Ensure batch size is correctly passed
         if orig_batch_size != hyperparameters['batch-size']:
             print(f"WARNING: Original batch_size {orig_batch_size} differs from passed batch-size {hyperparameters['batch-size']}")
-            # 强制使用配置文件中的批处理大小
+            # Force use of batch size from config file
             hyperparameters['batch-size'] = orig_batch_size
             print(f"Updated batch-size to match config: {hyperparameters['batch-size']}")
         
-        # 作为冗余措施，也添加下划线版本的批处理大小参数
+        # As a redundancy measure, also add underscore version of batch size parameter
         hyperparameters['batch_size'] = orig_batch_size
         
         # Add few-shot parameters (if enabled)
@@ -378,6 +378,15 @@ class SageMakerRunner:
             debugger_hook_config=False,  # Disable debugger hooks completely
             disable_upload_notifications=True,  # Disable notifications about uploads
             profiler_config=None,  # No profiler config
+            # 启用分布式训练功能
+            distribution={
+                'pytorch': {
+                    # 使用PyTorch的DistributedDataParallel (DDP)
+                    'enabled': True,  
+                    # 使用NCCL后端进行GPU间通信
+                    'backend': 'nccl'
+                }
+            },
             environment={
                 'SAGEMAKER_S3_OUTPUT': self.s3_output_base,  # Set environment variable for S3 output path
                 'SMDEBUG_DISABLED': 'true',
@@ -396,7 +405,12 @@ class SageMakerRunner:
                 'SAGEMAKER_TRAINING_JOB_END_DISABLE': 'true',
                 'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
                 'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true',  # Custom flag for our code
-                'SAGEMAKER_PROGRAM': 'scripts/train_multi_model.py'  # Explicitly set the script to run
+                'SAGEMAKER_PROGRAM': 'scripts/train_multi_model.py',  # Explicitly set the script to run
+                # 添加新的环境变量以启用更多优化
+                'PYTORCH_CUDA_ALLOC_CONF': 'max_split_size_mb:128',  # 优化CUDA内存分配
+                'OMP_NUM_THREADS': '4',  # 限制OpenMP线程数
+                'MKL_NUM_THREADS': '4',  # 限制MKL线程数
+                'NVIDIA_VISIBLE_DEVICES': 'all'  # 确保所有GPU可见
             },
             disable_model_download=True,  # 禁用model.tar.gz文件的生成
             disable_output_compression=True  # 禁用output.tar.gz文件的生成
@@ -429,10 +443,10 @@ class SageMakerRunner:
         if not s3_data_base.endswith('/'):
             s3_data_base += '/'
         
-        # 使用任务特定的路径，而不是整个根目录
+        # Use task-specific path instead of the entire root directory
         task_data_path = f"{s3_data_base}tasks/{task}/"
-        print(f"使用任务特定数据路径: {task_data_path}")
-        print(f"任务名称: {task} - 数据将下载到 /opt/ml/input/data/training/")
+        print(f"Using task-specific data path: {task_data_path}")
+        print(f"Task name: {task} - Data will be downloaded to /opt/ml/input/data/training/")
         
         # Define input channels
         input_data = {

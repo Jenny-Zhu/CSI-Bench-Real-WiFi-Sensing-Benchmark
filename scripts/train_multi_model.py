@@ -92,9 +92,9 @@ try:
     # Disable debug-output directory
     os.environ['SAGEMAKER_DEBUG_OUTPUT_DISABLED'] = 'true'
     
-    print("已完全禁用 SageMaker Debugger 和相关功能")
+    print("Successfully disabled SageMaker Debugger and related features")
 except Exception as e:
-    print(f"警告：禁用模块时出错: {e}")
+    print(f"Warning: Error disabling modules: {e}")
 
 import argparse
 import json
@@ -850,6 +850,48 @@ def main():
         os.environ['SAGEMAKER_DISABLE_DEFAULT_RULES'] = 'true'
         os.environ['SAGEMAKER_TRAINING_JOB_END_DISABLED'] = 'true'
         
+        # Set GPU optimization parameters
+        if torch.cuda.is_available():
+            # Enable cuDNN auto-tuning
+            torch.backends.cudnn.benchmark = True
+            # For fixed-size inputs, using cuDNN deterministic mode can improve performance
+            torch.backends.cudnn.deterministic = False
+            # Configure GPU memory allocator optimizations
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+            # Clear GPU cache
+            torch.cuda.empty_cache()
+            # Display available GPU count
+            logger.info(f"Available GPU count: {torch.cuda.device_count()}")
+        
+        # Check distributed training environment
+        is_distributed = False
+        local_rank = 0
+        world_size = 1
+        rank = 0
+        
+        if 'WORLD_SIZE' in os.environ and int(os.environ['WORLD_SIZE']) > 1:
+            is_distributed = True
+            local_rank = int(os.environ.get('LOCAL_RANK', '0'))
+            world_size = int(os.environ.get('WORLD_SIZE', '1'))
+            rank = int(os.environ.get('RANK', '0'))
+            
+            logger.info(f"Running in distributed environment: LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}, RANK={rank}")
+            
+            # Confirm distributed initialization is complete
+            if torch.distributed.is_initialized():
+                logger.info("Distributed backend already initialized")
+            else:
+                logger.info("Distributed backend not yet initialized, attempting to initialize now")
+                try:
+                    # Try to initialize distributed environment (if not already done in entry_script.py)
+                    torch.distributed.init_process_group(backend='nccl')
+                    torch.cuda.set_device(local_rank)
+                    logger.info("Successfully initialized distributed backend")
+                except Exception as e:
+                    logger.warning(f"Unable to initialize distributed backend: {e}")
+        else:
+            logger.info("Running in single GPU environment")
+        
         # Log environment variables for debugging
         if is_sagemaker:
             logger.info("Running in SageMaker environment")
@@ -866,8 +908,39 @@ def main():
             logger.info(f"  {arg_name}: {arg_value}")
         
         # Set device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"Using device: {device}")
+        if is_distributed:
+            # In distributed environment, set device based on local_rank
+            device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+            logger.info(f"Process {rank} using device: {device} (local_rank: {local_rank})")
+        else:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            logger.info(f"Using device: {device}")
+        
+        # Configure thread optimizations
+        if device.type == 'cuda':
+            # Limit CPU thread count to reduce thread contention
+            torch.set_num_threads(4)  # Set PyTorch thread count
+            if hasattr(torch, 'set_num_interop_threads'):
+                torch.set_num_interop_threads(4)  # Set inter-op parallelism threads
+            
+            # Try to enable TensorFloat32 precision mode (for Ampere or newer GPUs)
+            if hasattr(torch.cuda, 'matmul') and hasattr(torch.cuda.matmul, 'allow_tf32'):
+                torch.cuda.matmul.allow_tf32 = True  # Allow TF32 in matrix multiplications
+                logger.info("Enabled TensorFloat32 precision mode to accelerate matrix operations")
+            
+            if hasattr(torch, 'backends') and hasattr(torch.backends, 'cuda') and hasattr(torch.backends.cuda, 'matmul') and hasattr(torch.backends.cuda.matmul, 'allow_tf32'):
+                torch.backends.cuda.matmul.allow_tf32 = True  # Allow TF32 in cuDNN operations
+                logger.info("Enabled cuDNN TensorFloat32 precision mode")
+                
+            # Display memory usage for each GPU
+            for i in range(torch.cuda.device_count()):
+                gpu_total_mem = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+                gpu_allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                gpu_reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                logger.info(f"GPU #{i} ({torch.cuda.get_device_name(i)}): "
+                           f"Total memory={gpu_total_mem:.2f}GB, "
+                           f"Allocated={gpu_allocated:.2f}GB, "
+                           f"Cached={gpu_reserved:.2f}GB")
         
         # Set random seed
         set_seed(args.seed)
@@ -922,6 +995,14 @@ def main():
             except Exception as e:
                 logger.warning(f"Failed to inspect H5 files: {e}")
         
+        # Adjust batch size for distributed training
+        if is_distributed and args.batch_size % world_size != 0:
+            old_batch_size = args.batch_size
+            args.batch_size = (args.batch_size // world_size) * world_size
+            if args.batch_size == 0:
+                args.batch_size = world_size
+            logger.info(f"Adjusting batch size for distributed training: {old_batch_size} -> {args.batch_size}")
+        
         # Load data
         logger.info(f"Loading data from {dataset_root}, task name: {args.task_name}")
         logger.info(f"Using batch size: {args.batch_size}")
@@ -933,7 +1014,8 @@ def main():
             file_format=args.file_format,
             num_workers=args.num_workers,
             use_root_as_task_dir=args.use_root_data_path,
-            debug=False  # Disable debug print messages
+            debug=False,  # Disable debug print messages
+            distributed=is_distributed  # Add distributed training flag
         )
         
         # Check if data loaded successfully
@@ -944,11 +1026,11 @@ def main():
         logger.info(f"Data loaded successfully. Number of classes: {data['num_classes']}")
         logger.info(f"Available data loaders: {list(data['loaders'].keys())}")
         
-        # 验证数据加载器的批处理大小
+        # Verify batch size in data loader
         if 'train' in data['loaders']:
             batch_size_used = next(iter(data['loaders']['train']))[0].shape[0]
             logger.info(f"Actual batch size used in train loader: {batch_size_used}")
-            if batch_size_used != args.batch_size:
+            if batch_size_used != args.batch_size and not is_distributed:
                 logger.warning(f"WARNING: Actual batch size {batch_size_used} differs from requested batch size {args.batch_size}")
         
         # Track model results

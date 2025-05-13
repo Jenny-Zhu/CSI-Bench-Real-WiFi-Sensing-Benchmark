@@ -183,6 +183,49 @@ try:
         print(f"Current GPU memory cache: {torch.cuda.memory_reserved(0) / (1024**3):.2f} GB")
     print("Successfully imported PyTorch without Horovod conflicts")
     
+    # Initialize distributed training environment (if in SageMaker environment)
+    if is_sagemaker:
+        print("\n===== Checking Distributed Training Environment =====")
+        # Get distributed training related environment variables
+        local_rank = int(os.environ.get('LOCAL_RANK', '0'))
+        world_size = int(os.environ.get('WORLD_SIZE', '1'))
+        rank = int(os.environ.get('RANK', '0'))
+        world_rank = int(os.environ.get('RANK', '0'))
+        
+        print(f"Distributed training environment information:")
+        print(f"  LOCAL_RANK: {local_rank}")
+        print(f"  WORLD_SIZE: {world_size}")
+        print(f"  RANK: {rank}")
+        
+        # Initialize distributed backend if there are multiple GPUs or nodes
+        if world_size > 1:
+            try:
+                print("Initializing distributed backend...")
+                # Initialize distributed environment
+                torch.distributed.init_process_group(backend='nccl')
+                # Set current device
+                torch.cuda.set_device(local_rank)
+                print(f"Distributed environment initialization successful, process {rank}/{world_size}, local rank {local_rank}")
+                
+                # Verify that distributed environment is correctly set up
+                if torch.distributed.is_initialized():
+                    # Confirm current process group size
+                    dist_world_size = torch.distributed.get_world_size()
+                    dist_rank = torch.distributed.get_rank()
+                    print(f"Verifying distributed environment: Process group size={dist_world_size}, Current process rank={dist_rank}")
+                else:
+                    print("Warning: Distributed environment not properly initialized")
+                
+                # Synchronize all nodes
+                torch.distributed.barrier()
+                print("All nodes synchronized")
+            except Exception as e:
+                print(f"Error initializing distributed environment: {e}")
+        else:
+            print("Single GPU training environment, no need to initialize distributed backend")
+        
+        print("===== Distributed Training Environment Setup Complete =====\n")
+    
     # Check if in test environment mode
     test_env = os.environ.get('SM_HP_TEST_ENV') == 'True'
     if test_env:
