@@ -13,14 +13,14 @@
   "warmup_epochs": 5,
   "patience": 15,
   "test_splits": "all",
-  "instance_type": "ml.g5.8xlarge",
+  "instance_type": "ml.g4dn.8xlarge",
   "instance_count": 1,
   "framework_version": "1.12.1",
   "py_version": "py38",
   "base_job_name": "wifi-sensing",
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
-    "Localization"
+    "BreathingDetection"
   ],
   "fewshot": {
     "enabled": false,
