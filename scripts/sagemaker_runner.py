@@ -214,16 +214,33 @@ class SageMakerRunner:
         if override_config:
             base_config.update(override_config)
         
+        # Get instance types for tasks (if specified as a list)
+        instance_types = base_config.get("instance_type", [])
+        if not isinstance(instance_types, list):
+            # If instance_type is not a list, convert it to a single-item list
+            instance_types = [instance_types]
+        
         # List to track job information
         jobs = []
         
         # Iterate through tasks
-        for task in tasks_to_run:
+        for i, task in enumerate(tasks_to_run):
             print(f"\nProcessing task: {task}")
             
             # Create task-specific configuration
             task_config = dict(base_config)
             task_config['task'] = task
+            
+            # Set instance type for this task
+            # If instance_types list is shorter than tasks_to_run, use the last available instance type
+            if instance_types:
+                if i < len(instance_types):
+                    task_instance_type = instance_types[i]
+                else:
+                    task_instance_type = instance_types[-1]
+                
+                task_config['instance_type'] = task_instance_type
+                print(f"Using instance type '{task_instance_type}' for task '{task}'")
             
             # Add use_root_data_path parameter for the task
             # Supports the following path lookup strategies:
@@ -262,10 +279,11 @@ class SageMakerRunner:
                 'task': task,
                 'models': models_to_run,
                 'status': 'InProgress',
-                'estimator': estimator
+                'estimator': estimator,
+                'instance_type': task_config.get('instance_type')
             })
             
-            print(f"Job submitted: {job_name}")
+            print(f"Job submitted: {job_name} (instance: {task_config.get('instance_type')})")
             
             # If waiting time is specified, wait between jobs
             if len(tasks_to_run) > 1 and task != tasks_to_run[-1]:
@@ -287,6 +305,15 @@ class SageMakerRunner:
             print("Warning: No models defined in 'available_models' config")
             all_models = ['mlp', 'lstm', 'resnet18', 'transformer']
             print(f"Using default models: {all_models}")
+            
+        # Get instance type (may be a single value or from a list per task)
+        instance_type = config.get('instance_type', 'ml.g4dn.xlarge')
+        # Ensure instance_type is a string, not a list
+        if isinstance(instance_type, list):
+            instance_type = instance_type[0]
+            print(f"Converting instance_type from list to single value: {instance_type}")
+            
+        print(f"Using instance type: {instance_type}")
             
         # Prepare hyperparameters - Use dashes instead of underscores for parameter names
         hyperparameters = {
@@ -368,7 +395,7 @@ class SageMakerRunner:
             framework_version=config.get('framework_version', '1.12.1'),
             py_version=config.get('py_version', 'py38'),
             instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.xlarge'),
+            instance_type=instance_type,
             base_job_name=base_job_name,
             hyperparameters=hyperparameters,
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
@@ -524,6 +551,14 @@ class SageMakerRunner:
         """
         Create SageMaker PyTorch Estimator for multi-task learning
         """
+        # Get instance type (may be a single value or from a list per task)
+        instance_type = config.get('instance_type', 'ml.g4dn.2xlarge')
+        # Ensure instance_type is a string, not a list
+        if isinstance(instance_type, list):
+            # For multitask, use the most powerful instance in the list
+            instance_type = instance_type[0]
+            print(f"For multitask learning, using the first instance type from list: {instance_type}")
+        
         # Prepare hyperparameters - Use dashes instead of underscores for parameter names
         hyperparameters = {
             'pipeline': 'multitask',
@@ -558,6 +593,9 @@ class SageMakerRunner:
                     fixed_param = param.replace('_', '-')
                     hyperparameters[fixed_param] = config[param]
         
+        # Log instance type
+        print(f"Creating multitask estimator with instance type: {instance_type}")
+        
         # Create estimator
         estimator = PyTorch(
             entry_point='scripts/entry_script.py',
@@ -566,7 +604,7 @@ class SageMakerRunner:
             framework_version=config.get('framework_version', '1.12.1'),
             py_version=config.get('py_version', 'py38'),
             instance_count=config.get('instance_count', 1),
-            instance_type=config.get('instance_type', 'ml.g4dn.2xlarge'),
+            instance_type=instance_type,
             base_job_name='wifi-sensing-multitask',
             hyperparameters=hyperparameters,
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
