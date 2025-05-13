@@ -4,6 +4,39 @@ from .benchmark_dataset import BenchmarkCSIDataset, load_benchmark_datasets
 from ..supervised.label_utils import LabelMapper, create_label_mapper_from_metadata
 import torch
 
+def filter_none_collate_fn(batch):
+    """
+    Custom collate function that filters out None values from the batch.
+    
+    Args:
+        batch: List of samples returned by __getitem__
+        
+    Returns:
+        Collated batch without None values
+    """
+    # Filter out None values
+    batch = [sample for sample in batch if sample is not None]
+    
+    # If the batch is empty after filtering, return None
+    if len(batch) == 0:
+        return None
+    
+    # Use default collate function logic for the filtered batch
+    if isinstance(batch[0], torch.Tensor):
+        return torch.stack(batch, 0)
+    elif isinstance(batch[0], tuple) and all(isinstance(item, torch.Tensor) for item in batch[0]):
+        # Handle (data, label) tuple case which is common
+        data = torch.stack([item[0] for item in batch], 0)
+        labels = torch.tensor([item[1] for item in batch])
+        return data, labels
+    elif isinstance(batch[0], tuple):
+        # General case for tuples - transpose and handle each element
+        transposed = zip(*batch)
+        return [filter_none_collate_fn(samples) for samples in transposed]
+    else:
+        # Other cases (lists, dicts, etc.)
+        return batch
+
 def load_benchmark_supervised(
     dataset_root,
     task_name,
@@ -271,7 +304,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             sampler=train_sampler,  # Use sampler instead of shuffle
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=filter_none_collate_fn  # Add custom collate function
         )
         
         # Validation loader
@@ -285,7 +319,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             sampler=val_sampler,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=filter_none_collate_fn  # Add custom collate function
         )
         
         # Test loaders
@@ -306,7 +341,8 @@ def load_benchmark_supervised(
                 batch_size=batch_size,
                 sampler=test_sampler,
                 num_workers=num_workers,
-                pin_memory=True
+                pin_memory=True,
+                collate_fn=filter_none_collate_fn  # Add custom collate function
             )
     else:
         # Regular non-distributed data loaders
@@ -316,7 +352,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             shuffle=shuffle_train,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=filter_none_collate_fn  # Add custom collate function
         )
         
         # Validation loader
@@ -325,7 +362,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=filter_none_collate_fn  # Add custom collate function
         )
         
         # Test loaders
@@ -341,7 +379,8 @@ def load_benchmark_supervised(
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
-                pin_memory=True
+                pin_memory=True,
+                collate_fn=filter_none_collate_fn  # Add custom collate function
             )
     
     # Get number of classes from the label mapper
