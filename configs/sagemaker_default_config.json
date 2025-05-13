@@ -5,22 +5,22 @@
   "model": "transformer",
   "win_len": 500,
   "feature_size": 232,
-  "seed": 42,
+  "seed": 11,
   "batch_size": 256,
-  "epochs": 100,
+  "epochs": 2,
   "learning_rate": 1e-4,
   "weight_decay": 1e-6,
   "warmup_epochs": 5,
   "patience": 15,
   "test_splits": "all",
-  "instance_type": "ml.g5.12xlarge",
+  "instance_type": "ml.g5.xlarge",
   "instance_count": 1,
   "framework_version": "1.12.1",
   "py_version": "py38",
   "base_job_name": "wifi-sensing",
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
-    "BreathingDetection"
+    "TestTask"
   ],
   "fewshot": {
     "enabled": false,

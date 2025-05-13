@@ -579,7 +579,7 @@ def train_model(model_name, data, args, device):
     # Create experiment ID from timestamp and model name
     import hashlib
     timestamp = int(time.time())
-    experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{timestamp}'.encode()).hexdigest()[:8]}"
+    experiment_id = f"params_{hashlib.md5(f'{model_name}_{args.task_name}_{args.seed}_{timestamp}'.encode()).hexdigest()[:8]}"
     
     # Create directory structure that matches local pipeline
     # /output_dir/task_name/model_name/experiment_id/
@@ -601,6 +601,7 @@ def train_model(model_name, data, args, device):
         'patience': args.patience,
         'win_len': args.win_len,
         'feature_size': args.feature_size,
+        'seed': args.seed,
         'experiment_id': experiment_id
     }
     

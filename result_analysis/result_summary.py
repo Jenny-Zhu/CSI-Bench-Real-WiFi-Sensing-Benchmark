@@ -57,6 +57,29 @@ def create_result_summary(
                         if field in best_perf:
                             result_row[field] = best_perf[field]
                     
+                    # Extract learning rate and weight decay from config file
+                    if 'experiment_id' in best_perf:
+                        experiment_id = best_perf['experiment_id']
+                        experiment_path = os.path.join(model_path, f"{experiment_id}")
+                        config_file = os.path.join(experiment_path, f"{model}_{task}_config.json")
+                        
+                        if os.path.exists(config_file):
+                            try:
+                                with open(config_file, 'r') as f:
+                                    config = json.load(f)
+                                
+                                # Extract learning rate and weight decay
+                                if 'learning_rate' in config:
+                                    result_row['learning_rate'] = config['learning_rate']
+                                    print(f"Learning rate: {result_row['learning_rate']}")
+                                if 'weight_decay' in config:
+                                    result_row['weight_decay'] = config['weight_decay']
+                                    print(f"Weight decay: {result_row['weight_decay']}")
+                            except Exception as e:
+                                print(f"Error reading config file {config_file}: {e}")
+                        else:
+                            print(f"Config file not found: {config_file}")
+                    
                     # Extract test metrics for each test dataset
                     if 'test_metrics' in best_perf:
                         for test_name, metrics in best_perf['test_metrics'].items():
@@ -88,7 +111,7 @@ if __name__ == "__main__":
     pipelines = ["supervised"]
     
     # Tasks to analyze
-    tasks = ["ProximityRecognition", "HumanIdentification", "HumanActivityRecognition",'MotionSourceRecognition']
+    tasks = ["ProximityRecognition", "HumanIdentification", "HumanActivityRecognition",'MotionSourceRecognition','FallDetection']
     # tasks = ["ProximityRecognition", "HumanIdentification"]
     # Models to analyze
     models = ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"]
