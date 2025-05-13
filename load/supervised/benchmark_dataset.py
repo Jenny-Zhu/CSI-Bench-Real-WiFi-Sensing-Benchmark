@@ -198,6 +198,9 @@ class BenchmarkCSIDataset(Dataset):
         original_filepath = row[self.data_column]
         filepath = original_filepath
         
+        # Check if task_dir is the same as dataset_root (use_root_as_task_dir=True case)
+        using_root_as_task_dir = os.path.normpath(self.task_dir) == os.path.normpath(self.dataset_root)
+        
         # Handle the paths from the metadata file
         if os.path.exists(original_filepath):
             # If the original path exists as-is, use it directly
@@ -215,8 +218,11 @@ class BenchmarkCSIDataset(Dataset):
                     break
             
             if relative_parts:
-                # Construct path using the extracted relative parts
-                filepath = os.path.join(self.dataset_root, 'tasks', *relative_parts)
+                # Construct path based on whether we're using root as task dir
+                if using_root_as_task_dir:
+                    filepath = os.path.join(self.dataset_root, *relative_parts)
+                else:
+                    filepath = os.path.join(self.dataset_root, 'tasks', *relative_parts)
             else:
                 # Try with the last parts of the path (after the last 'CSI100Hz' if it exists)
                 for i, part in enumerate(path_parts):
@@ -225,7 +231,10 @@ class BenchmarkCSIDataset(Dataset):
                         break
                 
                 if relative_parts:
-                    filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, *relative_parts)
+                    if using_root_as_task_dir:
+                        filepath = os.path.join(self.dataset_root, *relative_parts)
+                    else:
+                        filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, *relative_parts)
                 else:
                     # Last resort: try to find path segments like sub_X/user_Y/act_Z
                     try_sub_user_path = False
@@ -236,24 +245,41 @@ class BenchmarkCSIDataset(Dataset):
                             break
                     
                     if try_sub_user_path:
-                        filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, *relative_parts)
+                        if using_root_as_task_dir:
+                            filepath = os.path.join(self.dataset_root, *relative_parts)
+                        else:
+                            filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, *relative_parts)
                     else:
                         # Try just the filename
                         filename = os.path.basename(original_filepath)
-                        filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filename)
+                        if using_root_as_task_dir:
+                            filepath = os.path.join(self.dataset_root, filename)
+                        else:
+                            filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filename)
         elif not os.path.isabs(filepath):
-            # Handle relative paths
-            # Case 1: Path includes 'tasks/TaskName/...'
-            if filepath.startswith('/tasks/') or filepath.startswith('tasks/') or filepath.startswith('tasks\\'):
-                filepath = os.path.join(self.dataset_root, filepath)
-            
-            # Case 2: Path is just 'TaskName/...'
-            elif filepath.startswith(f"{self.task_name}/") or filepath.startswith(f"{self.task_name}\\"):
-                filepath = os.path.join(self.dataset_root, 'tasks', filepath)
-            
-            # Case 3: Path is relative to task directory
+            # Handle relative paths based on whether we're using root as task dir
+            if using_root_as_task_dir:
+                # When using root as task dir, use paths directly
+                # Case 1: Path includes 'tasks/TaskName/...'
+                if filepath.startswith('/tasks/') or filepath.startswith('tasks/') or filepath.startswith('tasks\\'):
+                    filepath = os.path.join(self.dataset_root, filepath)
+                # Case 2: Path is just 'TaskName/...' or contains TaskName directory
+                elif filepath.startswith(f"{self.task_name}/") or filepath.startswith(f"{self.task_name}\\"):
+                    filepath = os.path.join(self.dataset_root, filepath)
+                # Case 3: Path is relative to dataset root
+                else:
+                    filepath = os.path.join(self.dataset_root, filepath)
             else:
-                filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filepath)
+                # Original behavior when not using root as task dir
+                # Case 1: Path includes 'tasks/TaskName/...'
+                if filepath.startswith('/tasks/') or filepath.startswith('tasks/') or filepath.startswith('tasks\\'):
+                    filepath = os.path.join(self.dataset_root, filepath)
+                # Case 2: Path is just 'TaskName/...'
+                elif filepath.startswith(f"{self.task_name}/") or filepath.startswith(f"{self.task_name}\\"):
+                    filepath = os.path.join(self.dataset_root, 'tasks', filepath)
+                # Case 3: Path is relative to task directory
+                else:
+                    filepath = os.path.join(self.dataset_root, 'tasks', self.task_name, filepath)
         
         # Check if file exists
         if not os.path.exists(filepath):
@@ -264,34 +290,31 @@ class BenchmarkCSIDataset(Dataset):
             alt1 = os.path.join(self.dataset_root, original_filepath)
             alt_paths.append(("Direct join", alt1))
             
-            # Alternative 2: Try with 'tasks' prefix
-            if 'tasks' not in original_filepath:
+            # Alternative 2: Try with 'tasks' prefix if not using root as task dir
+            if not using_root_as_task_dir and 'tasks' not in original_filepath:
                 alt2 = os.path.join(self.dataset_root, 'tasks', original_filepath)
                 alt_paths.append(("With tasks prefix", alt2))
             
-            # Alternative 3: Try with task name
-            if self.task_name not in original_filepath:
+            # Alternative 3: Try with task name if not using root as task dir
+            if not using_root_as_task_dir and self.task_name not in original_filepath:
                 alt3 = os.path.join(self.dataset_root, 'tasks', self.task_name, original_filepath)
-                alt_paths.append(("With task name", alt3))
+                alt_paths.append(("Using path segments", alt3))
             
-            # Alternative 4: Try extracting sub_X/user_Y/act_Z part from the original path
-            if 'sub_' in original_filepath and '/user_' in original_filepath and '/act_' in original_filepath:
-                parts = original_filepath.split('/')
-                for i, part in enumerate(parts):
-                    if part.startswith('sub_') and i+1 < len(parts) and parts[i+1].startswith('user_'):
-                        # Extract the path segments starting from sub_X
-                        rel_path = '/'.join(parts[i:])
-                        alt4 = os.path.join(self.dataset_root, 'tasks', self.task_name, rel_path)
-                        alt_paths.append(("Using path segments", alt4))
-                        break
-            
-            # Try with data_dir from environment variable if set
-            if os.environ.get('WIFI_DATA_DIR'):
-                alt5 = os.path.join(os.environ.get('WIFI_DATA_DIR'), original_filepath)
-                alt_paths.append(("Using WIFI_DATA_DIR", alt5))
-                
-                alt6 = os.path.join(os.environ.get('WIFI_DATA_DIR'), self.task_name, os.path.basename(original_filepath))
-                alt_paths.append(("Using WIFI_DATA_DIR with task and filename", alt6))
+            # Alternative 4: Try without tasks directory when using root as task dir
+            if using_root_as_task_dir:
+                # Look for pattern: /tasks/TaskName/... in filepath and remove those parts
+                filepath_parts = filepath.replace('\\', '/').split('/')
+                if 'tasks' in filepath_parts and self.task_name in filepath_parts:
+                    # Find the position of task_name in the path
+                    try:
+                        task_idx = filepath_parts.index(self.task_name)
+                        # If 'tasks' comes right before task_name, eliminate both
+                        if task_idx > 0 and filepath_parts[task_idx-1] == 'tasks':
+                            # Reconstruct path without 'tasks/task_name'
+                            alt4 = os.path.join(self.dataset_root, *filepath_parts[task_idx+1:])
+                            alt_paths.append(("Removing tasks/TaskName prefix", alt4))
+                    except ValueError:
+                        pass
             
             # Check alternatives
             for desc, alt_path in alt_paths:
