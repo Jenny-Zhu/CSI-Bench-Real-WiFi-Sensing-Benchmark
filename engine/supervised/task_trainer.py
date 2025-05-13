@@ -28,7 +28,7 @@ class TaskTrainer(BaseTrainer):
     
     def __init__(self, model, train_loader, val_loader=None, test_loader=None, criterion=None, optimizer=None, 
                  scheduler=None, device='cuda:0', save_path='./results', checkpoint_path=None, 
-                 num_classes=None, label_mapper=None, config=None):
+                 num_classes=None, label_mapper=None, config=None, distributed=False, local_rank=0):
         """
         Initialize the task trainer.
         
@@ -46,6 +46,8 @@ class TaskTrainer(BaseTrainer):
             num_classes: Number of classes for the model
             label_mapper: LabelMapper for mapping between class indices and names
             config: Configuration object with training parameters
+            distributed: Whether this is a distributed training run
+            local_rank: Local rank of this process in distributed training
         """
         self.model = model
         self.train_loader = train_loader
@@ -60,9 +62,12 @@ class TaskTrainer(BaseTrainer):
         self.num_classes = num_classes
         self.label_mapper = label_mapper
         self.config = config
+        self.distributed = distributed
+        self.local_rank = local_rank
         
         # Create directory if it doesn't exist
-        os.makedirs(save_path, exist_ok=True)
+        if not distributed or (distributed and local_rank == 0):
+            os.makedirs(save_path, exist_ok=True)
         
         # Move model to device
         self.model.to(self.device)
@@ -91,7 +96,8 @@ class TaskTrainer(BaseTrainer):
     
     def train(self):
         """Train the model."""
-        print('Starting supervised training phase...')
+        if not self.distributed or (self.distributed and self.local_rank == 0):
+            print('Starting supervised training phase...')
         
         # Records for tracking progress
         records = []
@@ -116,7 +122,14 @@ class TaskTrainer(BaseTrainer):
         
         for epoch in range(epochs):
             self.current_epoch = epoch
-            print(f'Epoch {epoch+1}/{epochs}')
+            
+            # Only print from rank 0 in distributed mode
+            if not self.distributed or (self.distributed and self.local_rank == 0):
+                print(f'Epoch {epoch+1}/{epochs}')
+            
+            # Set epoch for distributed sampler
+            if self.distributed and hasattr(self.train_loader, 'sampler') and hasattr(self.train_loader.sampler, 'set_epoch'):
+                self.train_loader.sampler.set_epoch(epoch)
             
             # Train one epoch
             train_loss, train_acc, train_time = self.train_epoch()
@@ -133,51 +146,59 @@ class TaskTrainer(BaseTrainer):
             # Step scheduler
             self.scheduler.step()
             
-            # Record for this epoch
-            record = {
-                'Epoch': epoch + 1,
-                'Train Loss': train_loss,
-                'Val Loss': val_loss,
-                'Train Accuracy': train_acc,
-                'Val Accuracy': val_acc,
-                'Time per sample': train_time
-            }
-            records.append(record)
-            
-            print(f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
-            print(f'Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}')
-            print(f'Time per sample: {train_time:.6f} seconds')
+            # Only log from rank 0 in distributed mode
+            if not self.distributed or (self.distributed and self.local_rank == 0):
+                # Record for this epoch
+                record = {
+                    'Epoch': epoch + 1,
+                    'Train Loss': train_loss,
+                    'Val Loss': val_loss,
+                    'Train Accuracy': train_acc,
+                    'Val Accuracy': val_acc,
+                    'Time per sample': train_time
+                }
+                records.append(record)
+                
+                print(f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
+                print(f'Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}')
+                print(f'Time per sample: {train_time:.6f} seconds')
             
             # Early stopping check
             if val_loss < best_val_loss:
                 epochs_no_improve = 0
                 best_val_loss = val_loss
                 best_model = copy.deepcopy(self.model.state_dict())
-                # Save the best model
-                best_model_path = os.path.join(self.save_path, "best_model.pt")
-                torch.save({
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    'val_loss': val_loss,
-                    'epoch': epoch,
-                }, best_model_path)
-                print(f"Best model saved to {best_model_path}")
+                
+                # Save the best model - only from rank 0 in distributed mode
+                if not self.distributed or (self.distributed and self.local_rank == 0):
+                    best_model_path = os.path.join(self.save_path, "best_model.pt")
+                    torch.save({
+                        'model_state_dict': self.model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict(),
+                        'val_loss': val_loss,
+                        'epoch': epoch,
+                    }, best_model_path)
+                    print(f"Best model saved to {best_model_path}")
+                
                 self.best_epoch = epoch + 1
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve == patience:
-                    print(f'Early stopping triggered after {patience} epochs without improvement.')
+                    if not self.distributed or (self.distributed and self.local_rank == 0):
+                        print(f'Early stopping triggered after {patience} epochs without improvement.')
                     self.model.load_state_dict(best_model)
                     break
         
-        # Create results DataFrame
-        results_df = pd.DataFrame(records)
-        
-        # Save results
-        results_df.to_csv(os.path.join(self.save_path, 'training_results.csv'), index=False)
-        
-        # Plot results
-        self.plot_training_results()
+        # Only perform final steps from rank 0 in distributed mode
+        if not self.distributed or (self.distributed and self.local_rank == 0):
+            # Create results DataFrame
+            results_df = pd.DataFrame(records)
+            
+            # Save results
+            results_df.to_csv(os.path.join(self.save_path, 'training_results.csv'), index=False)
+            
+            # Plot results
+            self.plot_training_results()
         
         # Get the best validation accuracy and its corresponding epoch
         if len(self.val_accuracies) > 0:
@@ -195,9 +216,12 @@ class TaskTrainer(BaseTrainer):
             'train_accuracy_history': self.train_accuracies,
             'val_accuracy_history': self.val_accuracies,
             'best_epoch': self.best_epoch,
-            'best_val_accuracy': best_val_accuracy,
-            'training_dataframe': results_df  # Include DataFrame to be compatible with existing code
+            'best_val_accuracy': best_val_accuracy
         }
+        
+        # Only include DataFrame in non-distributed mode or from rank 0
+        if not self.distributed or (self.distributed and self.local_rank == 0):
+            training_results['training_dataframe'] = results_df
         
         return self.model, training_results
     
@@ -285,6 +309,24 @@ class TaskTrainer(BaseTrainer):
         epoch_accuracy /= total_samples
         time_per_sample = total_time / total_samples
         
+        # Synchronize metrics across processes in distributed training
+        if self.distributed and torch.distributed.is_initialized():
+            # Create tensors for each metric
+            metrics = torch.tensor([epoch_loss, epoch_accuracy, time_per_sample, total_samples], 
+                                  dtype=torch.float, device=self.device)
+            
+            # All-reduce to compute mean across processes
+            torch.distributed.all_reduce(metrics, op=torch.distributed.ReduceOp.SUM)
+            
+            # Get world size for averaging
+            world_size = torch.distributed.get_world_size()
+            metrics /= world_size
+            
+            # Extract metrics
+            epoch_loss = metrics[0].item()
+            epoch_accuracy = metrics[1].item()
+            time_per_sample = metrics[2].item()
+        
         return epoch_loss, epoch_accuracy, time_per_sample
     
     def evaluate(self, data_loader):
@@ -357,6 +399,25 @@ class TaskTrainer(BaseTrainer):
         # Calculate averages
         avg_loss = total_loss / total_samples
         accuracy = total_correct / total_samples
+        
+        # Synchronize metrics across processes in distributed training
+        if self.distributed and torch.distributed.is_initialized():
+            # Create tensors for each metric
+            metrics = torch.tensor([avg_loss, accuracy, total_samples], 
+                                 dtype=torch.float, device=self.device)
+            
+            # All-reduce to compute mean across processes
+            torch.distributed.all_reduce(metrics, op=torch.distributed.ReduceOp.SUM)
+            
+            # Get world size for averaging
+            world_size = torch.distributed.get_world_size()
+            
+            # For loss and accuracy we want the average, but we need to account for the
+            # different number of samples each process may have processed
+            world_samples = metrics[2].item()
+            if world_samples > 0:
+                avg_loss = metrics[0].item() * world_size / world_samples
+                accuracy = metrics[1].item() * world_size / world_samples
         
         return avg_loss, accuracy
     

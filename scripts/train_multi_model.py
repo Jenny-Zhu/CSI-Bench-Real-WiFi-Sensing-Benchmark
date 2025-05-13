@@ -478,7 +478,7 @@ def set_seed(seed):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def train_model(model_name, data, args, device):
+def train_model(model_name, data, args, device, is_distributed=False, local_rank=0):
     """Train a model of the specified type"""
     logger.info(f"===== Starting training for {model_name.upper()} model =====")
     
@@ -647,7 +647,9 @@ def train_model(model_name, data, args, device):
         save_path=results_dir,  # Use results_dir for plots, metrics, etc.
         num_classes=num_classes,
         config=config,
-        label_mapper=label_mapper
+        label_mapper=label_mapper,
+        distributed=is_distributed,
+        local_rank=local_rank if is_distributed else 0
     )
     
     # Train the model with early stopping
@@ -1055,7 +1057,7 @@ def main():
                     continue
                 
                 # Train model
-                model, metrics = train_model(model_name, data, args, device)
+                model, metrics = train_model(model_name, data, args, device, is_distributed=is_distributed, local_rank=local_rank)
                 
                 # Check if training succeeded
                 if model is None or (isinstance(metrics, dict) and 'error' in metrics):

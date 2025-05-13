@@ -2,6 +2,7 @@ import os
 from torch.utils.data import DataLoader
 from .benchmark_dataset import BenchmarkCSIDataset, load_benchmark_datasets
 from ..supervised.label_utils import LabelMapper, create_label_mapper_from_metadata
+import torch
 
 def load_benchmark_supervised(
     dataset_root,
@@ -19,7 +20,8 @@ def load_benchmark_supervised(
     val_split="val_id",
     test_splits="all",
     use_root_as_task_dir=False,
-    debug=False
+    debug=False,
+    distributed=False
 ):
     """
     Load benchmark dataset for supervised learning.
@@ -41,6 +43,7 @@ def load_benchmark_supervised(
         test_splits: List of test split names or "all" to load all test_*.json splits.
         use_root_as_task_dir: Whether to directly use dataset_root as the task directory.
         debug: Whether to enable debug mode.
+        distributed: Whether to configure data loaders for distributed training
         
     Returns:
         Dictionary with data loaders and number of classes.
@@ -253,50 +256,125 @@ def load_benchmark_supervised(
     # Create data loaders
     loaders = {}
     
-    # Training loader
-    loaders['train'] = DataLoader(
-        datasets[train_split],
-        batch_size=batch_size,
-        shuffle=shuffle_train,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
-    # Validation loader
-    loaders['val'] = DataLoader(
-        datasets[val_split],
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
-    # Test loaders
-    for test_split in test_splits:
-        # Special case for backward compatibility
-        if test_split == 'test_id':
-            loader_name = 'test'
-        else:
-            loader_name = f'test_{test_split}' if not test_split.startswith('test_') else test_split
+    # Check if we need to set up distributed samplers
+    if distributed and torch.distributed.is_initialized():
+        print(f"Setting up distributed samplers for {task_name}")
         
-        loaders[loader_name] = DataLoader(
-            datasets[test_split],
+        # Training loader with DistributedSampler
+        train_sampler = torch.utils.data.distributed.DistributedSampler(
+            datasets[train_split],
+            shuffle=shuffle_train
+        )
+        
+        loaders['train'] = DataLoader(
+            datasets[train_split],
+            batch_size=batch_size,
+            sampler=train_sampler,  # Use sampler instead of shuffle
+            num_workers=num_workers,
+            pin_memory=True
+        )
+        
+        # Validation loader
+        val_sampler = torch.utils.data.distributed.DistributedSampler(
+            datasets[val_split],
+            shuffle=False
+        )
+        
+        loaders['val'] = DataLoader(
+            datasets[val_split],
+            batch_size=batch_size,
+            sampler=val_sampler,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+        
+        # Test loaders
+        for test_split in test_splits:
+            # Special case for backward compatibility
+            if test_split == 'test_id':
+                loader_name = 'test'
+            else:
+                loader_name = f'test_{test_split}' if not test_split.startswith('test_') else test_split
+            
+            test_sampler = torch.utils.data.distributed.DistributedSampler(
+                datasets[test_split],
+                shuffle=False
+            )
+            
+            loaders[loader_name] = DataLoader(
+                datasets[test_split],
+                batch_size=batch_size,
+                sampler=test_sampler,
+                num_workers=num_workers,
+                pin_memory=True
+            )
+    else:
+        # Regular non-distributed data loaders
+        # Training loader
+        loaders['train'] = DataLoader(
+            datasets[train_split],
+            batch_size=batch_size,
+            shuffle=shuffle_train,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+        
+        # Validation loader
+        loaders['val'] = DataLoader(
+            datasets[val_split],
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
             pin_memory=True
         )
+        
+        # Test loaders
+        for test_split in test_splits:
+            # Special case for backward compatibility
+            if test_split == 'test_id':
+                loader_name = 'test'
+            else:
+                loader_name = f'test_{test_split}' if not test_split.startswith('test_') else test_split
+            
+            loaders[loader_name] = DataLoader(
+                datasets[test_split],
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=True
+            )
     
     # Get number of classes from the label mapper
     num_classes = label_mapper.num_classes
     
-    # Return everything in a dictionary
-    return {
+    # Return dictionary with additional distributed information if needed
+    result = {
         'loaders': loaders,
         'datasets': datasets,
         'num_classes': num_classes,
         'label_mapper': label_mapper
     }
+    
+    # Include samplers in the result if distributed
+    if distributed and torch.distributed.is_initialized():
+        samplers = {
+            'train': train_sampler,
+            'val': val_sampler
+        }
+        # Add test samplers
+        for test_split in test_splits:
+            if test_split == 'test_id':
+                loader_name = 'test'
+            else:
+                loader_name = f'test_{test_split}' if not test_split.startswith('test_') else test_split
+            samplers[loader_name] = loaders[loader_name].sampler
+        
+        result['samplers'] = samplers
+        result['is_distributed'] = True
+    else:
+        result['is_distributed'] = False
+    
+    return result
 
 def load_all_benchmarks(
     dataset_root,
@@ -310,6 +388,7 @@ def load_all_benchmarks(
     data_key="CSI_amps",
     num_workers=4,
     shuffle_train=True,
+    distributed=False
 ):
     """
     Load all benchmark datasets.
@@ -318,6 +397,7 @@ def load_all_benchmarks(
         dataset_root: Root directory for all benchmarks.
         task_names: List of task names to load. If None, loads all available tasks.
         Other args: Same as load_benchmark_supervised.
+        distributed: Whether to configure data loaders for distributed training.
         
     Returns:
         Dictionary with data loaders for each task.
@@ -345,7 +425,8 @@ def load_all_benchmarks(
                 label_column=label_column,
                 data_key=data_key,
                 num_workers=num_workers,
-                shuffle_train=shuffle_train
+                shuffle_train=shuffle_train,
+                distributed=distributed
             )
             benchmarks[task_name] = benchmark_data
             print(f"Loaded benchmark '{task_name}' with {benchmark_data['num_classes']} classes")
