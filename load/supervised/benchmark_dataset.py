@@ -348,6 +348,17 @@ class BenchmarkCSIDataset(Dataset):
         if len(csi_data.shape) == 3:  # (time_index, feature_size, 1)
             # Permute to get (1, time_index, feature_size)
             csi_data = csi_data.permute(2, 1, 0)
+
+
+
+        # Normalize CSI data along time and feature dimensions
+        # First calculate mean and std along time and feature dimensions (dims 1 and 2)
+        mean = csi_data.mean(dim=(1, 2), keepdim=True)
+        std = csi_data.std(dim=(1, 2), keepdim=True)
+        # Add small epsilon to avoid division by zero
+        std = torch.clamp(std, min=1e-8)
+        # Apply normalization
+        csi_data = (csi_data - mean) / std
         
         # Standardize the size to (1, 500, 232)
         batch_size, time_index, feature_size = csi_data.shape
@@ -366,14 +377,7 @@ class BenchmarkCSIDataset(Dataset):
         # Update the tensor reference
         csi_data = standardized_data
         
-        # Normalize CSI data along time and feature dimensions
-        # First calculate mean and std along time and feature dimensions (dims 1 and 2)
-        mean = csi_data.mean(dim=(1, 2), keepdim=True)
-        std = csi_data.std(dim=(1, 2), keepdim=True)
-        # Add small epsilon to avoid division by zero
-        std = torch.clamp(std, min=1e-8)
-        # Apply normalization
-        csi_data = (csi_data - mean) / std
+        
         
         # Apply transforms
         if self.transform:
