@@ -5,7 +5,7 @@
   "model": "transformer",
   "win_len": 500,
   "feature_size": 232,
-  "seed": 99,
+  "seed": 42,
   "batch_size": 128,
   "epochs": 100,
   "learning_rate": 1e-3,
@@ -20,7 +20,7 @@
   "base_job_name": "wifi-sensing",
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
   "available_tasks": [
-    "Localization"
+    "FallDetection"
   ],
   "fewshot": {
     "enabled": false,
