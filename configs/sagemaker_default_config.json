@@ -18,9 +18,11 @@
   "framework_version": "1.12.1",
   "py_version": "py38",
   "base_job_name": "wifi-sensing",
-  "available_models": ["MotionSourceRecognition","BreathingDetection_Subset","Localization","FallDetection","ProximityRecognition","HumanActivityRecognition","HumanIdentification"],
-  "available_tasks": [
+  "available_models": [
     "ml.g4dn.16xlarge","ml.g5.16xlarge","ml.g4dn.4xlarge","ml.g5.4xlarge","ml.g4dn.12xlarge","ml.g5.12xlarge","ml.g4dn.8xlarge"
+  ],
+  "available_tasks": [
+    "MotionSourceRecognition","BreathingDetection_Subset","Localization","FallDetection","ProximityRecognition","HumanActivityRecognition","HumanIdentification"
   ],
   "fewshot": {
     "enabled": false,
