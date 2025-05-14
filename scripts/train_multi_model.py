@@ -112,6 +112,20 @@ import shutil
 # Detect if running in SageMaker environment
 is_sagemaker = 'SM_MODEL_DIR' in os.environ
 
+# Custom collate function to handle None values in batch
+def custom_collate_fn(batch):
+    # Filter out None samples
+    batch = [item for item in batch if item is not None]
+    
+    # If all samples were None, return a dummy batch with empty tensors
+    if len(batch) == 0:
+        # Return a batch with empty tensors
+        # This will let the dataloader continue instead of raising an error
+        return torch.zeros(0, 1, 500, 232), torch.zeros(0, dtype=torch.long)
+    
+    # Use the default collate function for the filtered batch
+    return torch.utils.data.dataloader.default_collate(batch)
+
 # If running in SageMaker, import S3 tools
 if is_sagemaker:
     import boto3
@@ -1017,7 +1031,8 @@ def main():
             num_workers=args.num_workers,
             use_root_as_task_dir=args.use_root_data_path,
             debug=False,  # Disable debug print messages
-            distributed=is_distributed  # Add distributed training flag
+            distributed=is_distributed,  # Add distributed training flag
+            collate_fn=custom_collate_fn  # Add custom collate function
         )
         
         # Check if data loaded successfully

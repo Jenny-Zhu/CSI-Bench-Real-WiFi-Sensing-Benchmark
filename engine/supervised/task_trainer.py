@@ -238,6 +238,10 @@ class TaskTrainer(BaseTrainer):
         total_time = 0.0
         
         for inputs, labels in self.train_loader:
+            # Skip empty batches (from custom_collate_fn if all samples were None)
+            if inputs.size(0) == 0:
+                continue
+                
             batch_size = inputs.size(0)
             total_samples += batch_size
             
@@ -345,6 +349,10 @@ class TaskTrainer(BaseTrainer):
         
         with torch.no_grad():
             for inputs, labels in data_loader:
+                # Skip empty batches
+                if inputs.size(0) == 0:
+                    continue
+                    
                 batch_size = inputs.size(0)
                 total_samples += batch_size
                 
@@ -592,6 +600,10 @@ class TaskTrainer(BaseTrainer):
                     # Handle case where batch is a dictionary
                     data = batch['input']
                     targets = batch['target']
+                
+                # Skip empty batches
+                if data.size(0) == 0:
+                    continue
                 
                 # Move to device
                 data = data.to(self.device)

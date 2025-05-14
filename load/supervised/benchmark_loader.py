@@ -21,7 +21,8 @@ def load_benchmark_supervised(
     test_splits="all",
     use_root_as_task_dir=False,
     debug=False,
-    distributed=False
+    distributed=False,
+    collate_fn=None
 ):
     """
     Load benchmark dataset for supervised learning.
@@ -44,6 +45,7 @@ def load_benchmark_supervised(
         use_root_as_task_dir: Whether to directly use dataset_root as the task directory.
         debug: Whether to enable debug mode.
         distributed: Whether to configure data loaders for distributed training
+        collate_fn: Custom collate function for DataLoader
         
     Returns:
         Dictionary with data loaders and number of classes.
@@ -271,7 +273,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             sampler=train_sampler,  # Use sampler instead of shuffle
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=collate_fn
         )
         
         # Validation loader
@@ -285,7 +288,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             sampler=val_sampler,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=collate_fn
         )
         
         # Test loaders
@@ -306,7 +310,8 @@ def load_benchmark_supervised(
                 batch_size=batch_size,
                 sampler=test_sampler,
                 num_workers=num_workers,
-                pin_memory=True
+                pin_memory=True,
+                collate_fn=collate_fn
             )
     else:
         # Regular non-distributed data loaders
@@ -316,7 +321,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             shuffle=shuffle_train,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=collate_fn
         )
         
         # Validation loader
@@ -325,7 +331,8 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=collate_fn
         )
         
         # Test loaders
@@ -341,7 +348,8 @@ def load_benchmark_supervised(
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
-                pin_memory=True
+                pin_memory=True,
+                collate_fn=collate_fn
             )
     
     # Get number of classes from the label mapper
@@ -388,7 +396,8 @@ def load_all_benchmarks(
     data_key="CSI_amps",
     num_workers=4,
     shuffle_train=True,
-    distributed=False
+    distributed=False,
+    collate_fn=None
 ):
     """
     Load all benchmark datasets.
@@ -398,6 +407,7 @@ def load_all_benchmarks(
         task_names: List of task names to load. If None, loads all available tasks.
         Other args: Same as load_benchmark_supervised.
         distributed: Whether to configure data loaders for distributed training.
+        collate_fn: Custom collate function for DataLoader
         
     Returns:
         Dictionary with data loaders for each task.
@@ -426,7 +436,8 @@ def load_all_benchmarks(
                 data_key=data_key,
                 num_workers=num_workers,
                 shuffle_train=shuffle_train,
-                distributed=distributed
+                distributed=distributed,
+                collate_fn=collate_fn
             )
             benchmarks[task_name] = benchmark_data
             print(f"Loaded benchmark '{task_name}' with {benchmark_data['num_classes']} classes")
