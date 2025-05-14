@@ -264,8 +264,11 @@ class SageMakerRunner:
                 models=models_to_run
             )
             
+            # Create job name and replace underscores with dashes to avoid SageMaker naming restrictions
+            # Keep the task name unchanged for S3 paths but modify it for job naming
+            job_name = f"{task.replace('_', '-')}-{batch_timestamp}"
+            
             # Launch training job
-            job_name = f"{task}-{batch_timestamp}"
             estimator.fit(
                 inputs=self._prepare_inputs(task_config),
                 job_name=job_name,
@@ -526,8 +529,18 @@ class SageMakerRunner:
         # Create estimator for multi-task learning
         estimator = self._create_multitask_estimator(multi_config)
         
+        # Get tasks string and replace underscores with dashes for job name
+        tasks_str = multi_config.get('tasks', '').replace('_', '-')
+        
+        # Create job name that complies with SageMaker naming rules
+        job_name = f"multitask-{tasks_str}-{self.timestamp}"
+        
+        # Check if job name exceeds SageMaker's length limit (63 characters)
+        if len(job_name) > 63:
+            # If too long, use a shorter version (just use timestamp)
+            job_name = f"multitask-{self.timestamp}"
+        
         # Launch training job
-        job_name = f"multitask-{self.timestamp}"
         estimator.fit(
             inputs=self._prepare_multitask_inputs(multi_config),
             job_name=job_name,
