@@ -7,7 +7,7 @@
   "feature_size": 232,
   "seed": 42,
   "batch_size": 128,
-  "epochs": 1,
+  "epochs": 2,
   "learning_rate": 1e-3,
   "weight_decay": 1e-5,
   "warmup_epochs": 5,
