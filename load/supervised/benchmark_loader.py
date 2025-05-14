@@ -27,16 +27,7 @@ def filter_none_collate_fn(batch):
     elif isinstance(batch[0], tuple) and all(isinstance(item, torch.Tensor) for item in batch[0]):
         # Handle (data, label) tuple case which is common
         data = torch.stack([item[0] for item in batch], 0)
-        
-        # Ensure labels are properly formatted
-        if isinstance(batch[0][1], torch.Tensor) and batch[0][1].numel() == 1:
-            # Single label case (most common) - keep as tensor but flatten
-            labels = torch.cat([item[1].view(1) for item in batch])
-        else:
-            # General case, but try to keep scalar-like behavior
-            labels = torch.tensor([item[1].item() if isinstance(item[1], torch.Tensor) and item[1].numel() == 1 
-                                  else item[1] for item in batch])
-        
+        labels = torch.tensor([item[1] for item in batch])
         return data, labels
     elif isinstance(batch[0], tuple):
         # General case for tuples - transpose and handle each element
