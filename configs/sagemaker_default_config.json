@@ -7,7 +7,7 @@
   "feature_size": 232,
   "seed": 42,
   "batch_size": 128,
-  "epochs": 2,
+  "epochs": 100,
   "learning_rate": 1e-3,
   "weight_decay": 1e-5,
   "warmup_epochs": 5,
@@ -18,9 +18,9 @@
   "framework_version": "1.12.1",
   "py_version": "py38",
   "base_job_name": "wifi-sensing",
-  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
+  "available_models": ["MotionSourceRecognition","BreathingDetection_Subset","Localization","FallDetection","ProximityRecognition","HumanActivityRecognition","HumanIdentification"],
   "available_tasks": [
-    "TestTask"
+    "ml.g4dn.16xlarge","ml.g5.16xlarge","ml.g4dn.4xlarge","ml.g5.4xlarge","ml.g4dn.12xlarge","ml.g5.12xlarge","ml.g4dn.8xlarge"
   ],
   "fewshot": {
     "enabled": false,
