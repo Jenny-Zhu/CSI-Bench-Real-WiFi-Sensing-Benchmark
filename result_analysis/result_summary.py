@@ -111,8 +111,8 @@ if __name__ == "__main__":
     pipelines = ["supervised"]
     
     # Tasks to analyze
-    tasks = ["ProximityRecognition", "HumanIdentification", "HumanActivityRecognition",'MotionSourceRecognition','FallDetection']
-    # tasks = ["ProximityRecognition", "HumanIdentification"]
+    # tasks = ["ProximityRecognition", "HumanIdentification", "HumanActivityRecognition",'MotionSourceRecognition','FallDetection'，'BreathingDetection_Subset']
+    tasks = ["BreathingDetection_Subset"]
     # Models to analyze
     models = ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"]
     
