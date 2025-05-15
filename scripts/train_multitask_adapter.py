@@ -91,7 +91,22 @@ def parse_args():
                         help='Learning rate for few-shot adaptation')
     parser.add_argument('--num_inner_steps', type=int, default=10,
                         help='Number of gradient steps for few-shot adaptation')
-                        
+    parser.add_argument('--num_workers', type=int, default=4,
+                        help='Number of worker processes for data loading')
+    parser.add_argument('--use_root_data_path', action='store_true',
+                        help='Use root directory as task directory')
+    parser.add_argument('--file_format', type=str, default='h5',
+                        help='File format for data files (h5, mat, or npy)')
+    parser.add_argument('--data_key', type=str, default='CSI_amps',
+                        help='Key for CSI data in h5 files')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Random seed for reproducibility')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enable debug mode')
+    parser.add_argument('--pin_memory', action='store_true', default=True,
+                        help='Enable pin memory for data loading (not recommended for MPS)')
+    parser.add_argument('--no_pin_memory', action='store_true',
+                        help='Disable pin memory for data loading (use for MPS devices)')
     parser.add_argument('--help', '-h', action='help')
     args = parser.parse_args()
     return args
@@ -157,12 +172,22 @@ def main():
     train_loaders, val_loaders, test_loaders = {}, {}, {}
     task_classes = {}
     for task in tasks:
+        # 处理pin_memory参数
+        pin_memory = args.pin_memory
+        if args.no_pin_memory:
+            pin_memory = False
+            
         data = load_benchmark_supervised(
             dataset_root=args.data_dir,
             task_name=task,
             batch_size=args.batch_size,
+            file_format=args.file_format,
+            data_key=args.data_key,
+            num_workers=args.num_workers,
             test_splits=test_splits_to_use[task],
-            use_root_as_task_dir=False
+            use_root_as_task_dir=args.use_root_data_path,
+            pin_memory=pin_memory,
+            debug=args.debug
         )
         ld = data['loaders']
         train_loaders[task] = ld['train']

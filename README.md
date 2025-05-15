@@ -26,6 +26,11 @@ This repository provides a unified framework for training and evaluating deep le
    pip install -r requirements.txt
    ```
 
+   If you want to run multitask pipeline, please also install peft. As peft have version conflict in sagemaker instance, we didn't include that in requrirements.txt.  
+   ```bash
+   pip install peft
+   ```
+
 3. Data Download:
 
    Our full dataset will be released to public by camera ready deadline of NeurIPS 2025. For reviewers, please use the link in the paper manuscript to access our data through Kaggle. After downloaded the dataset, it should be in the following :
@@ -64,7 +69,7 @@ This repository provides a unified framework for training and evaluating deep le
   ```
 
 
-## Local Execution
+## Local Execution (supervised learning)
 
 The main entry point for local execution is `scripts/local_runner.py`. This script handles configuration loading, model training, and result storage.
 
@@ -147,11 +152,84 @@ results/
 └── ...
 ```
 
-## Advanced Features
 
-### Multi-Task Learning
 
-If you want to do multi-task learning, please switch branch to 
+## Multi-Task Learning
+
+The multi-task learning pipeline uses the same entry point as supervised learning: `scripts/local_runner.py`. This script handles configuration loading, training multiple tasks simultaneously, and organizing results.
+
+### Configuration
+
+Create a configuration file for multi-task learning, for example `configs/multitask_config.json`:
+
+```json
+{
+  "pipeline": "multitask",
+  "training_dir": "/path/to/your/data/",
+  "output_dir": "./results",
+  "model": "transformer",
+  "tasks": ["TaskA", "TaskB"],
+  "feature_size": 232,
+  "win_len": 500,
+  "batch_size": 32,
+  "epochs": 30,
+  "emb_dim": 128,
+  "dropout": 0.1,
+  "test_splits": "all",
+  "learning_rate": 5e-4,
+  "weight_decay": 1e-5,
+  "patience": 15,
+  "lora_r": 8,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "available_models": ["transformer"]
+}
+```
+
+Key parameters:
+- `pipeline`: Set to `"multitask"` for the multi-task learning pipeline
+- `training_dir`: Path to your data directory
+- `output_dir`: Directory to save results (default: `./results`)
+- `model`: Model type, currently multi-task learning supports `transformer`, `patchtst`, and `timesformer1d`
+- `tasks`: List of tasks to train simultaneously
+- `lora_r`, `lora_alpha`, `lora_dropout`: Parameters for LoRA adapters
+- `learning_rate`: Learning rate, default is 5e-4
+- `patience`: Early stopping patience value, default is 15
+
+### Running Models
+
+Basic usage:
+```bash
+python scripts/local_runner.py --config_file configs/multitask_config.json
+```
+
+### Supported Models
+
+Multi-task learning currently supports these models:
+- `transformer`: Transformer-based model
+- `patchtst`: PatchTST (Patch Time Series Transformer)
+- `timesformer1d`: TimesFormer for 1D signals
+
+### Available Tasks
+
+Multi-task learning can train multiple tasks simultaneously. Make sure the specified tasks exist in your dataset:
+- `MotionSourceRecognition`
+- `BreathingDetection_Subset`
+- `Localization`
+- `FallDetection`
+- `ProximityRecognition`
+- `HumanActivityRecognition`
+- `HumanIdentification`
+
+### Benefits of Multi-Task Learning
+
+Multi-task learning trains on multiple related tasks simultaneously by sharing underlying representations. This approach offers several advantages:
+1. **Better Generalization**: By training on multiple tasks, the model learns more robust feature representations
+2. **Improved Sample Efficiency**: Tasks with limited data can borrow knowledge from related tasks
+3. **Faster Training**: Joint training is usually faster than training multiple separate models
+
+Multi-task learning uses LoRA (Low-Rank Adaptation) technology to enable efficient multi-task learning with only a small number of task-specific parameters.
+
 
 
 ## SageMaker Integration 

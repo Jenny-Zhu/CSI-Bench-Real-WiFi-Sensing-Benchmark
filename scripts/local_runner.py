@@ -72,13 +72,17 @@ def validate_config(config, required_fields=None):
         # Define basic required fields
         required_fields = [
             "pipeline", "training_dir", "output_dir", 
-            "task", "win_len", "feature_size", "batch_size", "epochs"
+            "win_len", "feature_size", "batch_size", "epochs"
         ]
         
     missing_fields = []
     for field in required_fields:
         if field not in config:
             missing_fields.append(field)
+    
+    # 特殊处理task和tasks参数
+    if "task" not in config and "tasks" not in config:
+        missing_fields.append("task or tasks")
     
     if missing_fields:
         print(f"Error: Configuration file is missing the following required parameters: {', '.join(missing_fields)}")
@@ -89,6 +93,16 @@ def validate_config(config, required_fields=None):
     if config["pipeline"] not in valid_pipelines:
         print(f"Error: Invalid pipeline value: '{config['pipeline']}'")
         print(f"Available options: {valid_pipelines}")
+        return False
+    
+    # 对multitask模式进行特殊验证
+    if config["pipeline"] == "multitask" and "tasks" not in config:
+        print("Error: Multitask pipeline requires 'tasks' parameter")
+        return False
+        
+    # 对supervised模式进行特殊验证
+    if config["pipeline"] == "supervised" and "task" not in config:
+        print("Error: Supervised pipeline requires 'task' parameter")
         return False
     
     return True
@@ -289,29 +303,29 @@ def get_multitask_config(custom_config=None):
         print("Error: Configuration parameters must be provided!")
         sys.exit(1)
     
-    # Ensure there is a task name
-    if 'task' not in custom_config and 'tasks' in custom_config:
-        # If there is no single task name but there is a tasks list, use the first task as the task name
-        tasks = custom_config.get('tasks')
-        if isinstance(tasks, str):
-            # If it's a string, it might be a comma-separated list
-            task_list = tasks.split(',')
-            if task_list:
-                custom_config['task'] = task_list[0]
-        elif isinstance(tasks, list) and tasks:
-            # If it's a list and not empty
-            custom_config['task'] = tasks[0]
-    
-    # If there is still no task, set a default value
-    if 'task' not in custom_config:
-        custom_config['task'] = 'multitask'
+    # Ensure tasks parameter is available
+    if 'tasks' not in custom_config:
+        print("Error: 'tasks' parameter is not specified in configuration!")
+        sys.exit(1)
+        
+    # Extract tasks and convert to correct format
+    tasks = custom_config.get('tasks')
+    if isinstance(tasks, str):
+        # If it's a string, it might be a comma-separated list
+        custom_config['tasks'] = tasks.split(',')
+    elif not isinstance(tasks, list) or not tasks:
+        print("Error: 'tasks' parameter should be either a list or a comma-separated string!")
+        sys.exit(1)
+        
+    # Set default task name for directory structure
+    custom_config['task'] = 'multitask'
     
     # Create configuration dictionary
     config = {
         # Data parameters
         'training_dir': custom_config['training_dir'],
         'output_dir': custom_config['output_dir'],
-        'results_subdir': f"{custom_config['model']}_{custom_config['task'].lower()}",
+        'results_subdir': f"{custom_config['model']}_multitask",
         
         # Training parameters
         'batch_size': custom_config['batch_size'],
@@ -326,9 +340,9 @@ def get_multitask_config(custom_config=None):
         'emb_dim': custom_config.get('emb_dim', 128),
         'dropout': custom_config.get('dropout', 0.1),
         
-        # Task parameters - keep both task and tasks
-        'task': custom_config.get('task'),
-        'tasks': custom_config.get('tasks'),
+        # Task parameters
+        'task': custom_config['task'],  # 'multitask' for directory structure
+        'tasks': custom_config['tasks'],
     }
     
     # If transformer_config.json exists, try to load it
@@ -341,13 +355,10 @@ def get_multitask_config(custom_config=None):
                 if k in config:
                     config[k] = v
     
-    # Ensure tasks parameter exists and has the correct format
+    # Ensure tasks parameter is valid and has the correct format
     if not config.get('tasks'):
-        if config.get('task'):
-            config['tasks'] = config['task']
-        else:
-            print("Error: Multitask configuration must specify either 'tasks' or 'task' parameter!")
-            sys.exit(1)
+        print("Error: Multitask configuration must specify 'tasks' parameter!")
+        sys.exit(1)
     
     # If model_params exists, add it to config
     if 'model_params' in custom_config:
@@ -487,7 +498,7 @@ def run_multitask_direct(config):
         tasks = ','.join(tasks)
     
     # Get basic parameters
-    task_name = config.get('task', 'multitask').lower()
+    task_name = 'multitask'  # Always use 'multitask' for directory structure
     model_name = config.get('model')
     base_output_dir = config.get('output_dir')
     
@@ -526,7 +537,7 @@ def run_multitask_direct(config):
             cmd += f" --{key}={value}"
     else:
         # If model_params doesn't exist, handle individual parameters
-        for param in ['lr', 'emb_dim', 'dropout', 'patience']:
+        for param in ['lr', 'emb_dim', 'dropout', 'patience', 'data_key']:
             if param in config:
                 cmd += f" --{param}={config[param]}"
     

@@ -1,6 +1,6 @@
 {
   "pipeline": "supervised",
-  "training_dir": "C:\\Users\\weiha\\Desktop\\temp",
+  "training_dir": "C:\\Users\\weiha\\Desktop\\temp data",
   "output_dir": "./results",
   "task": "TestTask",
   "win_len": 500,
