@@ -371,17 +371,26 @@ def run_supervised_direct(config):
     training_dir = config.get('training_dir')
     base_output_dir = config.get('output_dir')
     
-    # Build basic command
-    cmd = f"{sys.executable} {os.path.join(SCRIPT_DIR, 'train_supervised.py')}"
-    cmd += f" --data_dir=\"{training_dir}\""
+    # Build basic command with proper path quoting for Windows
+    executable = f'"{sys.executable}"' if ' ' in sys.executable else sys.executable
+    script_path = f'"{os.path.join(SCRIPT_DIR, "train_supervised.py")}"' if ' ' in SCRIPT_DIR else os.path.join(SCRIPT_DIR, 'train_supervised.py')
+    
+    # Start building command
+    cmd = f"{executable} {script_path}"
+    
+    # Properly quote paths that might contain spaces
+    quoted_training_dir = f'"{training_dir}"' if ' ' in training_dir else f'"{training_dir}"'
+    quoted_output_dir = f'"{base_output_dir}"' if ' ' in base_output_dir else f'"{base_output_dir}"'
+    
+    cmd += f" --data_dir={quoted_training_dir}"
     cmd += f" --task_name={task_name}"
     cmd += f" --model={model_name}"
     cmd += f" --batch_size={config.get('batch_size')}"
     cmd += f" --epochs={config.get('epochs')}"
     cmd += f" --win_len={config.get('win_len')}"
     cmd += f" --feature_size={config.get('feature_size')}"
-    cmd += f" --save_dir=\"{base_output_dir}\""
-    cmd += f" --output_dir=\"{base_output_dir}\""
+    cmd += f" --save_dir={quoted_output_dir}"
+    cmd += f" --output_dir={quoted_output_dir}"
     
     # 禁用分布式训练和CPU优化
     cmd += " --num_workers=0"
@@ -393,7 +402,9 @@ def run_supervised_direct(config):
     
     # Add test split parameters (if they exist)
     if 'test_splits' in config:
-        cmd += f" --test_splits=\"{config['test_splits']}\""
+        test_splits = config['test_splits']
+        quoted_test_splits = f'"{test_splits}"' if ' ' in str(test_splits) else f'"{test_splits}"'
+        cmd += f" --test_splits={quoted_test_splits}"
     
     # Add other model-specific parameters
     important_params = ['learning_rate', 'weight_decay', 'warmup_epochs', 'patience', 
@@ -480,11 +491,21 @@ def run_multitask_direct(config):
     model_name = config.get('model')
     base_output_dir = config.get('output_dir')
     
-    # Build command
-    cmd = f"{sys.executable} {os.path.join(SCRIPT_DIR, 'train_multitask_adapter.py')}"
-    cmd += f" --tasks=\"{tasks}\""
+    # Build command with proper path quoting for Windows
+    executable = f'"{sys.executable}"' if ' ' in sys.executable else sys.executable
+    script_path = f'"{os.path.join(SCRIPT_DIR, "train_multitask_adapter.py")}"' if ' ' in SCRIPT_DIR else os.path.join(SCRIPT_DIR, 'train_multitask_adapter.py')
+    
+    # Start building command
+    cmd = f"{executable} {script_path}"
+    
+    # Properly quote tasks and paths that might contain spaces
+    quoted_tasks = f'"{tasks}"'
+    training_dir = config.get('training_dir')
+    quoted_training_dir = f'"{training_dir}"' if ' ' in training_dir else f'"{training_dir}"'
+    
+    cmd += f" --tasks={quoted_tasks}"
     cmd += f" --model={model_name}"
-    cmd += f" --data_dir=\"{config.get('training_dir')}\""
+    cmd += f" --data_dir={quoted_training_dir}"
     cmd += f" --epochs={config.get('epochs')}"
     cmd += f" --batch_size={config.get('batch_size')}"
     cmd += f" --win_len={config.get('win_len')}"
@@ -511,7 +532,9 @@ def run_multitask_direct(config):
     
     # Add test_splits (if they exist)
     if 'test_splits' in config:
-        cmd += f" --test_splits=\"{config['test_splits']}\""
+        test_splits = config['test_splits']
+        quoted_test_splits = f'"{test_splits}"' if ' ' in str(test_splits) else f'"{test_splits}"'
+        cmd += f" --test_splits={quoted_test_splits}"
     
     # Run command and capture output
     print(f"Running command: {cmd}")
