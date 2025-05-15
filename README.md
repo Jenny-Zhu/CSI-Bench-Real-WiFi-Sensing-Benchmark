@@ -85,9 +85,9 @@ This repository provides a unified framework for training and evaluating deep le
    - For some operations not supported by MPS, the code will automatically fall back to CPU
 
 The framework will automatically detect available hardware acceleration and use the best option in this order:
-1. CUDA (NVIDIA GPU)
-2. MPS (Apple Silicon)
-3. CPU (fallback option)
+  - CUDA (NVIDIA GPU)
+  - MPS (Apple Silicon)
+  - CPU (fallback option)
 
 3. Data Download:
 
