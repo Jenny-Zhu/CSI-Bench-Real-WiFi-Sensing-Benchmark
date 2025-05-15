@@ -1,0 +1,4 @@
+,task,model,test_cross_device_accuracy,test_cross_device_f1_score,test_cross_env_accuracy,test_cross_env_f1_score,test_cross_user_accuracy,test_cross_user_f1_score
+0,ProximityRecognition,transformer,0.2964±0.0417,0.2499±0.0701,0.2832±0.0246,0.2610±0.0860,0.2987±0.0104,0.1110±0.0634
+1,HumanActivityRecognition,transformer,0.2520±0.0816,0.2198±0.0766,0.2869±0.0686,0.1755±0.0339,0.4835±0.0426,0.3484±0.0444
+2,HumanIdentification,transformer,0.2529±0.0549,0.2444±0.1276,0.1580±0.1021,0.0000±0.0000,0.0010±0.0022,0.0000±0.0000

@@ -18,3 +18,4 @@ result/
 /results
 result_analysis/.DS_Store
 .DS_Store
+/result_analysis/.ipynb_checkpoints

@@ -2,7 +2,6 @@
   "pipeline": "supervised",
   "s3_data_base": "s3://rnd-sagemaker/Data/Benchmark/",
   "s3_output_base": "s3://rnd-sagemaker/Benchmark_Log/",
-  "model": "transformer",
   "win_len": 500,
   "feature_size": 232,
   "seed": 99,
@@ -22,16 +21,6 @@
   "available_tasks": [
     "MotionSourceRecognitionUpdated"
   ],
-  "fewshot": {
-    "enabled": false,
-    "k_shots": 5,
-    "adaptation_lr": 0.01,
-    "adaptation_steps": 10,
-    "support_split": "val_id",
-    "query_split": "test_cross_env",
-    "finetune_all": false,
-    "eval_shots": false
-  },
   "file_format": "h5",
   "num_workers": 4
 } 
