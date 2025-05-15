@@ -22,7 +22,8 @@ def load_benchmark_supervised(
     use_root_as_task_dir=False,
     debug=False,
     distributed=False,
-    collate_fn=None
+    collate_fn=None,
+    pin_memory=True
 ):
     """
     Load benchmark dataset for supervised learning.
@@ -46,6 +47,7 @@ def load_benchmark_supervised(
         debug: Whether to enable debug mode.
         distributed: Whether to configure data loaders for distributed training
         collate_fn: Custom collate function for DataLoader
+        pin_memory: Whether to use pinned memory (set to False for MPS device)
         
     Returns:
         Dictionary with data loaders and number of classes.
@@ -273,7 +275,7 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             sampler=train_sampler,  # Use sampler instead of shuffle
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             collate_fn=collate_fn
         )
         
@@ -288,7 +290,7 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             sampler=val_sampler,
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             collate_fn=collate_fn
         )
         
@@ -310,7 +312,7 @@ def load_benchmark_supervised(
                 batch_size=batch_size,
                 sampler=test_sampler,
                 num_workers=num_workers,
-                pin_memory=True,
+                pin_memory=pin_memory,
                 collate_fn=collate_fn
             )
     else:
@@ -321,7 +323,7 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             shuffle=shuffle_train,
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             collate_fn=collate_fn
         )
         
@@ -331,7 +333,7 @@ def load_benchmark_supervised(
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             collate_fn=collate_fn
         )
         
@@ -348,7 +350,7 @@ def load_benchmark_supervised(
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
-                pin_memory=True,
+                pin_memory=pin_memory,
                 collate_fn=collate_fn
             )
     

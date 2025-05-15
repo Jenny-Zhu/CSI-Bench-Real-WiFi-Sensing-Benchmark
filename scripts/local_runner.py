@@ -428,6 +428,14 @@ def run_supervised_direct(config):
     cmd += f" --save_dir=\"{base_output_dir}\""
     cmd += f" --output_dir=\"{base_output_dir}\""
     
+    # 禁用分布式训练和CPU优化
+    cmd += " --num_workers=0"
+    cmd += " --use_root_data_path"  # 不带值的标志参数
+    
+    # 禁用pin_memory以解决MPS警告
+    # MPS设备不支持pin_memory，所以我们需要显式禁用它
+    cmd += " --no_pin_memory"
+    
     # Add test split parameters (if they exist)
     if 'test_splits' in config:
         cmd += f" --test_splits=\"{config['test_splits']}\""
@@ -541,6 +549,14 @@ def run_multitask_direct(config):
     cmd += f" --batch_size={config.get('batch_size')}"
     cmd += f" --win_len={config.get('win_len')}"
     cmd += f" --feature_size={config.get('feature_size')}"
+    
+    # 禁用分布式训练和CPU优化
+    cmd += " --num_workers=0"
+    cmd += " --use_root_data_path"  # 不带值的标志参数
+    
+    # 禁用pin_memory以解决MPS警告
+    # MPS设备不支持pin_memory，所以我们需要显式禁用它
+    cmd += " --no_pin_memory"
     
     # Add few-shot learning flag (if specified)
     if config.get('enable_few_shot', False) or config.get('evaluate_fewshot', False):

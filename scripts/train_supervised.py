@@ -119,6 +119,22 @@ def main(args=None):
         parser.add_argument('--num_inner_steps', type=int, default=10,
                             help='Number of gradient steps for few-shot adaptation')
         
+        # 添加数据加载和优化选项
+        parser.add_argument('--num_workers', type=int, default=4,
+                            help='Number of worker processes for data loading')
+        parser.add_argument('--use_root_data_path', action='store_true',
+                            help='Use root directory as task directory')
+        parser.add_argument('--file_format', type=str, default='h5',
+                            help='File format for data files (h5, mat, or npy)')
+        parser.add_argument('--seed', type=int, default=42,
+                            help='Random seed for reproducibility')
+        parser.add_argument('--debug', action='store_true',
+                            help='Enable debug mode')
+        parser.add_argument('--pin_memory', action='store_true', default=True,
+                            help='Enable pin memory for data loading (not recommended for MPS)')
+        parser.add_argument('--no_pin_memory', action='store_true',
+                            help='Disable pin memory for data loading (use for MPS devices)')
+        
         args = parser.parse_args()
     
     # Set output directory if not specified
@@ -128,6 +144,12 @@ def main(args=None):
     # Ensure directories exist
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Set random seed for reproducibility
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     
     # Check if running in SageMaker
     is_sagemaker = os.path.exists('/opt/ml/model')
@@ -218,17 +240,36 @@ def main(args=None):
     
     print(f"Using test splits: {test_splits}")
     
+    # 添加对None值的处理，防止dataloader出错
+    def custom_collate_fn(batch):
+        # 过滤掉为None的样本
+        batch = [item for item in batch if item is not None]
+        
+        # 如果过滤后没有样本，则返回空张量
+        if len(batch) == 0:
+            return torch.zeros(0, 1, args.win_len, args.feature_size), torch.zeros(0, dtype=torch.long)
+        
+        # 使用默认的collate函数处理过滤后的batch
+        return torch.utils.data.dataloader.default_collate(batch)
+    
+    # 处理pin_memory参数
+    if args.no_pin_memory:
+        args.pin_memory = False
+    
     # Load data
     print(f"Loading data from {args.data_dir} for task {args.task_name}...")
     data = load_benchmark_supervised(
         dataset_root=args.data_dir,
         task_name=args.task_name,
         batch_size=args.batch_size,
-        file_format="h5",
+        file_format=args.file_format,
         data_key=args.data_key,
-        num_workers=4,
+        num_workers=args.num_workers,
         test_splits=test_splits,
-        use_root_as_task_dir=False
+        use_root_as_task_dir=args.use_root_data_path,
+        collate_fn=custom_collate_fn,
+        pin_memory=args.pin_memory,
+        debug=args.debug
     )
     
     # Extract data from the returned dictionary
