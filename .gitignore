@@ -3,3 +3,5 @@ dataset/
 
 # Logs
 experiments/
+*.pyc
+/results
