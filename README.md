@@ -11,7 +11,10 @@ This repository provides a unified framework for training and evaluating deep le
 ### Prerequisites
 
 - Python 3.7+
-- CUDA-compatible GPU (recommended, but not required. Apple silicon is also accepted, but need to install Pytorch specifically. See https://developer.apple.com/metal/pytorch/ for more details about install pytorch for apple silicon)
+- GPU Support (recommended, but not required):
+  - NVIDIA GPU with CUDA support
+  - Apple Silicon with MPS (Metal Performance Shaders)
+  - CPU-only mode is available but much slower for training
 
 ### Environment Setup
 
@@ -30,6 +33,61 @@ This repository provides a unified framework for training and evaluating deep le
    ```bash
    pip install peft
    ```
+
+### GPU Setup Instructions
+
+#### NVIDIA GPU (Windows/Linux)
+
+1. Check if your GPU is CUDA-compatible: [NVIDIA CUDA GPUs](https://developer.nvidia.com/cuda-gpus)
+
+2. Install NVIDIA drivers:
+   - Windows: Download and install the latest drivers from [NVIDIA Driver Downloads](https://www.nvidia.com/Download/index.aspx)
+   - Linux: `sudo apt install nvidia-driver-XXX` (replace XXX with latest version)
+
+3. Install CUDA Toolkit:
+   - Download and install from [NVIDIA CUDA Downloads](https://developer.nvidia.com/cuda-downloads)
+   - Select your operating system and follow the installation instructions
+   - Recommended version: CUDA 11.7 or 11.8 for PyTorch 2.0+ compatibility
+
+4. Install cuDNN:
+   - Download from [NVIDIA cuDNN](https://developer.nvidia.com/cudnn) (requires free NVIDIA account)
+   - Follow the installation instructions for your OS
+
+5. Verify installation:
+   ```bash
+   # Check NVIDIA driver
+   nvidia-smi
+   
+   # Check CUDA installation
+   nvcc --version
+   ```
+
+#### Apple Silicon (M1/M2/M3)
+
+1. Install PyTorch with MPS support:
+   ```bash
+   # For pip
+   pip install torch torchvision
+   
+   # For conda
+   conda install pytorch torchvision -c pytorch
+   ```
+
+2. Verify MPS availability:
+   ```python
+   import torch
+   print(f"PyTorch version: {torch.__version__}")
+   print(f"MPS available: {torch.backends.mps.is_available()}")
+   ```
+
+3. Common issues and solutions:
+   - If MPS is not available, update macOS to 12.3+ and PyTorch to 1.12+
+   - For some operations not supported by MPS, the code will automatically fall back to CPU
+
+The framework will automatically detect available hardware acceleration and use the best option in this order:
+1. CUDA (NVIDIA GPU)
+2. MPS (Apple Silicon)
+3. CPU (fallback option)
 
 3. Data Download:
 
