@@ -11,7 +11,7 @@ This repository provides a unified framework for training and evaluating deep le
 ### Prerequisites
 
 - Python 3.7+
-- CUDA-compatible GPU (recommended, but not required. Apple silicon is also accepted, but need to install Pytorch specifically)
+- CUDA-compatible GPU (recommended, but not required. Apple silicon is also accepted, but need to install Pytorch specifically. See https://developer.apple.com/metal/pytorch/ for more details about install pytorch for apple silicon)
 
 ### Environment Setup
 
@@ -62,7 +62,7 @@ This repository provides a unified framework for training and evaluating deep le
       ├── test_medium.json          # Medium difficulty test set
       └── test_hard.json            # Hard difficulty test set
 
-      
+
 ## Local Execution
 
 The main entry point for local execution is `scripts/local_runner.py`. This script handles configuration loading, model training, and result storage.
