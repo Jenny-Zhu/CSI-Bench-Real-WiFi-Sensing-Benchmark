@@ -62,7 +62,7 @@ This repository provides a unified framework for training and evaluating deep le
    nvcc --version
    ```
 
-#### Apple Silicon (M1/M2/M3)
+#### Apple Silicon (M1/M2/M3/M4)
 
 1. Install PyTorch with MPS support:
    ```bash
