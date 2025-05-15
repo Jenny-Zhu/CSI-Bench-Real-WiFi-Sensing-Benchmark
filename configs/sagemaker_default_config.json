@@ -13,7 +13,7 @@
   "warmup_epochs": 5,
   "patience": 15,
   "test_splits": "all",
-  "instance_type": ["ml.g4dn.12xlarge"],
+  "instance_type": ["ml.g4dn.8xlarge"],
   "instance_count": 1,
   "framework_version": "1.12.1",
   "py_version": "py38",
