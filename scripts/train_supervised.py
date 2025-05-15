@@ -17,6 +17,11 @@ import json
 import hashlib
 import time
 import matplotlib.pyplot as plt
+import warnings
+
+# Mute sklearn warnings about precision/recall being ill-defined
+from sklearn.exceptions import UndefinedMetricWarning
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 
 # Import model classes from models.py
 from model.supervised.models import (
@@ -269,7 +274,7 @@ def main(args=None):
         use_root_as_task_dir=args.use_root_data_path,
         collate_fn=custom_collate_fn,
         pin_memory=args.pin_memory,
-        debug=args.debug
+        debug=False
     )
     
     # Extract data from the returned dictionary

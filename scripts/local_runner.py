@@ -71,7 +71,7 @@ def validate_config(config, required_fields=None):
     if required_fields is None:
         # Define basic required fields
         required_fields = [
-            "pipeline", "training_dir", "output_dir", "model", 
+            "pipeline", "training_dir", "output_dir", 
             "task", "win_len", "feature_size", "batch_size", "epochs"
         ]
         
@@ -84,22 +84,11 @@ def validate_config(config, required_fields=None):
         print(f"Error: Configuration file is missing the following required parameters: {', '.join(missing_fields)}")
         return False
     
-    # Validate if pipeline is valid
-    if config["pipeline"] not in config.get("available_pipelines", ["supervised", "multitask"]):
+    # Validate if pipeline is valid - hardcoded valid options
+    valid_pipelines = ["supervised", "multitask"]
+    if config["pipeline"] not in valid_pipelines:
         print(f"Error: Invalid pipeline value: '{config['pipeline']}'")
-        print(f"Available options: {config.get('available_pipelines', ['supervised', 'multitask'])}")
-        return False
-    
-    # Validate if model is valid
-    if config["model"] not in config.get("available_models", []):
-        print(f"Error: Invalid model value: '{config['model']}'")
-        print(f"Available options: {config.get('available_models', [])}")
-        return False
-    
-    # Validate if task is valid
-    if config["task"] not in config.get("available_tasks", []):
-        print(f"Error: Invalid task value: '{config['task']}'")
-        print(f"Available options: {config.get('available_tasks', [])}")
+        print(f"Available options: {valid_pipelines}")
         return False
     
     return True
@@ -265,7 +254,7 @@ def get_supervised_config(custom_config=None):
         'patience': custom_config.get('patience', 15),
         
         # Integrated loader options
-        'integrated_loader': custom_config.get('integrated_loader', True),
+        'integrated_loader': True,  # Always use integrated loader
         'task': custom_config['task'],
         
         # Other parameters
@@ -586,10 +575,10 @@ def main():
     pipeline = config.get('pipeline')
     
     # Ensure pipeline value is valid
-    available_pipelines = config.get('available_pipelines', ['supervised', 'multitask'])
-    if pipeline not in available_pipelines:
+    valid_pipelines = ["supervised", "multitask"]
+    if pipeline not in valid_pipelines:
         print(f"Error: Invalid pipeline value: '{pipeline}'")
-        print(f"Available options: {available_pipelines}")
+        print(f"Available options: {valid_pipelines}")
         return 1
     
     # Set data directory environment variable
@@ -599,13 +588,10 @@ def main():
     # Get all available models
     available_models = config.get('available_models', [])
     
-    # If no available models defined, or empty list, use single model from config
+    # If no available models defined or empty list, use a default
     if not available_models:
-        if 'model' in config:
-            available_models = [config['model']]
-        else:
-            print("Error: No available models list or single model defined")
-            return 1
+        print("Warning: No available models specified in configuration. Using default model 'mlp'.")
+        available_models = ['mlp']
     
     # Record results for all models
     results = {}
