@@ -314,13 +314,13 @@ Results and model artifacts will be stored in the S3 output location you specifi
 
 If you use this code in your research, please cite:
 ```
-@inproceedings{wifi_sensing_benchmark2025,
-  title={WiFi Sensing Benchmark: A Comprehensive Evaluation Framework for WiFi Sensing},
-  author={}, 
+@inproceedings{csi-bench,
+  title={CSI-Bench: A Large-Scale In-the-Wild Dataset for Multitask WiFi Sensing},
+  author={Zhu, Guozhen}, 
   year={2025}
 }
 ```
 
 ## License
 
-This project is licensed under the terms of the LICENSE file included in the repository.
+This project is licensed under Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
