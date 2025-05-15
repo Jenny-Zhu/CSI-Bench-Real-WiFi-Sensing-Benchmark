@@ -234,8 +234,78 @@ Multi-task learning uses LoRA (Low-Rank Adaptation) technology to enable efficie
 
 ## SageMaker Integration 
 
-The repository also supports training on AWS SageMaker.
+The repository provides robust support for scaling WiFi sensing model training on AWS SageMaker. This allows you to leverage cloud computing resources for larger experiments.
 
+### Configuration
+
+Edit the SageMaker configuration file at `configs/sagemaker_default_config.json` to set your S3 paths and training parameters:
+
+```json
+{
+  "pipeline": "supervised",
+  "s3_data_base": "s3://your-bucket/path/to/data/",
+  "s3_output_base": "s3://your-bucket/path/to/output/",
+  "win_len": 500,
+  "feature_size": 232,
+  "batch_size": 128,
+  "epochs": 100,
+  "learning_rate": 1e-3,
+  "weight_decay": 1e-5,
+  "instance_type": ["ml.g4dn.2xlarge"],
+  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
+  "available_tasks": ["YourTask1", "YourTask2"],
+  "test_splits": "all"
+}
+```
+
+Key parameters:
+- `pipeline`: Training pipeline type (currently sagemaker runner only support `supervised` `)
+- `s3_data_base`: S3 path to your data directory (must follow the expected structure)
+- `s3_output_base`: S3 path for storing results
+- `instance_type`: AWS instance type to use (can be a list for different tasks)
+- `available_models`: Model types to train
+- `available_tasks`: Tasks to run experiments on. It will submit 1 training job for one task (with all models in the list)
+
+### Data Structure
+
+You can store the benchmark dataset to S3
+```
+s3://your-bucket/path/to/data/
+├── tasks/
+│   ├── TaskName1/
+│   │   ├── <standard task structure>
+│   ├── TaskName2/
+│   └── ...
+```
+
+### Running Models
+
+Basic usage:
+```bash
+python scripts/sagemaker_runner.py
+```
+
+
+```
+
+### Batch Processing
+
+The SageMaker runner supports batch processing to run multiple tasks and models. It will automatically create separate training jobs for each task, using all models specified in the configuration.
+
+
+
+### Job Management
+
+Training jobs are submitted to SageMaker in non-blocking mode. You can monitor their progress in the AWS SageMaker console or use the AWS CLI.
+
+Results and model artifacts will be stored in the S3 output location you specified in the configuration file.
+
+### Advantages of SageMaker Integration
+
+1. **Scalability**: Train on powerful GPU instances without local hardware constraints
+2. **Parallelization**: Run multiple experiments simultaneously
+3. **Cost Efficiency**: Only pay for the compute time you use
+4. **Reproducibility**: Consistent environment for all experiments
 
 
 
