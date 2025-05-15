@@ -95,45 +95,14 @@ python scripts/local_runner.py --config_file configs/your_custom_config.json
 - `patchtst`: PatchTST (Patch Time Series Transformer)
 - `timesformer1d`: TimesFormer for 1D signals
 
-### Available Tasks
+### Available Tasks (Make sure you downloaded the whole dataset for corresponding task)
 
 - `MotionSourceRecognition`
 - `HumanMotion`
 - `HumanNonhuman`
-- `NTUHumanID`
-- `NTUHAR`
-- `HumanID`
-- `Widar`
-- `ThreeClass`
-- `DetectionandClassification`
-- `Detection`
 
-### Multi-Model Training
 
-To train multiple models on a task:
-```bash
-python scripts/train_multi_model.py --all_models "mlp lstm transformer vit" --task_name MotionSourceRecognition
-```
 
-After completion, generate a summary of results:
-```bash
-python scripts/generate_summary_table.py --results_dir ./results
-```
-
-### Hyperparameter Tuning
-
-The framework supports different hyperparameter tuning methods:
-
-```bash
-# Bayesian optimization with Optuna
-python scripts/hyperparameter_tuning.py --task_name MotionSourceRecognition --model_name transformer --search_method optuna --num_trials 20
-
-# Grid search
-python scripts/hyperparameter_tuning.py --task_name HumanMotion --model_name lstm --search_method grid
-
-# Random search
-python scripts/hyperparameter_tuning.py --task_name HumanID --model_name vit --search_method random --num_trials 15
-```
 
 ## Results Organization
 
@@ -166,12 +135,6 @@ Train a model on multiple tasks with shared backbone:
 python scripts/local_runner.py --config_file configs/multitask_config.json
 ```
 
-### Few-Shot Learning
-
-Enable few-shot adaptation for domain generalization:
-```bash
-python scripts/local_runner.py --model transformer --task MotionSourceRecognition --enable_few_shot --k_shot 5 --inner_lr 0.01 --num_inner_steps 10
-```
 
 ## SageMaker Integration (Optional)
 

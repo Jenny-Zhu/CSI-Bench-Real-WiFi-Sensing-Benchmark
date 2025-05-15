@@ -118,19 +118,6 @@ def load_config(config_path=None):
         if not validate_config(config):
             sys.exit(1)
             
-        # Process few-shot config to ensure backward compatibility
-        if 'fewshot' in config:
-            fewshot_config = config['fewshot']
-            # Set legacy parameters for compatibility
-            config['enable_few_shot'] = fewshot_config.get('enabled', False) or config.get('evaluate_fewshot', False)
-            config['k_shot'] = fewshot_config.get('k_shots', 5)
-            config['inner_lr'] = fewshot_config.get('adaptation_lr', 0.01)
-            config['num_inner_steps'] = fewshot_config.get('adaptation_steps', 10)
-            config['fewshot_support_split'] = fewshot_config.get('support_split', 'val_id')
-            config['fewshot_query_split'] = fewshot_config.get('query_split', 'test_cross_env')
-            config['fewshot_finetune_all'] = fewshot_config.get('finetune_all', False)
-            config['fewshot_eval_shots'] = fewshot_config.get('eval_shots', False)
-            
         print(f"Loaded configuration from {config_path}")
         return config
     except (FileNotFoundError, json.JSONDecodeError) as e:
@@ -258,9 +245,6 @@ def get_supervised_config(custom_config=None):
     if custom_config is None:
         print("Error: Configuration parameters must be provided!")
         sys.exit(1)
-        
-    # Get task class mapping
-    task_class_mapping = custom_config.get("task_class_mapping", {})
     
     # Create configuration dictionary
     config = {
@@ -280,9 +264,6 @@ def get_supervised_config(custom_config=None):
         'warmup_epochs': custom_config.get('warmup_epochs', 5),
         'patience': custom_config.get('patience', 15),
         
-        # Model parameters
-        'num_classes': task_class_mapping.get(custom_config['task'], 2),  # Default to 2 if task not found
-        
         # Integrated loader options
         'integrated_loader': custom_config.get('integrated_loader', True),
         'task': custom_config['task'],
@@ -295,22 +276,7 @@ def get_supervised_config(custom_config=None):
         'feature_size': custom_config['feature_size'],
         
         # Test split options
-        'test_splits': custom_config.get('test_splits', 'all'),
-
-        # Few-shot learning parameters
-        'evaluate_fewshot': custom_config.get('evaluate_fewshot', False),
-        'fewshot_support_split': custom_config.get('fewshot_support_split', 'val_id'),
-        'fewshot_query_split': custom_config.get('fewshot_query_split', 'test_cross_env'),
-        'fewshot_adaptation_lr': custom_config.get('fewshot_adaptation_lr', 0.01),
-        'fewshot_adaptation_steps': custom_config.get('fewshot_adaptation_steps', 10),
-        'fewshot_finetune_all': custom_config.get('fewshot_finetune_all', False),
-        'fewshot_eval_shots': custom_config.get('fewshot_eval_shots', False),
-        
-        # Legacy few-shot parameters (for backwards compatibility)
-        'enable_few_shot': custom_config.get('enable_few_shot', False),
-        'k_shot': custom_config.get('k_shot', 5),
-        'inner_lr': custom_config.get('inner_lr', 0.01),
-        'num_inner_steps': custom_config.get('num_inner_steps', 10)
+        'test_splits': custom_config.get('test_splits', 'all')
     }
     
     # If model_params exists, add it to config
@@ -440,21 +406,6 @@ def run_supervised_direct(config):
     if 'test_splits' in config:
         cmd += f" --test_splits=\"{config['test_splits']}\""
     
-    # Handle few-shot learning parameters
-    if config.get('enable_few_shot', False) or config.get('evaluate_fewshot', False) or config.get('fewshot_eval_shots', False):
-        cmd += " --enable_few_shot"
-        cmd += f" --k_shot={config.get('k_shot', 5)}"
-        cmd += f" --inner_lr={config.get('inner_lr', 0.01)}"
-        cmd += f" --num_inner_steps={config.get('num_inner_steps', 10)}"
-        
-        # Add support set and query set splits (if they exist)
-        if 'fewshot_support_split' in config:
-            cmd += f" --fewshot_support_split={config['fewshot_support_split']}"
-        if 'fewshot_query_split' in config:
-            cmd += f" --fewshot_query_split={config['fewshot_query_split']}"
-        if config.get('fewshot_finetune_all', False):
-            cmd += " --fewshot_finetune_all"
-    
     # Add other model-specific parameters
     important_params = ['learning_rate', 'weight_decay', 'warmup_epochs', 'patience', 
                          'emb_dim', 'dropout', 'd_model']
@@ -557,13 +508,6 @@ def run_multitask_direct(config):
     # 禁用pin_memory以解决MPS警告
     # MPS设备不支持pin_memory，所以我们需要显式禁用它
     cmd += " --no_pin_memory"
-    
-    # Add few-shot learning flag (if specified)
-    if config.get('enable_few_shot', False) or config.get('evaluate_fewshot', False):
-        cmd += " --enable_few_shot"
-        cmd += f" --k_shot={config.get('k_shot', 5)}"
-        cmd += f" --inner_lr={config.get('inner_lr', 0.01)}"
-        cmd += f" --num_inner_steps={config.get('num_inner_steps', 10)}"
     
     # Handle optional parameters from model_params
     if 'model_params' in config:
