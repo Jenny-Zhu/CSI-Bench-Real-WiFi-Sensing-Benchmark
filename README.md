@@ -160,7 +160,7 @@ The multi-task learning pipeline uses the same entry point as supervised learnin
 
 ### Configuration
 
-Create a configuration file for multi-task learning, for example `configs/multitask_config.json`:
+Modify configuration file for multi-task learning `configs/multitask_config.json`:
 
 ```json
 {
@@ -238,7 +238,7 @@ The repository also supports training on AWS SageMaker.
 
 
 
-```
+
 
 ## Citation
 
