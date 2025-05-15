@@ -1,0 +1,4 @@
+,task,model,test_accuracy,test_f1_score
+0,ProximityRecognition,transformer,0.8641±0.0197,0.8709±0.0146
+1,HumanActivityRecognition,transformer,0.8806±0.0076,0.8600±0.0205
+2,HumanIdentification,transformer,0.9955±0.0006,0.9970±0.0027

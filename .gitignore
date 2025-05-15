@@ -3,5 +3,18 @@ dataset/
 
 # Logs
 experiments/
-*.pyc
+/*/__pycache__
+.ipynb_checkpoints/
+
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.idea/ 
+
+# Result
+result/
 /results
+result_analysis/.DS_Store
+.DS_Store

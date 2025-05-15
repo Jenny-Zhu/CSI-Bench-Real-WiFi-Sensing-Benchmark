@@ -1,2 +1,17 @@
-mat73
-einops
+torch==1.12.1+cu113
+torchvision==0.13.1+cu113
+numpy>=1.20.0
+pandas>=1.3.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+scipy>=1.7.0
+mat73>=0.59
+scikit-learn>=1.0.0
+tqdm>=4.62.0
+h5py>=3.7.0
+einops>=0.6.0
+typing_extensions>=4.0.0
+accelerate>=0.18.0
+# peft will be installed in entry_script.py with --no-dependencies parameter
+# Optional dependencies - now required for PEFT
+transformers>=4.30.0

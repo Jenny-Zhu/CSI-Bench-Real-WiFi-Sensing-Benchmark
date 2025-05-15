@@ -1,0 +1,45 @@
+{
+  "pipeline": "supervised",
+  "training_dir": "/Users/leo/Desktop/benchmark_data/",
+  "output_dir": "./results",
+  "model": "mlp",
+  "task": "TestTask",
+  "win_len": 500,
+  "feature_size": 232,
+  "seed": 42,
+  "batch_size": 8,
+  "epochs": 2,
+  "test_splits": "all",
+  "task_class_mapping": {
+    "MotionSourceRecognition": 4,
+    "HumanMotion": 3,
+    "HumanNonhuman": 2,
+    "NTUHumanID": 15,
+    "NTUHAR": 6,
+    "HumanID": 4,
+    "Widar": 22,
+    "ThreeClass": 3,
+    "DetectionandClassification": 5,
+    "Detection": 2
+  },
+ 
+  "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"],
+  "available_tasks": [
+      "TestTask"
+  ],
+  "available_pipelines": ["supervised", "meta", "multitask", "fewshot"],
+  "evaluate_fewshot": false,
+  "fewshot": {
+    "enabled": false,
+    "k_shots": 5,
+    "adaptation_lr": 0.01,
+    "adaptation_steps": 10,
+    "support_split": "val_id",
+    "query_split": "test_cross_env",
+    "finetune_all": false,
+    "eval_shots": false
+  },
+  "integrated_loader": true,
+  "freeze_backbone": false
+} 
+
