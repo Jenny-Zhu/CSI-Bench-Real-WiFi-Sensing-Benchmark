@@ -166,10 +166,9 @@ The repository also supports training on AWS SageMaker.
 
 If you use this code in your research, please cite:
 ```
-@article{wifi_sensing_benchmark,
+@inproceedings{wifi_sensing_benchmark2025,
   title={WiFi Sensing Benchmark: A Comprehensive Evaluation Framework for WiFi Sensing},
-  author={Your Name},
-  journal={arXiv preprint},
+  author={}, 
   year={2025}
 }
 ```
