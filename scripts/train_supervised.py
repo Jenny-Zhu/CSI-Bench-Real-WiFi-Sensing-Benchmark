@@ -124,7 +124,7 @@ def main(args=None):
         parser.add_argument('--num_inner_steps', type=int, default=10,
                             help='Number of gradient steps for few-shot adaptation')
         
-        # 添加数据加载和优化选项
+        # Add data loading and optimization options
         parser.add_argument('--num_workers', type=int, default=4,
                             help='Number of worker processes for data loading')
         parser.add_argument('--use_root_data_path', action='store_true',
@@ -245,19 +245,19 @@ def main(args=None):
     
     print(f"Using test splits: {test_splits}")
     
-    # 添加对None值的处理，防止dataloader出错
+    # Add handling for None values to prevent dataloader errors
     def custom_collate_fn(batch):
-        # 过滤掉为None的样本
+        # Filter out None samples
         batch = [item for item in batch if item is not None]
         
-        # 如果过滤后没有样本，则返回空张量
+        # If no samples remain after filtering, return empty tensors
         if len(batch) == 0:
             return torch.zeros(0, 1, args.win_len, args.feature_size), torch.zeros(0, dtype=torch.long)
         
-        # 使用默认的collate函数处理过滤后的batch
+        # Use default collate function for the filtered batch
         return torch.utils.data.dataloader.default_collate(batch)
     
-    # 处理pin_memory参数
+    # Process pin_memory parameter
     if args.no_pin_memory:
         args.pin_memory = False
     

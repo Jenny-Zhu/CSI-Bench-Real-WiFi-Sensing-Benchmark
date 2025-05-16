@@ -80,7 +80,7 @@ def validate_config(config, required_fields=None):
         if field not in config:
             missing_fields.append(field)
     
-    # 特殊处理task和tasks参数
+    # Special handling for task and tasks parameters
     if "task" not in config and "tasks" not in config:
         missing_fields.append("task or tasks")
     
@@ -95,12 +95,12 @@ def validate_config(config, required_fields=None):
         print(f"Available options: {valid_pipelines}")
         return False
     
-    # 对multitask模式进行特殊验证
+    # Special validation for multitask mode
     if config["pipeline"] == "multitask" and "tasks" not in config:
         print("Error: Multitask pipeline requires 'tasks' parameter")
         return False
         
-    # 对supervised模式进行特殊验证
+    # Special validation for supervised mode
     if config["pipeline"] == "supervised" and "task" not in config:
         print("Error: Supervised pipeline requires 'task' parameter")
         return False
@@ -403,12 +403,12 @@ def run_supervised_direct(config):
     cmd += f" --save_dir={quoted_output_dir}"
     cmd += f" --output_dir={quoted_output_dir}"
     
-    # 禁用分布式训练和CPU优化
+    # Disable distributed training and CPU optimization
     cmd += " --num_workers=0"
-    cmd += " --use_root_data_path"  # 不带值的标志参数
+    cmd += " --use_root_data_path"  # Flag parameter without value
     
-    # 禁用pin_memory以解决MPS警告
-    # MPS设备不支持pin_memory，所以我们需要显式禁用它
+    # Disable pin_memory to resolve MPS warnings
+    # MPS device doesn't support pin_memory, so we need to explicitly disable it
     cmd += " --no_pin_memory"
     
     # Add test split parameters (if they exist)
@@ -522,12 +522,12 @@ def run_multitask_direct(config):
     cmd += f" --win_len={config.get('win_len')}"
     cmd += f" --feature_size={config.get('feature_size')}"
     
-    # 禁用分布式训练和CPU优化
+    # Disable distributed training and CPU optimization
     cmd += " --num_workers=0"
-    cmd += " --use_root_data_path"  # 不带值的标志参数
+    cmd += " --use_root_data_path"  # Flag parameter without value
     
-    # 禁用pin_memory以解决MPS警告
-    # MPS设备不支持pin_memory，所以我们需要显式禁用它
+    # Disable pin_memory to resolve MPS warnings
+    # MPS device doesn't support pin_memory, so we need to explicitly disable it
     cmd += " --no_pin_memory"
     
     # Handle optional parameters from model_params

@@ -172,7 +172,7 @@ def main():
     train_loaders, val_loaders, test_loaders = {}, {}, {}
     task_classes = {}
     for task in tasks:
-        # 处理pin_memory参数
+        # Process pin_memory parameter
         pin_memory = args.pin_memory
         if args.no_pin_memory:
             pin_memory = False

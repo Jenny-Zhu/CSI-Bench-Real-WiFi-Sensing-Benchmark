@@ -8,20 +8,20 @@ on the same task.
 
 SageMaker Training Job Parameters Guide:
 -----------------------------------------
-当通过SageMaker启动训练任务时，可以使用以下参数禁用调试器和源代码打包：
-1. 主要参数：
-   - disable_profiler=True  # 禁用SageMaker性能分析器
-   - debugger_hook_config=False  # 禁用SageMaker调试钩子
-   - source_dir=None  # 不使用源代码目录，而是直接上传脚本
+When starting a training job through SageMaker, the following parameters can be used to disable debuggers and source code packaging:
+1. Main parameters:
+   - disable_profiler=True  # Disable SageMaker profiler
+   - debugger_hook_config=False  # Disable SageMaker debugger hooks
+   - source_dir=None  # Don't use source directory, upload script directly
 
-2. 环境变量设置 (在 environment 参数中):
+2. Environment variable settings (in the environment parameter):
    - SMDEBUG_DISABLED: 'true'
    - SM_DISABLE_DEBUGGER: 'true'
    - SAGEMAKER_DISABLE_PROFILER: 'true'
    - SMPROFILER_DISABLED: 'true'
    - SAGEMAKER_DISABLE_SOURCEDIR: 'true'
 
-3. 使用禁用调试器的SageMaker示例代码：
+3. Example SageMaker code with disabled debugger:
 ```python
 import sagemaker
 from sagemaker.pytorch import PyTorch
@@ -35,9 +35,9 @@ estimator = PyTorch(
     py_version='py310',
     instance_count=1,
     instance_type='ml.g4dn.xlarge',
-    disable_profiler=True,  # 禁用性能分析器
-    debugger_hook_config=False,  # 禁用调试钩子
-    source_dir=None,  # 不打包源代码目录
+    disable_profiler=True,  # Disable profiler
+    debugger_hook_config=False,  # Disable debugger hooks
+    source_dir=None,  # Don't package source directory
     environment={
         'SMDEBUG_DISABLED': 'true',
         'SM_DISABLE_DEBUGGER': 'true',
@@ -360,7 +360,7 @@ def get_args():
     parser.add_argument('--win_len', type=int, default=500, help='Window length')
     parser.add_argument('--feature_size', type=int, default=232, help='Feature size')
     parser.add_argument('--in_channels', type=int, default=1, help='Input channels')
-    parser.add_argument('--batch_size', '--batch-size', type=int, default=32, help='Batch size')  # 同时支持两种形式
+    parser.add_argument('--batch_size', '--batch-size', type=int, default=32, help='Batch size')  # Supports both formats
     parser.add_argument('--epochs', type=int, default=100, help='Training epochs')
     parser.add_argument('--lr', '--learning_rate', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay')
@@ -709,7 +709,7 @@ def train_model(model_name, data, args, device, is_distributed=False, local_rank
             logger.error(f"Error calculating additional metrics for {test_name}: {e}")
             logger.error(f"Exception type: {type(e).__name__}")
             import traceback
-            logger.error(traceback.format_exc())  # 打印完整堆栈跟踪
+            logger.error(traceback.format_exc())  # Print full stack trace
             test_f1 = 0.0
         
         # Store metrics

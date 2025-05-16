@@ -408,12 +408,12 @@ class SageMakerRunner:
             debugger_hook_config=False,  # Disable debugger hooks completely
             disable_upload_notifications=True,  # Disable notifications about uploads
             profiler_config=None,  # No profiler config
-            # 启用分布式训练功能
+            # Enable distributed training functionality
             distribution={
                 'pytorch': {
-                    # 使用PyTorch的DistributedDataParallel (DDP)
+                    # Use PyTorch's DistributedDataParallel (DDP)
                     'enabled': True,  
-                    # 使用NCCL后端进行GPU间通信
+                    # Use NCCL backend for inter-GPU communication
                     'backend': 'nccl'
                 }
             },
@@ -436,14 +436,14 @@ class SageMakerRunner:
                 'SAGEMAKER_DEBUG_OUTPUT_DISABLED': 'true',
                 'SAGEMAKER_OUTPUT_STRUCTURE_CLEAN': 'true',  # Custom flag for our code
                 'SAGEMAKER_PROGRAM': 'scripts/train_multi_model.py',  # Explicitly set the script to run
-                # 添加新的环境变量以启用更多优化
-                'PYTORCH_CUDA_ALLOC_CONF': 'max_split_size_mb:128',  # 优化CUDA内存分配
-                'OMP_NUM_THREADS': '4',  # 限制OpenMP线程数
-                'MKL_NUM_THREADS': '4',  # 限制MKL线程数
-                'NVIDIA_VISIBLE_DEVICES': 'all'  # 确保所有GPU可见
+                # Add new environment variables to enable more optimizations
+                'PYTORCH_CUDA_ALLOC_CONF': 'max_split_size_mb:128',  # Optimize CUDA memory allocation
+                'OMP_NUM_THREADS': '4',  # Limit OpenMP thread count
+                'MKL_NUM_THREADS': '4',  # Limit MKL thread count
+                'NVIDIA_VISIBLE_DEVICES': 'all'  # Ensure all GPUs are visible
             },
-            disable_model_download=True,  # 禁用model.tar.gz文件的生成
-            disable_output_compression=True  # 禁用output.tar.gz文件的生成
+            disable_model_download=True,  # Disable model.tar.gz file generation
+            disable_output_compression=True  # Disable output.tar.gz file generation
         )
         
         return estimator
@@ -622,8 +622,8 @@ class SageMakerRunner:
             hyperparameters=hyperparameters,
             max_run=config.get('max_run', 24 * 3600),  # Default 24-hour maximum run time
             keep_alive_period_in_seconds=config.get('keep_alive_period', 1200),  # Default keep instance active 20 minutes
-            disable_model_download=True,  # 禁用model.tar.gz文件的生成
-            disable_output_compression=True,  # 禁用output.tar.gz文件的生成
+            disable_model_download=True,  # Disable model.tar.gz file generation
+            disable_output_compression=True,  # Disable output.tar.gz file generation
             output_path=self.s3_output_base,  # Explicitly set output path
             code_location=self.s3_output_base,  # Where to store the code package
             debugger_hook_config=False,  # Disable debugger hooks completely
