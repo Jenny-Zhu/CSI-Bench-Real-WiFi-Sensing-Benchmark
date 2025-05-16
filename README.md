@@ -16,23 +16,6 @@ This repository provides a unified framework for training and evaluating deep le
   - Apple Silicon with MPS (Metal Performance Shaders)
   - CPU-only mode is available but much slower for training
 
-### Environment Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/WiAL-Real-WiFi-Sensing-Benchmark.git
-   cd WiAL-Real-WiFi-Sensing-Benchmark
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-   If you want to run multitask pipeline, please also install peft. As peft have version conflict in sagemaker instance, we didn't include that in requrirements.txt.  
-   ```bash
-   pip install peft
-   ```
 
 ### GPU Setup Instructions
 
@@ -88,6 +71,27 @@ The framework will automatically detect available hardware acceleration and use 
   - CUDA (NVIDIA GPU)
   - MPS (Apple Silicon)
   - CPU (fallback option)
+
+  
+### Environment Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/WiAL-Real-WiFi-Sensing-Benchmark.git
+   cd WiAL-Real-WiFi-Sensing-Benchmark
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+   If you want to run multitask pipeline, please also install peft. As peft have version conflict in sagemaker instance, we didn't include that in requrirements.txt.  
+   ```bash
+   pip install peft
+   ```
+
+
 
 3. Data Download:
 
