@@ -101,7 +101,7 @@ Edit the local configuration file at `configs/local_default_config.json` to set 
 ```
 
 Key parameters:
-- `pipeline`: Training pipeline type (only have `supervised` for now)
+- `pipeline`: Training pipeline type 
 - `training_dir`: Path to your data directory. The scripts will look for data at `training_dir/tasks/CURRENT_TASK/...`. Make sure that the data directory is the root directory where you downloaded the dataset. It should contain a "tasks" folder with multiple subfolders for different tasks. Examples:
   ```
   "C:\\Users\\weiha\\Desktop\\csi-bench"
@@ -200,7 +200,11 @@ Modify configuration file for multi-task learning `configs/multitask_config.json
 
 Key parameters:
 - `pipeline`: Set to `"multitask"` for the multi-task learning pipeline
-- `training_dir`: Path to your data directory
+- `training_dir`: Path to your data directory. The scripts will look for data at `training_dir/tasks/CURRENT_TASK/...`. Make sure that the data directory is the root directory where you downloaded the dataset. It should contain a "tasks" folder with multiple subfolders for different tasks. Examples:
+  ```
+  "C:\\Users\\weiha\\Desktop\\csi-bench"
+  "/Users/leo/Desktop/csi-bench"
+  ```
 - `output_dir`: Directory to save results (default: `./results`)
 - `model`: Model type, currently multi-task learning supports `transformer`, `patchtst`, and `timesformer1d`
 - `tasks`: List of tasks to train simultaneously
