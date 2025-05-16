@@ -1,6 +1,6 @@
 {
   "pipeline": "multitask",
-  "training_dir": "C:\\Users\\weiha\\Desktop\\temp data",
+  "training_dir": "",
   "output_dir": "./results",
   "model": "transformer",
   "tasks": ["TestTask","FallDetection"],
@@ -8,7 +8,7 @@
   "win_len": 500,
   "seed": 42,
   "batch_size": 32,
-  "epochs": 2,
+  "epochs": 100,
   "emb_dim": 128,
   "dropout": 0.1,
   "test_splits": "all",

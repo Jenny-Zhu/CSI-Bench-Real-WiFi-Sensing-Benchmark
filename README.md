@@ -18,7 +18,7 @@ This repository provides a unified framework for training and evaluating deep le
 
 
 
-  
+
 ### Environment Setup
 
 1. Clone the repository:
@@ -102,7 +102,11 @@ Edit the local configuration file at `configs/local_default_config.json` to set 
 
 Key parameters:
 - `pipeline`: Training pipeline type (only have `supervised` for now)
-- `training_dir`: Path to your data directory. 
+- `training_dir`: Path to your data directory. The scripts will look for data at `training_dir/tasks/CURRENT_TASK/...`. Make sure that the data directory is the root directory where you downloaded the dataset. It should contain a "tasks" folder with multiple subfolders for different tasks. Examples:
+  ```
+  "C:\\Users\\weiha\\Desktop\\csi-bench"
+  "/Users/leo/Desktop/csi-bench"
+  ```
 - `output_dir`: Directory to save results (default: `./results`)
 - `available_models`: Model types to train, default list is all models in this project
 - `task`: Task name (see Available Tasks)

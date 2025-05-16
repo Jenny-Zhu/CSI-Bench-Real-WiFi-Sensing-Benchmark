@@ -1,13 +1,13 @@
 {
   "pipeline": "supervised",
-  "training_dir": "C:\\Users\\weiha\\Desktop\\temp data",
+  "training_dir": "",
   "output_dir": "./results",
   "task": "TestTask",
   "win_len": 500,
   "feature_size": 232,
   "seed": 42,
   "batch_size": 8,
-  "epochs": 2,
+  "epochs": 100,
   "test_splits": "all",
   "available_models": ["mlp", "lstm", "resnet18", "transformer", "vit", "patchtst", "timesformer1d"]
 } 
